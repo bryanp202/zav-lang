@@ -12,9 +12,11 @@ pub const SymbolTableManager = struct {
     next_scope: u16,
     active_scope: *Scope,
     // Constant Resolution
-    constants: std.AutoHashMap(Value, Constant),
+    constants: std.AutoHashMap([48]u8, ConstantData),
     // Stores memory offset for next global
     next_address: u64,
+    // Stores the count of constants, used for name generation
+    constant_count: u64,
 
     /// Init a STM
     pub fn init(allocator: std.mem.Allocator) SymbolTableManager {
@@ -26,6 +28,9 @@ pub const SymbolTableManager = struct {
         var scopes = std.ArrayList(*Scope).init(allocator);
         scopes.append(global) catch unreachable;
 
+        // Make constants map
+        const const_map = std.AutoHashMap([48]u8, ConstantData).init(allocator);
+
         // Return a new STM
         return SymbolTableManager{
             .allocator = allocator,
@@ -33,6 +38,8 @@ pub const SymbolTableManager = struct {
             .next_scope = 1,
             .active_scope = global,
             .next_address = 0,
+            .constants = const_map,
+            .constant_count = 0,
         };
     }
     /// Deinit a STM
@@ -44,6 +51,14 @@ pub const SymbolTableManager = struct {
         }
         // Deinit scopes stack
         self.scopes.deinit();
+        // Deinit constants in constants map
+        var const_iter = self.constants.iterator();
+        while (const_iter.next()) |constant| {
+            // Convert to value
+            var str_as_value = ValueAndStr{ .str = constant.key_ptr.* };
+            str_as_value.value.deinit(self.allocator);
+        }
+        self.constants.deinit();
     }
 
     /// Reset the active scope stack and scope counter
@@ -84,8 +99,7 @@ pub const SymbolTableManager = struct {
         self.active_scope = self.active_scope.enclosing.?;
     }
 
-    /// Add a new symbol, with all of its attributes, and assign it a memory location
-    /// Static or stack relative depending on scope kind
+    /// Add a new symbol, with all of its attributes, and assign it with a null memory location
     pub fn declareSymbol(
         self: *SymbolTableManager,
         name: []const u8,
@@ -96,22 +110,60 @@ pub const SymbolTableManager = struct {
     ) !void {
         // Calculate the size of the kind
         const size = kind.size();
-        // If scope type of symbol is global, use next memory location and increment it
-        const abs_mem_loc = self.next_address;
-        if (scope == ScopeKind.GLOBAL) {
-            self.next_address += size;
-        }
 
         // Else let the local scope calculate the local scope
-        try self.active_scope.declareSymbol(name, kind, scope, dcl_line, is_mutable, abs_mem_loc, size);
+        try self.active_scope.declareSymbol(name, kind, scope, dcl_line, is_mutable, size);
     }
 
-    /// Add a new symbol to the top scope on the stack
-    pub fn getSymbol(self: SymbolTableManager, name: []const u8) Scope.ScopeError!Symbol {
-        // Get top scope
-        return self.active_scope.getSymbol(name);
+    /// Add a new symbol to the top scope on the stack, assign it a memory location
+    /// if it has not been assigned one. Global scope variables will use a static memory location
+    /// and Local scope variables use a relative stack location
+    pub fn getSymbol(self: *SymbolTableManager, name: []const u8) !*Symbol {
+        // Get symbol, starting at active_scope
+        return self.active_scope.getSymbol(name, &self.next_address);
     }
 
+    /// Try to put a new Value in the constants table marked as not used,
+    /// but if there is a pre-existing constant mark it as used
+    pub fn addConstant(self: *SymbolTableManager, constant: Value) void {
+        // Convert to a string
+        const val_as_str = ValueAndStr{ .value = constant };
+
+        // Attempt to add the value into the constant table
+        const getOrPut = self.constants.getOrPut(val_as_str.str) catch unreachable;
+        // Check if not found
+        if (!getOrPut.found_existing) {
+            // Pre-calculate the size of this value
+            const size = switch (constant.kind) {
+                .INT => constant.as.int.size(),
+                .FLOAT => constant.as.float.size(),
+                .BOOL => @sizeOf(bool),
+                .STRING => constant.as.str.data.len * @sizeOf(u8),
+                .ARRAY => constant.as.array.size(),
+            };
+            // Add the constant marked as unused
+            getOrPut.value_ptr.* = ConstantData.init(constant, size);
+        }
+    }
+
+    /// Get the name of a constant, assigning it one if it is not already named
+    pub fn getConstantId(self: *SymbolTableManager, constant: Value) u64 {
+        const val_as_str = ValueAndStr{ .value = constant };
+        // Get the constant, returning null if it was not found
+        const constPtr = self.constants.getPtr(val_as_str.str).?;
+
+        // Check if constant has been assigned a number
+        if (constPtr.num == null) {
+            // Mark constant with new name
+            constPtr.num = self.constant_count;
+            // Increment constant_count
+            self.constant_count += 1;
+        }
+        // Return the const id
+        return constPtr.num.?;
+    }
+
+    const ValueAndStr = extern union { value: Value, str: [48]u8 };
     // Helper Methods //
 };
 
@@ -146,7 +198,7 @@ pub const Scope = struct {
         self.symbols.deinit();
     }
 
-    /// Add a new symbol, providing all of its attributes
+    /// Add a new symbol, providing all of its attributes and a null address
     pub fn declareSymbol(
         self: *Scope,
         name: []const u8,
@@ -154,7 +206,6 @@ pub const Scope = struct {
         scope: ScopeKind,
         dcl_line: u64,
         is_mutable: bool,
-        mem_loc: ?u64,
         size: u64,
     ) ScopeError!void {
         // Check if in table
@@ -167,55 +218,46 @@ pub const Scope = struct {
             return ScopeError.DuplicateDeclaration;
         }
 
-        // Calculate relative memory location if symbol is local
-        var location: u64 = undefined;
-        if (scope == ScopeKind.LOCAL) {
-            location = self.next_address;
-            // Increment next address
-            self.next_address += kind.size();
-        } else {
-            location = mem_loc.?;
-        }
-
         // Add symbol to the table
-        const new_symbol = Symbol.init(name, kind, scope, dcl_line, is_mutable, location, size);
+        const new_symbol = Symbol.init(name, kind, scope, dcl_line, is_mutable, size);
         getOrPut.value_ptr.* = new_symbol;
     }
 
     /// Try to get a symbol based off of a name
-    pub fn getSymbol(self: *Scope, name: []const u8) ScopeError!Symbol {
+    pub fn getSymbol(self: *Scope, name: []const u8, global_next_address: *u64) ScopeError!*Symbol {
         // Check this and all enclosing scopes for a declared symbol as name
         var curr: ?*Scope = self;
         while (curr) |enclosing| : (curr = enclosing.enclosing) {
-            const maybeSymbol = enclosing.symbols.get(name);
-            if (maybeSymbol) |sym| return sym;
-        }
-        return ScopeError.UndeclaredSymbol;
-    }
-
-    /// Mark a symbol as mutated
-    pub fn mutateSymbol(self: Scope, name: []const u8) ScopeError!void {
-        // Check this and all enclosing scopes for a declared symbol as name
-        var curr: ?*Scope = self;
-        while (curr) |enclosing| : (curr = enclosing.enclosing) {
-            // Search for symbol
             const maybeSymbol = enclosing.symbols.getPtr(name);
-
-            // Check if matching symbol found
+            // Check if found symbol
             if (maybeSymbol) |sym| {
-                // Check if mutable
-                if (sym.is_mutable) {
-                    // Throw error
-                    return ScopeError.MutateConstantSymbol;
+                // Check if it has an address
+                if (sym.mem_loc != null) {
+                    return sym;
+                } else {
+                    // Calculate relative memory location if symbol is local
+                    var location: u64 = undefined;
+                    if (sym.scope == ScopeKind.LOCAL) {
+                        location = self.next_address;
+                        // Increment next address
+                        self.next_address += sym.size;
+                    } else {
+                        // Use global address and increment it
+                        location = global_next_address.*;
+                        global_next_address.* += sym.size;
+                    }
+
+                    // Assign it a new one
+                    sym.mem_loc = location;
+                    return sym;
                 }
-                sym.has_mutated = true;
             }
         }
         return ScopeError.UndeclaredSymbol;
     }
 
     /// Scope searching error type
-    pub const ScopeError = error{ DuplicateDeclaration, MutateConstantSymbol, UndeclaredSymbol };
+    pub const ScopeError = error{ DuplicateDeclaration, UndeclaredSymbol };
 };
 
 // *********************** //
@@ -230,11 +272,11 @@ pub const Symbol = struct {
     dcl_line: u64,
     is_mutable: bool,
     has_mutated: bool,
-    mem_loc: u64,
+    mem_loc: ?u64,
     size: u64,
 
     /// Make a new symbol
-    pub fn init(name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, is_mutable: bool, mem_loc: u64, size: u64) Symbol {
+    pub fn init(name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, is_mutable: bool, size: u64) Symbol {
         return Symbol{
             .name = name,
             .kind = kind,
@@ -242,7 +284,7 @@ pub const Symbol = struct {
             .dcl_line = dcl_line,
             .is_mutable = is_mutable,
             .has_mutated = false,
-            .mem_loc = mem_loc,
+            .mem_loc = null,
             .size = size,
         };
     }
@@ -330,9 +372,7 @@ pub const KindId = union(Kinds) {
 
     /// Init a new void
     pub fn newVoid() KindId {
-        return KindId{
-            .VOID,
-        };
+        return KindId.VOID;
     }
     /// Init a new boolean
     pub fn newBool() KindId {
@@ -410,7 +450,7 @@ pub const ScopeKind = enum {
 // *********************** //
 
 /// Integer type data
-pub const Integer = struct {
+const Integer = struct {
     signed: bool,
     bits: u16,
 
@@ -422,7 +462,7 @@ pub const Integer = struct {
 };
 
 /// Float Type data
-pub const Float = struct {
+const Float = struct {
     bits: u16,
 
     /// Calculate the size of this type in bytes
@@ -433,13 +473,13 @@ pub const Float = struct {
 };
 
 /// Pointer Type data
-pub const Pointer = struct {
+const Pointer = struct {
     child: *KindId,
     levels: u16,
 };
 
 /// Array Type data
-pub const Array = struct {
+const Array = struct {
     child: *KindId,
     length: u64,
 
@@ -454,3 +494,167 @@ pub const Array = struct {
 // *********************** //
 //***Values/Const Structs**//
 // *********************** //
+
+/// Used to store the constant and if it was used
+const ConstantData = struct {
+    data: Value,
+    size: u64,
+    used: bool,
+    num: ?u64,
+
+    pub fn init(value: Value, size: u64) ConstantData {
+        return ConstantData{
+            .data = value,
+            .size = size,
+            .used = false,
+            .num = null,
+        };
+    }
+};
+
+/// Used to determine the type of a literal value
+pub const ValueKind = enum(u8) {
+    INT,
+    FLOAT,
+    BOOL,
+    STRING,
+    ARRAY,
+};
+
+/// Slice simulation
+pub fn LiteralSlice(T: type) type {
+    return extern struct {
+        ptr: [*]const T,
+        len: usize,
+
+        /// Init a LiteralSlice from a zig slice
+        pub fn init(zig_slice: []const T) @This() {
+            return .{
+                .ptr = zig_slice.ptr,
+                .len = zig_slice.len,
+            };
+        }
+
+        /// Return a zig slice version of this LiteralSlice
+        pub fn slice(self: @This()) []const T {
+            var zig_slice: []const T = undefined;
+            zig_slice.len = self.len;
+            zig_slice.ptr = self.ptr;
+            return zig_slice;
+        }
+    };
+}
+
+/// Integer literal storage struct
+const IntegerLiteral = extern struct {
+    data: i64,
+    signedness: bool,
+    bits: u16,
+
+    /// Calculate the size of an integer literal
+    pub fn size(self: IntegerLiteral) usize {
+        return std.math.divCeil(usize, self.bits, 8) catch unreachable;
+    }
+};
+
+/// Floating point literal storage struct
+const FloatLiteral = extern struct {
+    data: f64,
+    bits: u16,
+
+    // Calculate the size of a flaot literal
+    pub fn size(self: FloatLiteral) usize {
+        return std.math.divCeil(usize, self.bits, 8) catch unreachable;
+    }
+};
+
+/// String Literal storage struct
+const StringLiteral = extern struct {
+    data: LiteralSlice(u8),
+};
+
+/// Array Literal storage struct
+const ArrayLiteral = extern struct {
+    kind: ValueKind,
+    dimensions: LiteralSlice(usize),
+    data: LiteralSlice(Value),
+
+    pub fn size(self: ArrayLiteral) usize {
+        // Calculate size of LiteralKind
+        var self_size: usize = switch (self.kind) {
+            .INT => self.data.ptr[0].as.int.size(),
+            .FLOAT => self.data.ptr[0].as.float.size(),
+            .BOOL => @sizeOf(bool),
+            else => return 0,
+        };
+        // Multiply by dimensions
+        for (self.dimensions.slice()) |dim| {
+            self_size *= dim;
+        }
+        // Multiply and return
+        return self_size;
+    }
+};
+
+/// Used to store a literal value
+pub const Value = extern struct {
+    kind: ValueKind,
+    as: extern union {
+        int: IntegerLiteral,
+        float: FloatLiteral,
+        boolean: bool,
+        str: StringLiteral,
+        array: ArrayLiteral,
+    },
+
+    /// Deinit a Value struct instance
+    pub fn deinit(self: Value, allocator: std.mem.Allocator) void {
+        if (self.kind == ValueKind.ARRAY) {
+            allocator.free(self.as.array.data.slice());
+            allocator.free(self.as.array.dimensions.slice());
+        }
+    }
+
+    /// Init a new value as an integer
+    pub fn newInt(value: i64, signed: bool, bits: u16) Value {
+        const int_literal = IntegerLiteral{ .data = value, .signedness = signed, .bits = bits };
+        return Value{
+            .kind = ValueKind.INT,
+            .as = .{ .int = int_literal },
+        };
+    }
+    /// Init a new value as a boolean
+    pub fn newBool(value: bool) Value {
+        return Value{
+            .kind = ValueKind.BOOL,
+            .as = .{ .boolean = value },
+        };
+    }
+    /// Init a new value as a float
+    pub fn newFloat(value: f64, bits: u16) Value {
+        const float_literal = FloatLiteral{ .data = value, .bits = bits };
+        return Value{
+            .kind = ValueKind.FLOAT,
+            .as = .{ .float = float_literal },
+        };
+    }
+    /// Init a new value as a string
+    pub fn newStr(value: []const u8) Value {
+        const str_slice = LiteralSlice(u8).init(value);
+        const str_lit = StringLiteral{ .data = str_slice };
+        return Value{
+            .kind = ValueKind.STRING,
+            .as = .{ .str = str_lit },
+        };
+    }
+    /// Init a new value as an array
+    pub fn newArr(kind: ValueKind, dimensions: []const usize, data: []const Value) Value {
+        const dim_slice = LiteralSlice(usize).init(dimensions);
+        const data_slice = LiteralSlice(Value).init(data);
+        const arr_lit = ArrayLiteral{ .kind = kind, .dimensions = dim_slice, .data = data_slice };
+        return Value{
+            .kind = ValueKind.ARRAY,
+            .as = .{ .array = arr_lit },
+        };
+    }
+};
