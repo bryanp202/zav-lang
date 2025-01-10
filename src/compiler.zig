@@ -3,6 +3,9 @@ const std = @import("std");
 const Parse = @import("front_end/parser.zig");
 const Scan = @import("front_end/scanner.zig");
 const Symbols = @import("symbols.zig");
+// Error Import
+const Error = @import("error.zig");
+const ScopeError = Error.ScopeError;
 
 const Compiler = @This();
 allocator: std.mem.Allocator,
@@ -46,10 +49,10 @@ pub fn compile(self: *Compiler, source: []const u8) void {
     self.stm.addConstant(cnst3);
     self.stm.addConstant(cnst);
     self.stm.addConstant(cnst2);
-    std.debug.print("Const: {d}\n", .{self.stm.getConstantId(cnst)});
-    std.debug.print("Const: {d}\n", .{self.stm.getConstantId(cnst2)});
-    std.debug.print("Const: {d}\n", .{self.stm.getConstantId(cnst4)});
-    std.debug.print("Const: {d}\n", .{self.stm.getConstantId(cnst3)});
+    std.debug.print("Const: {s}\n", .{self.stm.getConstantId(cnst)});
+    std.debug.print("Const: {s}\n", .{self.stm.getConstantId(cnst2)});
+    std.debug.print("Const: {s}\n", .{self.stm.getConstantId(cnst4)});
+    std.debug.print("Const: {s}\n", .{self.stm.getConstantId(cnst3)});
 
     var token = scanner.nextToken();
     var previous: Scan.Token = undefined;

@@ -1,4 +1,6 @@
 const std = @import("std");
+const Error = @import("error.zig");
+const ScopeError = Error.ScopeError;
 
 // *********************** //
 //*** STM type Classes  ***//
@@ -51,12 +53,12 @@ pub const SymbolTableManager = struct {
         }
         // Deinit scopes stack
         self.scopes.deinit();
+
         // Deinit constants in constants map
         var const_iter = self.constants.iterator();
         while (const_iter.next()) |constant| {
-            // Convert to value
-            var str_as_value = ValueAndStr{ .str = constant.key_ptr.* };
-            str_as_value.value.deinit(self.allocator);
+            // Deinit constant
+            constant.value_ptr.deinit(self.allocator);
         }
         self.constants.deinit();
     }
@@ -147,20 +149,22 @@ pub const SymbolTableManager = struct {
     }
 
     /// Get the name of a constant, assigning it one if it is not already named
-    pub fn getConstantId(self: *SymbolTableManager, constant: Value) u64 {
+    pub fn getConstantId(self: *SymbolTableManager, constant: Value) []const u8 {
         const val_as_str = ValueAndStr{ .value = constant };
         // Get the constant, returning null if it was not found
         const constPtr = self.constants.getPtr(val_as_str.str).?;
 
         // Check if constant has been assigned a number
-        if (constPtr.num == null) {
+        if (constPtr.name == null) {
+            // Alloc new name string
+            const new_name = std.fmt.allocPrint(self.allocator, "C{d}", .{self.constant_count}) catch unreachable;
             // Mark constant with new name
-            constPtr.num = self.constant_count;
+            constPtr.name = new_name;
             // Increment constant_count
             self.constant_count += 1;
         }
         // Return the const id
-        return constPtr.num.?;
+        return constPtr.name.?;
     }
 
     const ValueAndStr = extern union { value: Value, str: [48]u8 };
@@ -255,9 +259,6 @@ pub const Scope = struct {
         }
         return ScopeError.UndeclaredSymbol;
     }
-
-    /// Scope searching error type
-    pub const ScopeError = error{ DuplicateDeclaration, UndeclaredSymbol };
 };
 
 // *********************** //
@@ -499,16 +500,21 @@ const Array = struct {
 const ConstantData = struct {
     data: Value,
     size: u64,
-    used: bool,
-    num: ?u64,
+    name: ?[]const u8,
 
     pub fn init(value: Value, size: u64) ConstantData {
         return ConstantData{
             .data = value,
             .size = size,
-            .used = false,
-            .num = null,
+            .name = null,
         };
+    }
+
+    pub fn deinit(self: *ConstantData, allocator: std.mem.Allocator) void {
+        // Free name if it has been allocated
+        if (self.name) |name_slice| allocator.free(name_slice);
+        // Free Value struct
+        self.data.deinit(allocator);
     }
 };
 
