@@ -1,4 +1,6 @@
 const std = @import("std");
+
+// Error import
 const Error = @import("error.zig");
 const ScopeError = Error.ScopeError;
 
