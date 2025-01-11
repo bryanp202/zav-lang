@@ -276,7 +276,6 @@ fn unary(self: *Parser) SyntaxError!ExprNode {
 /// Parse a literal value
 /// ("(" expr ")") | constant | identifier
 fn literal(self: *Parser) SyntaxError!ExprNode {
-
     // Check if this is a grouping
     if (self.match(.{TokenKind.LEFT_PAREN})) {
         const expr = try self.expression();

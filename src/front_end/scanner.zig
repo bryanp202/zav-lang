@@ -215,11 +215,11 @@ pub const Scanner = struct {
 
                 // Check for comments //
                 '/' => {
-                    // Consume '/'
-                    _ = self.advance();
                     // Check for multi-line comment
-                    switch (self.peek()) {
+                    switch (self.peekNext()) {
                         '*' => {
+                            // Consume '/'
+                            _ = self.advance();
                             // Consume '*'
                             _ = self.advance();
                             // Go until '*/'
