@@ -3,6 +3,8 @@ const std = @import("std");
 // Error import
 const Error = @import("error.zig");
 const ScopeError = Error.ScopeError;
+// Natives Table
+const NativesTable = @import("natives.zig");
 
 // *********************** //
 //*** STM type Classes  ***//
@@ -15,12 +17,14 @@ pub const SymbolTableManager = struct {
     scopes: std.ArrayList(*Scope),
     next_scope: u16,
     active_scope: *Scope,
-    // Constant Resolution
+    /// Constant Resolution
     constants: std.AutoHashMap([48]u8, ConstantData),
-    // Stores memory offset for next global
+    /// Stores memory offset for next global
     next_address: u64,
-    // Stores the count of constants, used for name generation
+    /// Stores the count of constants, used for name generation
     constant_count: u64,
+    /// Used to resolve native functions
+    natives_table: NativesTable,
 
     /// Init a STM
     pub fn init(allocator: std.mem.Allocator) SymbolTableManager {
@@ -35,6 +39,9 @@ pub const SymbolTableManager = struct {
         // Make constants map
         const const_map = std.AutoHashMap([48]u8, ConstantData).init(allocator);
 
+        // Make a natives table
+        const natives_table = NativesTable.init(allocator);
+
         // Return a new STM
         return SymbolTableManager{
             .allocator = allocator,
@@ -44,6 +51,7 @@ pub const SymbolTableManager = struct {
             .next_address = 0,
             .constants = const_map,
             .constant_count = 0,
+            .natives_table = natives_table,
         };
     }
     /// Deinit a STM
@@ -63,6 +71,8 @@ pub const SymbolTableManager = struct {
             constant.value_ptr.deinit(self.allocator);
         }
         self.constants.deinit();
+        // Deinit natives
+        self.natives_table.deinit(self.allocator);
     }
 
     /// Reset the active scope stack and scope counter
@@ -139,10 +149,11 @@ pub const SymbolTableManager = struct {
         if (!getOrPut.found_existing) {
             // Pre-calculate the size of this value
             const size = switch (constant.kind) {
+                .UINT => constant.as.uint.size(),
                 .INT => constant.as.int.size(),
                 .FLOAT => constant.as.float.size(),
+                .STRING => constant.as.string.data.len,
                 .BOOL => @sizeOf(bool),
-                .STRING => constant.as.str.data.len * @sizeOf(u8),
                 .ARRAY => constant.as.array.size(),
             };
             // Add the constant marked as unused
@@ -170,6 +181,7 @@ pub const SymbolTableManager = struct {
     }
 
     const ValueAndStr = extern union { value: Value, str: [48]u8 };
+
     // Helper Methods //
 };
 
@@ -301,27 +313,31 @@ pub const Symbol = struct {
 pub const Kinds = enum {
     VOID,
     BOOL,
+    UINT,
     INT,
     FLOAT,
     PTR,
     ARRAY,
+    FUNC,
 };
 
 /// Used to mark what type a variable is
 pub const KindId = union(Kinds) {
     VOID: void,
     BOOL: void,
+    UINT: UInteger,
     INT: Integer,
     FLOAT: Float,
     PTR: Pointer,
     ARRAY: Array,
+    FUNC: Function,
 
     /// Deinit a KindId
     pub fn deinit(self: KindId, allocator: std.mem.Allocator) void {
         // Check if type needs to be destroyed
         switch (self) {
             // If non allocated types, do nothing
-            .VOID, .BOOL, .INT, .FLOAT => return,
+            .VOID, .BOOL, .UINT, .INT, .FLOAT => return,
             // If a pointer delete all children
             .PTR => |ptr| {
                 // Walk the linked list of children until a terminal node is found
@@ -370,6 +386,22 @@ pub const KindId = union(Kinds) {
                     }
                 }
             },
+            // If function, delete all arg types and return type
+            .FUNC => |func| {
+                // Check if any args
+                if (func.arg_kinds) |args| {
+                    // Deinit args
+                    for (args) |arg| {
+                        arg.deinit(allocator);
+                    }
+                    // Deinit args array
+                    allocator.free(args);
+                }
+
+                // Deinit return
+                func.ret_kind.deinit(allocator);
+                allocator.destroy(func.ret_kind);
+            },
         }
     }
 
@@ -381,17 +413,25 @@ pub const KindId = union(Kinds) {
     pub fn newBool() KindId {
         return KindId.BOOL;
     }
-    // Init a new integer
-    pub fn newInt(bits: u16, signed: bool) KindId {
+    /// Init a new unsigned integer
+    pub fn newUInt(bits: u16) KindId {
+        const uint = UInteger{
+            .bits = bits,
+        };
+        return KindId{
+            .UINT = uint,
+        };
+    }
+    /// Init a new integer
+    pub fn newInt(bits: u16) KindId {
         const int = Integer{
-            .signed = signed,
             .bits = bits,
         };
         return KindId{
             .INT = int,
         };
     }
-    // Init a new float
+    /// Init a new float
     pub fn newFloat(bits: u16) KindId {
         const float = Float{
             .bits = bits,
@@ -400,7 +440,7 @@ pub const KindId = union(Kinds) {
             .FLOAT = float,
         };
     }
-    // Init a new pointer
+    /// Init a new pointer
     pub fn newPtr(allocator: std.mem.Allocator, child_kind: KindId, levels: u16) KindId {
         // Dynamically allocate the child KindId tag
         const child_ptr = allocator.create(KindId) catch unreachable;
@@ -414,7 +454,7 @@ pub const KindId = union(Kinds) {
             .PTR = ptr,
         };
     }
-    // Init a new pointer
+    /// Init a new array kindid
     pub fn newArr(allocator: std.mem.Allocator, child_kind: KindId, length: u64) KindId {
         // Dynamically allocate the child KindId tag
         const child_ptr = allocator.create(KindId) catch unreachable;
@@ -428,16 +468,46 @@ pub const KindId = union(Kinds) {
             .ARRAY = arr,
         };
     }
+    /// Init a new Function kindid
+    pub fn newFunc(allocator: std.mem.Allocator, arg_kinds: ?[]KindId, ret_kind: KindId) KindId {
+        // Dynamically allocate the child KindId tag
+        const ret_ptr = allocator.create(KindId) catch unreachable;
+        ret_ptr.* = ret_kind;
+        // Make new array
+        const func = Function{
+            .arg_kinds = arg_kinds,
+            .ret_kind = ret_ptr,
+        };
+        return KindId{
+            .FUNC = func,
+        };
+    }
+
+    /// Return if this kindid is the same as another
+    pub fn equal(self: KindId, other: KindId) bool {
+        return switch (self) {
+            .VOID => return other == .VOID,
+            .BOOL => return other == .BOOL,
+            .UINT => return other == .UINT and self.UINT.bits == other.UINT.bits,
+            .INT => return other == .INT and self.INT.bits == other.INT.bits,
+            .FLOAT => return other == .FLOAT and self.FLOAT.bits == other.FLOAT.bits,
+            .PTR => |ptr| return other == .PTR and ptr.equal(other.PTR),
+            .ARRAY => |arr| return other == .ARRAY and arr.equal(other.ARRAY),
+            .FUNC => |func| return other == .FUNC and func.equal(other.FUNC),
+        };
+    }
 
     /// Return the size of the Kind
     pub fn size(self: KindId) u64 {
         return switch (self) {
             .VOID => 0,
             .BOOL => 1,
+            .UINT => |uint| uint.size(),
             .INT => |int| int.size(),
             .FLOAT => |float| float.size(),
             .PTR => 8,
             .ARRAY => |arr| arr.size(),
+            .FUNC => 8,
         };
     }
 };
@@ -453,8 +523,18 @@ pub const ScopeKind = enum {
 // *********************** //
 
 /// Integer type data
+const UInteger = struct {
+    bits: u16,
+
+    /// Calculate the size of this type in bytes
+    pub fn size(self: UInteger) u64 {
+        const bytes = std.math.divCeil(u64, self.bits, 8) catch unreachable;
+        return bytes;
+    }
+};
+
+/// Integer type data
 const Integer = struct {
-    signed: bool,
     bits: u16,
 
     /// Calculate the size of this type in bytes
@@ -479,6 +559,11 @@ const Float = struct {
 const Pointer = struct {
     child: *KindId,
     levels: u16,
+
+    /// Returns true if this pointer is the same as another pointer
+    pub fn equal(self: Pointer, other: Pointer) bool {
+        return self.child.equal(other.child.*) and self.levels == other.levels;
+    }
 };
 
 /// Array Type data
@@ -486,11 +571,51 @@ const Array = struct {
     child: *KindId,
     length: u64,
 
+    /// Returns true if this array is the same as another array
+    pub fn equal(self: Array, other: Array) bool {
+        return self.child.equal(other.child.*) and self.length == other.length;
+    }
+
     /// Calculate the size of this type in bytes
     pub fn size(self: Array) u64 {
         const element_size = self.child.size();
         const bytes = element_size * self.length;
         return bytes;
+    }
+};
+
+/// Function Type data
+const Function = struct {
+    arg_kinds: ?[]KindId,
+    ret_kind: *KindId,
+
+    /// Returns true if this func is the same as another func
+    pub fn equal(self: Function, other: Function) bool {
+        // Check if any args
+        if (self.arg_kinds == null) {
+            if (other.arg_kinds == null) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+        // Check arg count
+        if (self.arg_kinds.?.len != other.arg_kinds.?.len) {
+            return false;
+        }
+        // Check arg types
+        for (self.arg_kinds.?, other.arg_kinds.?) |self_arg, other_arg| {
+            if (!self_arg.equal(other_arg)) {
+                return false;
+            }
+        }
+
+        // Check return types
+        if (!self.ret_kind.equal(other.ret_kind.*)) {
+            return false;
+        }
+        // Everything matches
+        return true;
     }
 };
 
@@ -522,9 +647,10 @@ const ConstantData = struct {
 
 /// Used to determine the type of a literal value
 pub const ValueKind = enum(u8) {
+    BOOL,
+    UINT,
     INT,
     FLOAT,
-    BOOL,
     STRING,
     ARRAY,
 };
@@ -553,10 +679,20 @@ pub fn LiteralSlice(T: type) type {
     };
 }
 
+/// Unsigned Integer literal storage struct
+const UIntegerLiteral = extern struct {
+    data: u64,
+    bits: u16,
+
+    /// Calculate the size of an integer literal
+    pub fn size(self: UIntegerLiteral) usize {
+        return std.math.divCeil(usize, self.bits, 8) catch unreachable;
+    }
+};
+
 /// Integer literal storage struct
 const IntegerLiteral = extern struct {
     data: i64,
-    signedness: bool,
     bits: u16,
 
     /// Calculate the size of an integer literal
@@ -576,24 +712,25 @@ const FloatLiteral = extern struct {
     }
 };
 
-/// String Literal storage struct
+/// String literal storage struct
 const StringLiteral = extern struct {
     data: LiteralSlice(u8),
 };
 
 /// Array Literal storage struct
 const ArrayLiteral = extern struct {
-    kind: ValueKind,
+    kind: *KindId,
     dimensions: LiteralSlice(usize),
     data: LiteralSlice(Value),
 
     pub fn size(self: ArrayLiteral) usize {
         // Calculate size of LiteralKind
-        var self_size: usize = switch (self.kind) {
+        var self_size: usize = switch (self.kind.*) {
+            .UINT => self.data.ptr[0].as.uint.size(),
             .INT => self.data.ptr[0].as.int.size(),
             .FLOAT => self.data.ptr[0].as.float.size(),
             .BOOL => @sizeOf(bool),
-            else => return 0,
+            else => unreachable,
         };
         // Multiply by dimensions
         for (self.dimensions.slice()) |dim| {
@@ -608,10 +745,12 @@ const ArrayLiteral = extern struct {
 pub const Value = extern struct {
     kind: ValueKind,
     as: extern union {
+        EMPTY: [6]u64,
+        boolean: bool,
+        uint: UIntegerLiteral,
         int: IntegerLiteral,
         float: FloatLiteral,
-        boolean: bool,
-        str: StringLiteral,
+        string: StringLiteral,
         array: ArrayLiteral,
     },
 
@@ -620,49 +759,52 @@ pub const Value = extern struct {
         if (self.kind == ValueKind.ARRAY) {
             allocator.free(self.as.array.data.slice());
             allocator.free(self.as.array.dimensions.slice());
+            self.as.array.kind.deinit(allocator);
         }
     }
 
+    ///Init a new unsigned integer value
+    pub fn newUInt(value: u64, bits: u16) Value {
+        var val = Value{ .kind = ValueKind.UINT, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
+        val.as.uint.bits = bits;
+        val.as.uint.data = value;
+        return val;
+    }
     /// Init a new value as an integer
-    pub fn newInt(value: i64, signed: bool, bits: u16) Value {
-        const int_literal = IntegerLiteral{ .data = value, .signedness = signed, .bits = bits };
-        return Value{
-            .kind = ValueKind.INT,
-            .as = .{ .int = int_literal },
-        };
+    pub fn newInt(value: i64, bits: u16) Value {
+        var val = Value{ .kind = ValueKind.INT, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
+        val.as.int.bits = bits;
+        val.as.int.data = value;
+        return val;
     }
     /// Init a new value as a boolean
     pub fn newBool(value: bool) Value {
-        return Value{
-            .kind = ValueKind.BOOL,
-            .as = .{ .boolean = value },
-        };
+        var val = Value{ .kind = ValueKind.BOOL, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
+        val.as.boolean = value;
+        return val;
     }
     /// Init a new value as a float
     pub fn newFloat(value: f64, bits: u16) Value {
-        const float_literal = FloatLiteral{ .data = value, .bits = bits };
-        return Value{
-            .kind = ValueKind.FLOAT,
-            .as = .{ .float = float_literal },
-        };
+        var val = Value{ .kind = ValueKind.FLOAT, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
+        val.as.float.bits = bits;
+        val.as.float.data = value;
+        return val;
     }
     /// Init a new value as a string
-    pub fn newStr(value: []const u8) Value {
-        const str_slice = LiteralSlice(u8).init(value);
-        const str_lit = StringLiteral{ .data = str_slice };
-        return Value{
-            .kind = ValueKind.STRING,
-            .as = .{ .str = str_lit },
-        };
+    pub fn newStr(data: []const u8) Value {
+        var val = Value{ .kind = ValueKind.STRING, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
+        const str_slice = LiteralSlice(u8).init(data);
+        val.as.string.data = str_slice;
+        return val;
     }
     /// Init a new value as an array
-    pub fn newArr(kind: ValueKind, dimensions: []const usize, data: []const Value) Value {
+    pub fn newArr(kind: *KindId, dimensions: []const usize, data: []const Value) Value {
+        var val = Value{ .kind = ValueKind.ARRAY, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
         const dim_slice = LiteralSlice(usize).init(dimensions);
         const data_slice = LiteralSlice(Value).init(data);
-        const arr_lit = ArrayLiteral{ .kind = kind, .dimensions = dim_slice, .data = data_slice };
-        return Value{
-            .kind = ValueKind.ARRAY,
-            .as = .{ .array = arr_lit },
-        };
+        val.as.array.data = data_slice;
+        val.as.array.dimensions = dim_slice;
+        val.as.array.kind = kind;
+        return val;
     }
 };

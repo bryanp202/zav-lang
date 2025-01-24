@@ -5,6 +5,8 @@ pub const Scanner = struct {
     start: u64,
     current: u64,
     line: u64,
+    column: u64,
+    column_start: u64,
     // Lexeme Table
     lexeme_table: std.StringHashMap([]u8),
 
@@ -15,6 +17,8 @@ pub const Scanner = struct {
             .start = 0,
             .current = 0,
             .line = 1,
+            .column = 1,
+            .column_start = 1,
             .lexeme_table = std.StringHashMap([]u8).init(allocator),
         };
     }
@@ -30,6 +34,7 @@ pub const Scanner = struct {
         self.skipWhiteSpace();
         // Update pos markers
         self.start = self.current;
+        self.column_start = self.column;
 
         // Check if at end of file
         if (self.isAtEnd()) {
@@ -61,6 +66,8 @@ pub const Scanner = struct {
             '}' => return self.emitToken(TokenKind.RIGHT_BRACE),
             ']' => return self.emitToken(TokenKind.RIGHT_SQUARE),
             '?' => return self.emitToken(TokenKind.QUESTION_MARK),
+            // Native Func literal
+            '@' => return self.native(),
             // String literal
             '\"' => return self.string(),
 
@@ -136,12 +143,14 @@ pub const Scanner = struct {
                 .kind = kind,
                 .lexeme = value.key_ptr.*,
                 .line = self.line,
+                .column = self.column_start,
             };
         }
         return Token{
             .kind = kind,
             .lexeme = lexeme,
             .line = self.line,
+            .column = self.column_start,
         };
     }
 
@@ -164,6 +173,7 @@ pub const Scanner = struct {
     /// Get next character and return it
     fn advance(self: *Scanner) u8 {
         self.current += 1;
+        self.column += 1;
         return self.source[self.current - 1];
     }
 
@@ -210,6 +220,7 @@ pub const Scanner = struct {
                 // Keep track of new lines
                 '\n' => {
                     _ = self.advance();
+                    self.column = 1;
                     self.line += 1;
                 },
 
@@ -273,7 +284,7 @@ pub const Scanner = struct {
 
     /// Scan a string literal
     fn string(self: *Scanner) Token {
-        // Continue until end of file or closing '"'
+        // Continue until end of file or closing '"' or new line
         while (self.peek() != '\"' and self.peek() != '\n' and !self.isAtEnd()) {
             _ = self.advance();
         }
@@ -284,6 +295,19 @@ pub const Scanner = struct {
         // Consume '"'
         _ = self.advance();
         return self.emitToken(TokenKind.STRING);
+    }
+
+    /// Scan a native function call literal
+    fn native(self: *Scanner) Token {
+        // Check if there is a func name
+        if (!isAlphaNumeric(self.peek())) {
+            return self.emitError("Must provide a native function name");
+        }
+        // Consume all alphanumeric characters
+        while (isAlphaNumeric(self.peek())) {
+            _ = self.advance();
+        }
+        return self.emitToken(TokenKind.NATIVE);
     }
 
     /// Return a Token for a variable name, follows pattern ([a-z]|[A-Z]|_)([a-z]|[A-Z]|_|[0-9])*
@@ -298,7 +322,10 @@ pub const Scanner = struct {
     /// Check if a keyword has been found
     fn checkKeyword(self: *Scanner, remainder: []const u8, kind: TokenKind) Token {
         if ((self.source.len > self.current + remainder.len) and (!isAlphaNumeric(self.source[self.current + remainder.len])) and (std.mem.eql(u8, self.source[self.current .. self.current + remainder.len], remainder))) {
+            // Increment current char position
             self.current += remainder.len;
+            // Increment column
+            self.column += remainder.len;
             return self.emitToken(kind);
         }
         return self.varIdentifier();
@@ -552,6 +579,7 @@ pub const TokenKind = enum {
     FLOAT,
     STRING,
     IDENTIFIER,
+    NATIVE,
 
     //// Types ////
     // Signed Int
@@ -600,4 +628,5 @@ pub const Token = struct {
     kind: TokenKind,
     lexeme: []const u8,
     line: u64,
+    column: u64,
 };

@@ -4,6 +4,14 @@ const Compiler = @import("compiler.zig");
 const REPL_BUFF_LEN = 1001;
 
 pub fn main() !void {
+    // Start of execution time marker
+    const start = std.time.nanoTimestamp();
+    // Defer message about length
+    defer {
+        const total_time = std.time.nanoTimestamp() - start;
+        std.debug.print("Time to run: {d} s\n", .{@as(f64, @floatFromInt(total_time)) / 1000000000.0});
+    }
+
     // Stdio
     const stdout = std.io.getStdOut().writer();
     // Alloc
@@ -14,9 +22,6 @@ pub fn main() !void {
         const maybeLeak = gpa.deinit();
         std.debug.print("Memory Status: {}\n", .{maybeLeak});
     }
-
-    // Start of execution time marker
-    const start = std.time.nanoTimestamp();
 
     // Get args
     const args = try std.process.argsAlloc(allocator);
@@ -29,9 +34,6 @@ pub fn main() !void {
     } else {
         _ = try stdout.write("Usage: Zave [path]\n");
     }
-
-    const total_time = std.time.nanoTimestamp() - start;
-    std.debug.print("Time to run: {d} s\n", .{@as(f64, @floatFromInt(total_time)) / 1000000000.0});
 }
 
 /// Execute code source
@@ -39,7 +41,7 @@ fn run(allocator: std.mem.Allocator, source: []const u8) !void {
     var compiler = Compiler.init(allocator);
     defer compiler.deinit();
 
-    compiler.compile(source);
+    compiler.compile(source, true);
 }
 
 /// Read from a source file and execute it
