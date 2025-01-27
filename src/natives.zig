@@ -74,21 +74,24 @@ fn print_i_native(allocator: std.mem.Allocator) Native {
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
     arg_kinds[0] = KindId.newInt(64);
     // Make return kind
-    const ret_kind = KindId.newInt(64);
+    const ret_kind = KindId.newUInt(32);
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, ret_kind);
     const source =
         \\@print_i:
-        \\    mov rdx, rcx
-        \\    lea rcx, [rel I_FMT]
+        \\    push rbp
+        \\    mov rbp, rsp
+        \\    lea rcx, [@I_FMT]
+        \\    mov rdx, [rbp + 16]
         \\    sub rsp, 40 ; shadow space
         \\    call printf
         \\    add rsp, 40
+        \\    pop rbp
         \\    ret
         \\
     ;
     const data =
-        \\    I_FMT: db "%d", 0
+        \\    @I_FMT: db "%d", 0
         \\
     ;
     const native = Native.newNative(kind, source, data);
@@ -100,15 +103,15 @@ fn print_i_native(allocator: std.mem.Allocator) Native {
 fn print_f_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
-    arg_kinds[0] = KindId.newFloat(64);
+    arg_kinds[0] = KindId.FLOAT64;
     // Make return kind
-    const ret_kind = KindId.newInt(64);
+    const ret_kind = KindId.newUInt(32);
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, ret_kind);
     const source =
         \\@print_f:
-        \\    mov rdx, rcx
-        \\    lea rcx, [rel F_FMT]
+        \\    lea rcx, [@F_FMT]
+        \\    lea rdx, [rsp + 8]
         \\    sub rsp, 40 ; shadow space
         \\    call printf
         \\    add rsp, 40
@@ -116,7 +119,7 @@ fn print_f_native(allocator: std.mem.Allocator) Native {
         \\
     ;
     const data =
-        \\    F_FMT: db "%f", 0
+        \\    @F_FMT: db "%f", 0
         \\
     ;
     const native = Native.newNative(kind, source, data);
@@ -130,13 +133,13 @@ fn print_s_native(allocator: std.mem.Allocator) Native {
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
     arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), 1);
     // Make return kind
-    const ret_kind = KindId.newInt(64);
+    const ret_kind = KindId.newInt(32);
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, ret_kind);
     const source =
         \\@print_s:
-        \\    ; rcx already inputted
-        \\    ; no rdx needed
+        \\    lea rcx, [rsp + 16]
+        \\    lea rdx, [rsp + 8]
         \\    sub rsp, 40 ; shadow space
         \\    call printf
         \\    add rsp, 40

@@ -26,18 +26,21 @@ pub const ExprUnion = union(enum) {
 
 /// Generic node for all expression types
 pub const ExprNode = struct {
+    weight: isize,
     result_kind: KindId,
     expr: ExprUnion,
 
-    pub fn init(expr: ExprUnion) ExprNode {
+    pub fn init(expr: ExprUnion, weight: isize) ExprNode {
         return ExprNode{
-            .result_kind = KindId.newVoid(),
+            .result_kind = KindId.VOID,
             .expr = expr,
+            .weight = weight,
         };
     }
 
-    pub fn initWithKind(expr: ExprUnion, kind: KindId) ExprNode {
+    pub fn initWithKind(expr: ExprUnion, weight: isize, kind: KindId) ExprNode {
         return ExprNode{
+            .weight = weight,
             .result_kind = kind,
             .expr = expr,
         };

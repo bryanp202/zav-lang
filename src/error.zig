@@ -20,6 +20,8 @@ pub const SemanticError = error{
 /// Asm Generation Errors
 pub const GenerationError = error{
     FailedToWrite,
+    OutOfCPURegisters,
+    OutOfSSERegisters,
 };
 
 /// General Compiler Errors

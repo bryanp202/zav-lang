@@ -151,9 +151,10 @@ pub const SymbolTableManager = struct {
             const size = switch (constant.kind) {
                 .UINT => constant.as.uint.size(),
                 .INT => constant.as.int.size(),
-                .FLOAT => constant.as.float.size(),
+                .FLOAT32 => 4,
+                .FLOAT64 => 8,
                 .STRING => constant.as.string.data.len,
-                .BOOL => @sizeOf(bool),
+                .BOOL => 1,
                 .ARRAY => constant.as.array.size(),
             };
             // Add the constant marked as unused
@@ -315,7 +316,8 @@ pub const Kinds = enum {
     BOOL,
     UINT,
     INT,
-    FLOAT,
+    FLOAT32,
+    FLOAT64,
     PTR,
     ARRAY,
     FUNC,
@@ -327,7 +329,8 @@ pub const KindId = union(Kinds) {
     BOOL: void,
     UINT: UInteger,
     INT: Integer,
-    FLOAT: Float,
+    FLOAT32: void,
+    FLOAT64: void,
     PTR: Pointer,
     ARRAY: Array,
     FUNC: Function,
@@ -337,7 +340,7 @@ pub const KindId = union(Kinds) {
         // Check if type needs to be destroyed
         switch (self) {
             // If non allocated types, do nothing
-            .VOID, .BOOL, .UINT, .INT, .FLOAT => return,
+            .VOID, .BOOL, .UINT, .INT, .FLOAT32, .FLOAT64 => return,
             // If a pointer delete all children
             .PTR => |ptr| {
                 // Walk the linked list of children until a terminal node is found
@@ -405,14 +408,6 @@ pub const KindId = union(Kinds) {
         }
     }
 
-    /// Init a new void
-    pub fn newVoid() KindId {
-        return KindId.VOID;
-    }
-    /// Init a new boolean
-    pub fn newBool() KindId {
-        return KindId.BOOL;
-    }
     /// Init a new unsigned integer
     pub fn newUInt(bits: u16) KindId {
         const uint = UInteger{
@@ -429,15 +424,6 @@ pub const KindId = union(Kinds) {
         };
         return KindId{
             .INT = int,
-        };
-    }
-    /// Init a new float
-    pub fn newFloat(bits: u16) KindId {
-        const float = Float{
-            .bits = bits,
-        };
-        return KindId{
-            .FLOAT = float,
         };
     }
     /// Init a new pointer
@@ -490,7 +476,8 @@ pub const KindId = union(Kinds) {
             .BOOL => return other == .BOOL,
             .UINT => return other == .UINT and self.UINT.bits == other.UINT.bits,
             .INT => return other == .INT and self.INT.bits == other.INT.bits,
-            .FLOAT => return other == .FLOAT and self.FLOAT.bits == other.FLOAT.bits,
+            .FLOAT32 => return other == .FLOAT32,
+            .FLOAT64 => return other == .FLOAT64,
             .PTR => |ptr| return other == .PTR and ptr.equal(other.PTR),
             .ARRAY => |arr| return other == .ARRAY and arr.equal(other.ARRAY),
             .FUNC => |func| return other == .FUNC and func.equal(other.FUNC),
@@ -504,7 +491,8 @@ pub const KindId = union(Kinds) {
             .BOOL => 1,
             .UINT => |uint| uint.size(),
             .INT => |int| int.size(),
-            .FLOAT => |float| float.size(),
+            .FLOAT32 => 4,
+            .FLOAT64 => 8,
             .PTR => 8,
             .ARRAY => |arr| arr.size(),
             .FUNC => 8,
@@ -539,17 +527,6 @@ const Integer = struct {
 
     /// Calculate the size of this type in bytes
     pub fn size(self: Integer) u64 {
-        const bytes = std.math.divCeil(u64, self.bits, 8) catch unreachable;
-        return bytes;
-    }
-};
-
-/// Float Type data
-const Float = struct {
-    bits: u16,
-
-    /// Calculate the size of this type in bytes
-    pub fn size(self: Float) u64 {
         const bytes = std.math.divCeil(u64, self.bits, 8) catch unreachable;
         return bytes;
     }
@@ -650,7 +627,8 @@ pub const ValueKind = enum(u8) {
     BOOL,
     UINT,
     INT,
-    FLOAT,
+    FLOAT32,
+    FLOAT64,
     STRING,
     ARRAY,
 };
@@ -701,17 +679,6 @@ const IntegerLiteral = extern struct {
     }
 };
 
-/// Floating point literal storage struct
-const FloatLiteral = extern struct {
-    data: f64,
-    bits: u16,
-
-    // Calculate the size of a flaot literal
-    pub fn size(self: FloatLiteral) usize {
-        return std.math.divCeil(usize, self.bits, 8) catch unreachable;
-    }
-};
-
 /// String literal storage struct
 const StringLiteral = extern struct {
     data: LiteralSlice(u8),
@@ -726,10 +693,11 @@ const ArrayLiteral = extern struct {
     pub fn size(self: ArrayLiteral) usize {
         // Calculate size of LiteralKind
         var self_size: usize = switch (self.kind.*) {
+            .BOOL => 1,
             .UINT => self.data.ptr[0].as.uint.size(),
             .INT => self.data.ptr[0].as.int.size(),
-            .FLOAT => self.data.ptr[0].as.float.size(),
-            .BOOL => @sizeOf(bool),
+            .FLOAT32 => 4,
+            .FLOAT64 => 8,
             else => unreachable,
         };
         // Multiply by dimensions
@@ -749,7 +717,8 @@ pub const Value = extern struct {
         boolean: bool,
         uint: UIntegerLiteral,
         int: IntegerLiteral,
-        float: FloatLiteral,
+        float32: f32,
+        float64: f64,
         string: StringLiteral,
         array: ArrayLiteral,
     },
@@ -783,11 +752,16 @@ pub const Value = extern struct {
         val.as.boolean = value;
         return val;
     }
+    /// Init a new value as a float32
+    pub fn newFloat32(value: f32) Value {
+        var val = Value{ .kind = ValueKind.FLOAT32, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
+        val.as.float32 = value;
+        return val;
+    }
     /// Init a new value as a float
-    pub fn newFloat(value: f64, bits: u16) Value {
-        var val = Value{ .kind = ValueKind.FLOAT, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
-        val.as.float.bits = bits;
-        val.as.float.data = value;
+    pub fn newFloat64(value: f64) Value {
+        var val = Value{ .kind = ValueKind.FLOAT64, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
+        val.as.float64 = value;
         return val;
     }
     /// Init a new value as a string

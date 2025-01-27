@@ -77,6 +77,22 @@ fn reportError(self: *TypeChecker, errorType: SemanticError, token: Token, msg: 
 // ************************* //
 // Two type upgrade/coercion //
 // ************************* //
+/// Inserts a conversion expression
+fn insertConvExpr(allocator: std.mem.Allocator, node: *ExprNode, kind: KindId, weight: isize) void {
+    // Make new expression
+    const convExpr = allocator.create(Expr.ConversionExpr) catch unreachable;
+    // Put old node into new expr
+    convExpr.* = Expr.ConversionExpr.init(node.*);
+    // Make new node
+    const new_node = ExprNode.initWithKind(
+        Expr.ExprUnion{ .CONVERSION = convExpr },
+        weight,
+        kind,
+    );
+    // Put in old nodes spot
+    node.* = new_node;
+}
+
 /// Stores data about a coercion attempt
 const CoercionResult = struct {
     final_kind: KindId,
@@ -87,8 +103,6 @@ const CoercionResult = struct {
         return CoercionResult{ .final_kind = kind, .upgraded_lhs = left_upgrade, .upgraded_rhs = right_upgrade };
     }
 };
-
-const hi = fn (u8) void;
 
 /// Returns a CoercionResult for two KindIds
 /// If the two kindids can be coerced or are equal, then it returns the upgraded type
@@ -107,7 +121,7 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
                 return CoercionResult.init(rhs_kind, false, false);
             },
             // Left Bool | Right Float
-            .FLOAT => {
+            .FLOAT32, .FLOAT64 => {
                 // Return the float
                 return CoercionResult.init(rhs_kind, true, false);
             },
@@ -138,7 +152,7 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
                 return CoercionResult.init(rhs_kind, false, false);
             },
             // Left UInt | Right Float
-            .FLOAT => {
+            .FLOAT32, .FLOAT64 => {
                 // Return the float
                 return CoercionResult.init(rhs_kind, true, false);
             },
@@ -169,29 +183,45 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
                 return CoercionResult.init(bigger_kind, false, false);
             },
             // Left Int | Right Float
-            .FLOAT => {
+            .FLOAT32, .FLOAT64 => {
                 // Return the float
                 return CoercionResult.init(rhs_kind, true, false);
             },
             // All other combinations are illegal
             else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
         },
-        // Left Float
-        .FLOAT => |l_float| switch (rhs_kind) {
+        // Left Float32
+        .FLOAT32 => switch (rhs_kind) {
             // Left Float | Right Int
             .BOOL, .UINT, .INT => {
                 // Return the float
                 return CoercionResult.init(lhs_kind, false, true);
             },
             // Left Float | Right Float
-            .FLOAT => |r_float| {
+            .FLOAT32 => {
+                // Else they are the same, no coercion
+                return CoercionResult.init(lhs_kind, false, false);
+            },
+            .FLOAT64 => {
                 // Return the float with more bits
-                if (l_float.bits > r_float.bits) {
-                    return CoercionResult.init(lhs_kind, false, true);
-                }
-                if (l_float.bits < r_float.bits) {
-                    return CoercionResult.init(rhs_kind, true, false);
-                }
+                return CoercionResult.init(rhs_kind, true, false);
+            },
+            // All other combinations are illegal
+            else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
+        },
+        // Left Float32
+        .FLOAT64 => switch (rhs_kind) {
+            // Left Float | Right Int
+            .BOOL, .UINT, .INT => {
+                // Return the float
+                return CoercionResult.init(lhs_kind, false, true);
+            },
+            // Left Float | Right Float
+            .FLOAT32 => {
+                // Return the float with more bits
+                return CoercionResult.init(lhs_kind, false, true);
+            },
+            .FLOAT64 => {
                 // Else they are the same, no coercion
                 return CoercionResult.init(lhs_kind, false, false);
             },
@@ -246,7 +276,7 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
     // Return a KindId for the value stored in literal
     switch (literal_expr.value.kind) {
         .BOOL => {
-            node.result_kind = KindId.newBool();
+            node.result_kind = KindId.BOOL;
             return node.result_kind;
         },
         .UINT => {
@@ -259,9 +289,12 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
             node.result_kind = KindId.newInt(intVal.bits);
             return node.result_kind;
         },
-        .FLOAT => {
-            const floatVal = literal_expr.value.as.float;
-            node.result_kind = KindId.newFloat(floatVal.bits);
+        .FLOAT32 => {
+            node.result_kind = KindId.FLOAT32;
+            return node.result_kind;
+        },
+        .FLOAT64 => {
+            node.result_kind = KindId.FLOAT64;
             return node.result_kind;
         },
         .STRING => {
@@ -350,17 +383,12 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             }
             // Check if need to insert conversion nodes
             if (coerce_result.upgraded_rhs) {
-                // Make new expression
-                const convExpr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
-                // Put old node into new expr
-                convExpr.* = Expr.ConversionExpr.init(call_arg.*);
-                // Make new node
-                const new_node = ExprNode.initWithKind(
-                    Expr.ExprUnion{ .CONVERSION = convExpr },
+                insertConvExpr(
+                    self.allocator,
+                    call_arg,
                     coerce_result.final_kind,
+                    node.weight,
                 );
-                // Put in old nodes spot
-                call_arg.* = new_node;
             }
         }
     } else {
@@ -428,13 +456,8 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
                     node.result_kind = signed_int;
                     return signed_int;
                 },
-                .INT => {
+                .INT, .FLOAT32, .FLOAT64 => {
                     // Update result kind
-                    node.result_kind = rhs_kind;
-                    return rhs_kind;
-                },
-                .FLOAT => {
-                    // Set return type of node
                     node.result_kind = rhs_kind;
                     return rhs_kind;
                 },
@@ -467,8 +490,10 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         rhs_kind,
     );
 
+    // Rename form to be shorter
+    const kind = coerce_result.final_kind;
     // Check if legal type for arithmetic
-    if (coerce_result.final_kind != .INT and coerce_result.final_kind != .UINT and coerce_result.final_kind != .FLOAT) {
+    if (kind != .INT and kind != .UINT and kind != .FLOAT32 and kind != .FLOAT64) {
         // No boolean algebra
         return self.reportError(
             SemanticError.TypeMismatch,
@@ -479,7 +504,7 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
     // Check for illegal combos
     // Modulus
-    if (op.kind == .PERCENT and coerce_result.final_kind == .FLOAT) {
+    if (op.kind == .PERCENT and (kind == .FLOAT32 or kind == .FLOAT64)) {
         // No float modulo
         return self.reportError(
             SemanticError.TypeMismatch,
@@ -491,30 +516,19 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Check for inserts
     // Left side
     if (coerce_result.upgraded_lhs) {
-        // Make new expression
-        const convExpr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
-        // Put old node into new expr
-        convExpr.* = Expr.ConversionExpr.init(arithExpr.*.lhs);
-        // Make new node
-        const new_node = ExprNode.initWithKind(
-            Expr.ExprUnion{ .CONVERSION = convExpr },
+        insertConvExpr(
+            self.allocator,
+            &arithExpr.*.lhs,
             coerce_result.final_kind,
+            node.weight,
         );
-        // Put in old nodes spot
-        arithExpr.*.lhs = new_node;
     } else if (coerce_result.upgraded_rhs) {
-        // Right side
-        // Make new expression
-        const convExpr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
-        // Put old node into new expr
-        convExpr.* = Expr.ConversionExpr.init(arithExpr.*.rhs);
-        // Make new node
-        const new_node = ExprNode.initWithKind(
-            Expr.ExprUnion{ .CONVERSION = convExpr },
+        insertConvExpr(
+            self.allocator,
+            &arithExpr.*.rhs,
             coerce_result.final_kind,
+            node.weight,
         );
-        // Put in old nodes spot
-        arithExpr.*.rhs = new_node;
     }
 
     // Update return kind
@@ -543,34 +557,23 @@ fn visitCompareExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Check for inserts
     // Left side
     if (coerce_result.upgraded_lhs) {
-        // Make new expression
-        const convExpr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
-        // Put old node into new expr
-        convExpr.* = Expr.ConversionExpr.init(compareExpr.*.lhs);
-        // Make new node
-        const new_node = ExprNode.initWithKind(
-            Expr.ExprUnion{ .CONVERSION = convExpr },
+        insertConvExpr(
+            self.allocator,
+            &compareExpr.*.lhs,
             coerce_result.final_kind,
+            node.weight,
         );
-        // Put in old nodes spot
-        compareExpr.*.lhs = new_node;
     } else if (coerce_result.upgraded_rhs) {
-        // Right side
-        // Make new expression
-        const convExpr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
-        // Put old node into new expr
-        convExpr.* = Expr.ConversionExpr.init(compareExpr.*.rhs);
-        // Make new node
-        const new_node = ExprNode.initWithKind(
-            Expr.ExprUnion{ .CONVERSION = convExpr },
+        insertConvExpr(
+            self.allocator,
+            &compareExpr.*.rhs,
             coerce_result.final_kind,
+            node.weight,
         );
-        // Put in old nodes spot
-        compareExpr.*.rhs = new_node;
     }
 
     // Update return kind
-    node.result_kind = coerce_result.final_kind;
+    node.result_kind = KindId.BOOL;
     return node.result_kind;
 }
 
@@ -647,30 +650,19 @@ fn visitIfExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Check for inserts
     // Left side
     if (coerce_result.upgraded_lhs) {
-        // Make new expression
-        const convExpr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
-        // Put old node into new expr
-        convExpr.* = Expr.ConversionExpr.init(ifExpr.*.then_branch);
-        // Make new node
-        const new_node = ExprNode.initWithKind(
-            Expr.ExprUnion{ .CONVERSION = convExpr },
+        insertConvExpr(
+            self.allocator,
+            &ifExpr.*.then_branch,
             coerce_result.final_kind,
+            node.weight,
         );
-        // Put in old nodes spot
-        ifExpr.*.then_branch = new_node;
     } else if (coerce_result.upgraded_rhs) {
-        // Right side
-        // Make new expression
-        const convExpr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
-        // Put old node into new expr
-        convExpr.* = Expr.ConversionExpr.init(ifExpr.*.else_branch);
-        // Make new node
-        const new_node = ExprNode.initWithKind(
-            Expr.ExprUnion{ .CONVERSION = convExpr },
+        insertConvExpr(
+            self.allocator,
+            &ifExpr.*.else_branch,
             coerce_result.final_kind,
+            node.weight,
         );
-        // Put in old nodes spot
-        ifExpr.*.else_branch = new_node;
     }
 
     // Update return kind

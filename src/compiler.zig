@@ -17,6 +17,7 @@ const Generator = @import("back_end/generator.zig");
 // Error Import
 const Error = @import("error.zig");
 const ScopeError = Error.ScopeError;
+const GenerationError = Error.GenerationError;
 
 // Compiler fields
 const Compiler = @This();
@@ -126,8 +127,13 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     std.debug.print("\n", .{});
 
     // Generation
-    var generator = Generator.init(self.allocator, &self.stm, "out.asm") catch {
-        std.debug.print("Failed to make file\n", .{});
+    var generator = Generator.init(self.allocator, &self.stm, "out.asm") catch |err| {
+        // switch (err) {
+        //     error.FailedToWrite => std.debug.print("Failed to make file\n", .{}),
+        //     error.OutOfCPURegisters => std.debug.print("Ran out of CPU registers\n", .{}),
+        //     error.OutOfSSERegisters => std.debug.print("Ran out of SSE registers\n", .{}),
+        // }
+        std.debug.print("{any}\n", .{err});
         return false;
     };
     defer generator.deinit(self.allocator);

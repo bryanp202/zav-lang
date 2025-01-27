@@ -60,6 +60,12 @@ pub fn hadError(self: *Parser) bool {
 // Private helper methods //
 // ********************** //
 
+fn getWeight(lhs: isize, rhs: isize) isize {
+    if (lhs < 0) return lhs;
+    if (rhs < 0) return rhs;
+    return @max(lhs, rhs) + 1;
+}
+
 /// Return true if current token is EOF
 inline fn isAtEnd(self: Parser) bool {
     return self.current.kind == TokenKind.EOF;
@@ -190,11 +196,11 @@ fn errorAt(self: *Parser, msg: []const u8) SyntaxError {
 /// Parse an expression
 /// expr -> term
 fn expression(self: *Parser) SyntaxError!ExprNode {
-    return self.if_stmt();
+    return self.if_expr();
 }
 
-/// Parse an If Statement
-fn if_stmt(self: *Parser) SyntaxError!ExprNode {
+/// Parse an If Expression
+fn if_expr(self: *Parser) SyntaxError!ExprNode {
     // Check for if
     if (self.match(.{TokenKind.IF})) {
         // Extract if token
@@ -203,25 +209,30 @@ fn if_stmt(self: *Parser) SyntaxError!ExprNode {
         // Consume '('
         try self.consume(TokenKind.LEFT_PAREN, "Expect '('  after 'if'");
         // Get conditional expr
-        const condition = try self.if_stmt();
+        const condition = try self.if_expr();
         errdefer condition.deinit(self.allocator);
         // Consume ')'
         try self.consume(TokenKind.RIGHT_PAREN, "Expect ')' after 'if'");
 
         // Get then_branch
-        const then_branch = try self.if_stmt();
+        const then_branch = try self.if_expr();
         errdefer then_branch.deinit(self.allocator);
 
         // Consume else
         try self.consume(TokenKind.ELSE, "If expressions must have an else branch");
 
         // Get else_branch
-        const else_branch = try self.if_stmt();
+        const else_branch = try self.if_expr();
 
         // Make new inner expression
         const new_expr = self.allocator.create(Expr.IfExpr) catch unreachable;
         new_expr.* = Expr.IfExpr.init(if_token, condition, then_branch, else_branch);
-        return ExprNode.init(ExprUnion{ .IF = new_expr });
+        // Get weight
+        const weight = getWeight(then_branch.weight, else_branch.weight);
+        return ExprNode.init(
+            ExprUnion{ .IF = new_expr },
+            weight,
+        );
     }
     // No if, get logical or expr
     return try self.logic_or();
@@ -244,7 +255,12 @@ fn logic_or(self: *Parser) SyntaxError!ExprNode {
         // Make new inner expression
         const new_expr = self.allocator.create(Expr.OrExpr) catch unreachable;
         new_expr.* = Expr.OrExpr.init(expr, rhs, operator);
-        expr = ExprNode.init(ExprUnion{ .OR = new_expr });
+        // Get weight
+        const weight = getWeight(expr.weight, rhs.weight);
+        expr = ExprNode.init(
+            ExprUnion{ .OR = new_expr },
+            weight,
+        );
     }
     // Return the expression
     return expr;
@@ -267,7 +283,12 @@ fn logic_and(self: *Parser) SyntaxError!ExprNode {
         // Make new inner expression
         const new_expr = self.allocator.create(Expr.AndExpr) catch unreachable;
         new_expr.* = Expr.AndExpr.init(expr, rhs, operator);
-        expr = ExprNode.init(ExprUnion{ .AND = new_expr });
+        // Get weight
+        const weight = getWeight(expr.weight, rhs.weight);
+        expr = ExprNode.init(
+            ExprUnion{ .AND = new_expr },
+            weight,
+        );
     }
     // Return the expression
     return expr;
@@ -290,7 +311,12 @@ fn compare(self: *Parser) SyntaxError!ExprNode {
         // Make new inner expression
         const new_expr = self.allocator.create(Expr.CompareExpr) catch unreachable;
         new_expr.* = Expr.CompareExpr.init(expr, rhs, operator);
-        expr = ExprNode.init(ExprUnion{ .COMPARE = new_expr });
+        // Get weight
+        const weight = getWeight(expr.weight, rhs.weight);
+        expr = ExprNode.init(
+            ExprUnion{ .COMPARE = new_expr },
+            weight,
+        );
     }
     // Return the expression
     return expr;
@@ -312,7 +338,12 @@ fn term(self: *Parser) SyntaxError!ExprNode {
         // Make new inner expression, with operator
         const new_expr = self.allocator.create(Expr.ArithExpr) catch unreachable;
         new_expr.* = Expr.ArithExpr.init(expr, rhs, operator);
-        expr = ExprNode.init(ExprUnion{ .ARITH = new_expr });
+        // Get weight
+        const weight = getWeight(expr.weight, rhs.weight);
+        expr = ExprNode.init(
+            ExprUnion{ .ARITH = new_expr },
+            weight,
+        );
     }
     // Return node
     return expr;
@@ -334,7 +365,12 @@ fn factor(self: *Parser) SyntaxError!ExprNode {
         // Make new inner expression, with operator
         const new_expr = self.allocator.create(Expr.ArithExpr) catch unreachable;
         new_expr.* = Expr.ArithExpr.init(expr, rhs, operator);
-        expr = ExprNode.init(ExprUnion{ .ARITH = new_expr });
+        // Get weight
+        const weight = getWeight(expr.weight, rhs.weight);
+        expr = ExprNode.init(
+            ExprUnion{ .ARITH = new_expr },
+            weight,
+        );
     }
     // Return node
     return expr;
@@ -353,7 +389,10 @@ fn unary(self: *Parser) SyntaxError!ExprNode {
         // Make new inner expression, with operator
         const new_expr = self.allocator.create(Expr.UnaryExpr) catch unreachable;
         new_expr.* = Expr.UnaryExpr.init(operand, operator);
-        return ExprNode.init(ExprUnion{ .UNARY = new_expr });
+        return ExprNode.init(
+            ExprUnion{ .UNARY = new_expr },
+            operand.weight,
+        );
     }
     // Fall through to literal
     return self.literal();
@@ -381,7 +420,7 @@ fn literal(self: *Parser) SyntaxError!ExprNode {
             // Make new value
             const value = Value.newBool(false);
             constant_expr.* = .{ .value = value, .literal = token };
-            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr });
+            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr }, 0);
         },
         .TRUE => {
             // Make new constant expression
@@ -389,7 +428,7 @@ fn literal(self: *Parser) SyntaxError!ExprNode {
             // Make new value
             const value = Value.newBool(true);
             constant_expr.* = .{ .value = value, .literal = token };
-            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr });
+            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr }, 0);
         },
         .INTEGER => {
             // Make new constant expression
@@ -407,23 +446,23 @@ fn literal(self: *Parser) SyntaxError!ExprNode {
                 // Make u64
                 const value = Value.newUInt(parsed_uint, 64);
                 constant_expr.* = .{ .value = value, .literal = token };
-                return ExprNode.init(ExprUnion{ .LITERAL = constant_expr });
+                return ExprNode.init(ExprUnion{ .LITERAL = constant_expr }, 0);
             };
 
             // Make new value
             const value = Value.newInt(parsed_int, 64);
             constant_expr.* = .{ .value = value, .literal = token };
-            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr });
+            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr }, 0);
         },
         .FLOAT => {
             // Make new constant expression
             const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;
             // Parse lexeme
-            const parsed_int = std.fmt.parseFloat(f64, token.lexeme) catch unreachable;
+            const parsed_float = std.fmt.parseFloat(f64, token.lexeme) catch unreachable;
             // Make new value
-            const value = Value.newFloat(parsed_int, 64);
+            const value = Value.newFloat64(parsed_float);
             constant_expr.* = .{ .value = value, .literal = token };
-            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr });
+            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr }, 0);
         },
         .STRING => {
             // Make new constant expression
@@ -433,7 +472,7 @@ fn literal(self: *Parser) SyntaxError!ExprNode {
             // Make new value without quotes
             const value = Value.newStr(token.lexeme);
             constant_expr.* = .{ .value = value, .literal = token };
-            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr });
+            return ExprNode.init(ExprUnion{ .LITERAL = constant_expr }, 0);
         },
         .ARRAY_TYPE => {
             // ****************************************************** //
@@ -444,7 +483,7 @@ fn literal(self: *Parser) SyntaxError!ExprNode {
             // Make new constant expression
             const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
             identifier_expr.* = .{ .id = token };
-            return ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
+            return ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr }, 0);
         },
         .NATIVE => {
             // Consume the '('
@@ -474,7 +513,7 @@ fn literal(self: *Parser) SyntaxError!ExprNode {
             native_expr.name = token;
             native_expr.args = args;
 
-            return ExprNode.init(ExprUnion{ .NATIVE = native_expr });
+            return ExprNode.init(ExprUnion{ .NATIVE = native_expr }, 0);
         },
         .EOF => return self.errorAtCurrent("Expected an expression"),
         else => return self.errorAt("Invalid expression"),
