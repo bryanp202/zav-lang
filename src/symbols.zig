@@ -343,49 +343,69 @@ pub const KindId = union(Kinds) {
             .VOID, .BOOL, .UINT, .INT, .FLOAT32, .FLOAT64 => return,
             // If a pointer delete all children
             .PTR => |ptr| {
-                // Walk the linked list of children until a terminal node is found
-                var curr = ptr.child;
-                var next: *KindId = undefined;
-                while (true) {
-                    switch (curr.*) {
-                        .PTR => |pointer| {
-                            next = pointer.child;
-                            allocator.destroy(curr);
-                            curr = next;
-                        },
-                        .ARRAY => |array| {
-                            next = array.child;
-                            allocator.destroy(curr);
-                            curr = next;
-                        },
-                        else => {
-                            allocator.destroy(curr);
-                            break;
-                        },
+                if (ptr.own_self) {
+                    // Walk the linked list of children until a terminal node is found
+                    var curr = ptr.child;
+                    var next: *KindId = undefined;
+                    while (true) {
+                        switch (curr.*) {
+                            .PTR => |pointer| {
+                                if (pointer.own_self) {
+                                    next = pointer.child;
+                                    allocator.destroy(curr);
+                                    curr = next;
+                                } else {
+                                    break;
+                                }
+                            },
+                            .ARRAY => |array| {
+                                if (array.own_self) {
+                                    next = array.child;
+                                    allocator.destroy(curr);
+                                    curr = next;
+                                } else {
+                                    break;
+                                }
+                            },
+                            else => {
+                                allocator.destroy(curr);
+                                break;
+                            },
+                        }
                     }
                 }
             },
             // If an array, delete all children
             .ARRAY => |arr| {
-                // Walk the linked list of children until a terminal node is found
-                var curr = arr.child;
-                var next: *KindId = undefined;
-                while (true) {
-                    switch (curr.*) {
-                        .PTR => |pointer| {
-                            next = pointer.child;
-                            allocator.destroy(curr);
-                            curr = next;
-                        },
-                        .ARRAY => |array| {
-                            next = array.child;
-                            allocator.destroy(curr);
-                            curr = next;
-                        },
-                        else => {
-                            allocator.destroy(curr);
-                            break;
-                        },
+                if (arr.own_self) {
+                    // Walk the linked list of children until a terminal node is found
+                    var curr = arr.child;
+                    var next: *KindId = undefined;
+                    while (true) {
+                        switch (curr.*) {
+                            .PTR => |pointer| {
+                                if (pointer.own_self) {
+                                    next = pointer.child;
+                                    allocator.destroy(curr);
+                                    curr = next;
+                                } else {
+                                    break;
+                                }
+                            },
+                            .ARRAY => |array| {
+                                if (array.own_self) {
+                                    next = array.child;
+                                    allocator.destroy(curr);
+                                    curr = next;
+                                } else {
+                                    break;
+                                }
+                            },
+                            else => {
+                                allocator.destroy(curr);
+                                break;
+                            },
+                        }
                     }
                 }
             },
@@ -400,7 +420,6 @@ pub const KindId = union(Kinds) {
                     // Deinit args array
                     allocator.free(args);
                 }
-
                 // Deinit return
                 func.ret_kind.deinit(allocator);
                 allocator.destroy(func.ret_kind);
@@ -413,35 +432,43 @@ pub const KindId = union(Kinds) {
         const uint = UInteger{
             .bits = bits,
         };
-        return KindId{
-            .UINT = uint,
-        };
+        return KindId{ .UINT = uint };
     }
     /// Init a new integer
     pub fn newInt(bits: u16) KindId {
         const int = Integer{
             .bits = bits,
         };
-        return KindId{
-            .INT = int,
-        };
+        return KindId{ .INT = int };
     }
     /// Init a new pointer
-    pub fn newPtr(allocator: std.mem.Allocator, child_kind: KindId, levels: u16) KindId {
+    pub fn newPtr(allocator: std.mem.Allocator, child_kind: KindId, const_child: bool) KindId {
         // Dynamically allocate the child KindId tag
         const child_ptr = allocator.create(KindId) catch unreachable;
         child_ptr.* = child_kind;
         // Make new pointer
         const ptr = Pointer{
             .child = child_ptr,
-            .levels = levels,
+            .const_child = const_child,
+            .own_self = true,
+            .dereferenced = false,
         };
-        return KindId{
-            .PTR = ptr,
+        return KindId{ .PTR = ptr };
+    }
+    /// Init a new pointer with no allocation
+    pub fn newPtrFromArray(source: KindId, const_items: bool) KindId {
+        const array = source.ARRAY;
+        // Make new ptr
+        const ptr = Pointer{
+            .child = array.child,
+            .const_child = const_items,
+            .own_self = false,
+            .dereferenced = array.dereferenced,
         };
+        return KindId{ .PTR = ptr };
     }
     /// Init a new array kindid
-    pub fn newArr(allocator: std.mem.Allocator, child_kind: KindId, length: u64) KindId {
+    pub fn newArr(allocator: std.mem.Allocator, child_kind: KindId, length: u64, const_items: bool) KindId {
         // Dynamically allocate the child KindId tag
         const child_ptr = allocator.create(KindId) catch unreachable;
         child_ptr.* = child_kind;
@@ -449,10 +476,11 @@ pub const KindId = union(Kinds) {
         const arr = Array{
             .child = child_ptr,
             .length = length,
+            .const_items = const_items,
+            .dereferenced = false,
+            .own_self = true,
         };
-        return KindId{
-            .ARRAY = arr,
-        };
+        return KindId{ .ARRAY = arr };
     }
     /// Init a new Function kindid
     pub fn newFunc(allocator: std.mem.Allocator, arg_kinds: ?[]KindId, ret_kind: KindId) KindId {
@@ -464,9 +492,7 @@ pub const KindId = union(Kinds) {
             .arg_kinds = arg_kinds,
             .ret_kind = ret_ptr,
         };
-        return KindId{
-            .FUNC = func,
-        };
+        return KindId{ .FUNC = func };
     }
 
     /// Return if this kindid is the same as another
@@ -493,8 +519,23 @@ pub const KindId = union(Kinds) {
             .INT => |int| int.size(),
             .FLOAT32 => 4,
             .FLOAT64 => 8,
-            .PTR => 8,
-            .ARRAY => |arr| arr.size(),
+            .PTR => |ptr| if (ptr.dereferenced) ptr.child.size() else 8,
+            .ARRAY => |arr| if (arr.dereferenced) arr.child.size() else arr.size(),
+            .FUNC => 8,
+        };
+    }
+
+    /// Return the size of the Kind
+    pub fn size_runtime(self: KindId) u64 {
+        return switch (self) {
+            .VOID => 0,
+            .BOOL => 1,
+            .UINT => |uint| uint.size(),
+            .INT => |int| int.size(),
+            .FLOAT32 => 4,
+            .FLOAT64 => 8,
+            .PTR => |ptr| if (ptr.dereferenced) ptr.child.size() else 8,
+            .ARRAY => |arr| if (arr.dereferenced) arr.child.size() else 8,
             .FUNC => 8,
         };
     }
@@ -535,11 +576,24 @@ const Integer = struct {
 /// Pointer Type data
 const Pointer = struct {
     child: *KindId,
-    levels: u16,
+    const_child: bool,
+    dereferenced: bool,
+    // Used to keep track of deinit
+    own_self: bool,
 
     /// Returns true if this pointer is the same as another pointer
     pub fn equal(self: Pointer, other: Pointer) bool {
-        return self.child.equal(other.child.*) and self.levels == other.levels;
+        return self.child.equal(other.child.*);
+    }
+    /// Return copy of self but dereferenced
+    pub fn dereference(self: Pointer) !KindId {
+        if (self.dereferenced) return Error.SemanticError.TypeMismatch;
+        return KindId{ .PTR = Pointer{
+            .child = self.child,
+            .const_child = self.const_child,
+            .dereferenced = true,
+            .own_self = false,
+        } };
     }
 };
 
@@ -547,6 +601,10 @@ const Pointer = struct {
 const Array = struct {
     child: *KindId,
     length: u64,
+    const_items: bool,
+    dereferenced: bool,
+    // Used to keep track of deinit
+    own_self: bool,
 
     /// Returns true if this array is the same as another array
     pub fn equal(self: Array, other: Array) bool {
@@ -558,6 +616,18 @@ const Array = struct {
         const element_size = self.child.size();
         const bytes = element_size * self.length;
         return bytes;
+    }
+
+    /// Return copy of self but dereferenced
+    pub fn dereference(self: Array) !KindId {
+        if (self.dereferenced) return Error.SemanticError.TypeMismatch;
+        return KindId{ .ARRAY = Array{
+            .child = self.child,
+            .length = self.length,
+            .const_items = self.const_items,
+            .dereferenced = true,
+            .own_self = false,
+        } };
     }
 };
 

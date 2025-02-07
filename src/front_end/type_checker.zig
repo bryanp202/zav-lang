@@ -10,6 +10,7 @@ const STM = Symbols.SymbolTableManager;
 const Value = Symbols.Value;
 const KindId = Symbols.KindId;
 const Symbol = Symbols.Symbol;
+const ScopeKind = Symbols.ScopeKind;
 // Error
 const Error = @import("../error.zig");
 const SemanticError = Error.SemanticError;
@@ -17,6 +18,11 @@ const ScopeError = Error.ScopeError;
 // Expr
 const Expr = @import("../expr.zig");
 const ExprNode = Expr.ExprNode;
+// Stmts
+const Stmt = @import("../stmt.zig");
+const StmtNode = Stmt.StmtNode;
+// Module
+const Module = @import("../module.zig");
 
 // Type Checker fields
 const TypeChecker = @This();
@@ -39,9 +45,20 @@ pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
 /// and adding more lower level AST nodes as needed
 /// in preparation for code generation
 /// Returns true if semantics are okay
-pub fn check(self: *TypeChecker, expr: *ExprNode) bool {
-    _ = self.analysisExpr(expr) catch return false;
-    return !self.had_error;
+pub fn check(self: *TypeChecker, module: *Module) void {
+    // Check all stmts in the module
+    for (module.stmts()) |*stmt| {
+        // analyze stmt, continue if there was an error
+        self.analyzeStmt(stmt) catch {
+            self.panic = false;
+            continue;
+        };
+    }
+}
+
+/// Returns true if this type checker has ever encountered an error
+pub fn hadError(self: TypeChecker) bool {
+    return self.had_error;
 }
 
 // ********************** //
@@ -78,7 +95,7 @@ fn reportError(self: *TypeChecker, errorType: SemanticError, token: Token, msg: 
 // Two type upgrade/coercion //
 // ************************* //
 /// Inserts a conversion expression
-fn insertConvExpr(allocator: std.mem.Allocator, node: *ExprNode, kind: KindId, weight: isize) void {
+fn insertConvExpr(allocator: std.mem.Allocator, node: *ExprNode, kind: KindId) void {
     // Make new expression
     const convExpr = allocator.create(Expr.ConversionExpr) catch unreachable;
     // Put old node into new expr
@@ -86,7 +103,6 @@ fn insertConvExpr(allocator: std.mem.Allocator, node: *ExprNode, kind: KindId, w
     // Make new node
     const new_node = ExprNode.initWithKind(
         Expr.ExprUnion{ .CONVERSION = convExpr },
-        weight,
         kind,
     );
     // Put in old nodes spot
@@ -125,6 +141,17 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
                 // Return the float
                 return CoercionResult.init(rhs_kind, true, false);
             },
+            // Left Bool | Right ptr
+            .PTR => {
+                // Return the ptr
+                return CoercionResult.init(rhs_kind, false, false);
+            },
+            // Left bool | Right Array
+            .ARRAY => |array| {
+                // Decay to pointer
+                const new_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
+                return CoercionResult.init(new_ptr, false, false);
+            },
             // All other combinations are illegal
             else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
         },
@@ -156,6 +183,17 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
                 // Return the float
                 return CoercionResult.init(rhs_kind, true, false);
             },
+            // Left Uint | Right ptr
+            .PTR => {
+                // Return the ptr
+                return CoercionResult.init(rhs_kind, false, false);
+            },
+            // Left Uint | Right Array
+            .ARRAY => |array| {
+                // Decay to pointer
+                const new_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
+                return CoercionResult.init(new_ptr, false, false);
+            },
             // All other combinations are illegal
             else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
         },
@@ -186,6 +224,17 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
             .FLOAT32, .FLOAT64 => {
                 // Return the float
                 return CoercionResult.init(rhs_kind, true, false);
+            },
+            // Left Int | Right ptr
+            .PTR => {
+                // Return the ptr
+                return CoercionResult.init(rhs_kind, false, false);
+            },
+            // Left Int | Right Array
+            .ARRAY => |array| {
+                // Decay to pointer
+                const new_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
+                return CoercionResult.init(new_ptr, false, false);
             },
             // All other combinations are illegal
             else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
@@ -228,6 +277,71 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
             // All other combinations are illegal
             else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
         },
+        // Left PTR
+        .PTR => |l_ptr| switch (rhs_kind) {
+            // Right - Integer number kind
+            .BOOL, .UINT, .INT => return CoercionResult.init(rhs_kind, false, false),
+            // Right - Ptr
+            .PTR => |r_ptr| {
+                if (!l_ptr.equal(r_ptr)) {
+                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
+                }
+                // Return a I64
+                const new_int = KindId.newInt(64);
+                return CoercionResult.init(new_int, false, false);
+            },
+            // Right - array
+            .ARRAY => |array| {
+                const array_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
+                if (!l_ptr.equal(array_ptr.PTR)) {
+                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
+                }
+                // Return a I64
+                const new_int = KindId.newInt(64);
+                return CoercionResult.init(new_int, false, false);
+            },
+            else => return self.reportError(
+                SemanticError.TypeMismatch,
+                op,
+                "Pointers only support Non-floating point numbers",
+            ),
+        },
+        // Left bool | Right Array
+        .ARRAY => |l_array| switch (rhs_kind) {
+            .BOOL, .UINT, .INT => {
+                // Decay to pointer
+                const new_ptr = KindId.newPtrFromArray(lhs_kind, l_array.const_items);
+                return CoercionResult.init(new_ptr, false, false);
+            },
+            // Right - ptr
+            .PTR => |r_ptr| {
+                const array_ptr = KindId.newPtrFromArray(lhs_kind, l_array.const_items);
+                if (!array_ptr.PTR.equal(r_ptr)) {
+                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
+                }
+                // Return a I64
+                const new_int = KindId.newInt(64);
+                return CoercionResult.init(new_int, false, false);
+            },
+            // Right - array
+            .ARRAY => |r_array| {
+                // Convert to pointers
+                const l_array_ptr = KindId.newPtrFromArray(lhs_kind, l_array.const_items);
+                const r_array_ptr = KindId.newPtrFromArray(rhs_kind, r_array.const_items);
+                // If not equal, error
+                if (!l_array_ptr.PTR.equal(r_array_ptr.PTR)) {
+                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
+                }
+                // Return a I64
+                const new_int = KindId.newInt(64);
+                return CoercionResult.init(new_int, false, false);
+            },
+            else => return self.reportError(
+                SemanticError.TypeMismatch,
+                op,
+                "Arrays only support non-floating point numbers",
+            ),
+        },
         // For all other types
         else => {
             // If the equal
@@ -242,23 +356,94 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
 }
 
 // ********************** //
+// Stmt anaylsis  methods //
+// ********************** //
+/// analyze the types of stmtnodes
+fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
+    return switch (stmt.*) {
+        .DECLARE => |declareStmt| self.visitDeclareStmt(declareStmt),
+        .EXPRESSION => |exprStmt| self.visitExprStmt(exprStmt),
+        else => unreachable,
+    };
+}
+
+/// Analze the types of an DeclareStmt
+fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) SemanticError!void {
+    // Get the type of expression
+    const expr_kind = try self.analyzeExpr(&declareExpr.expr);
+    // Extract declaration kind
+    const maybe_declared_kind = declareExpr.kind;
+
+    // Check if declared with a kind
+    if (maybe_declared_kind) |declared_kind| {
+        // Check if the expr kind and declared kind are coerceable
+        const coerce_result = try self.coerceKinds(declareExpr.op, declared_kind, expr_kind);
+
+        // Check if declared kind was "upgraded"
+        if (!declared_kind.equal(coerce_result.final_kind)) {
+            return self.reportError(
+                SemanticError.TypeMismatch,
+                declareExpr.op,
+                "Invalid assignment, cannot implicitly downgrade types",
+            );
+        }
+
+        // Check if need to insert conversion nodes
+        if (coerce_result.upgraded_rhs) {
+            insertConvExpr(
+                self.allocator,
+                &declareExpr.expr,
+                coerce_result.final_kind,
+            );
+        }
+    } else {
+        // Update kind to expr result kind
+        declareExpr.kind = expr_kind;
+        // If ptr or array remove ownership
+        if (declareExpr.kind.? == .PTR) {
+            declareExpr.kind.?.PTR.own_self = false;
+        } else if (declareExpr.kind.? == .ARRAY) {
+            declareExpr.kind.?.ARRAY.own_self = false;
+        }
+    }
+
+    // Create new symbol in STM
+    self.stm.declareSymbol(
+        declareExpr.id.lexeme,
+        declareExpr.kind.?,
+        ScopeKind.GLOBAL,
+        declareExpr.id.line,
+        declareExpr.mutable,
+    ) catch {
+        return self.reportError(SemanticError.DuplicateDeclaration, declareExpr.id, "Duplicate usage of identifier");
+    };
+}
+
+/// analyze the types of an ExprStmt
+fn visitExprStmt(self: *TypeChecker, exprStmt: *Stmt.ExprStmt) SemanticError!void {
+    // analyze the expression stored
+    _ = try self.analyzeExpr(&exprStmt.expr);
+}
+
+// ********************** //
 // Expr anaylsis  methods //
 // ********************** //
 
 /// Analysis a ExprNode
-fn analysisExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Determine the type of expr and analysis it
     return switch (node.*.expr) {
-        .IDENTIFIER => try self.visitIdentifierExpr(node),
+        .IDENTIFIER => self.visitIdentifierExpr(node),
         .LITERAL => self.visitLiteralExpr(node),
         .NATIVE => self.visitNativeExpr(node),
         .CONVERSION => self.visitConvExpr(node),
-        .UNARY => try self.visitUnaryExpr(node),
-        .ARITH => try self.visitArithExpr(node),
-        .COMPARE => try self.visitCompareExpr(node),
-        .AND => try self.visitAndExpr(node),
-        .OR => try self.visitOrExpr(node),
-        .IF => try self.visitIfExpr(node),
+        .INDEX => self.visitIndexExpr(node),
+        .UNARY => self.visitUnaryExpr(node),
+        .ARITH => self.visitArithExpr(node),
+        .COMPARE => self.visitCompareExpr(node),
+        .AND => self.visitAndExpr(node),
+        .OR => self.visitOrExpr(node),
+        .IF => self.visitIfExpr(node),
         //else => unreachable,
     };
 }
@@ -299,16 +484,21 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
         },
         .STRING => {
             const strVal = literal_expr.value.as.string;
-            node.result_kind = KindId.newArr(self.allocator, KindId.newUInt(8), strVal.data.len);
+            node.result_kind = KindId.newArr(self.allocator, KindId.newUInt(8), strVal.data.len, true);
             return node.result_kind;
         },
         .ARRAY => {
             // Get array value
-            //const arrVal = &literal_expr.value.as.array;
+            const arrVal = &literal_expr.value.as.array;
             // Make KindId for array
-            //node.result_kind = KindId.newArr(arrVal);
-            //return node.result_kind;
-            unreachable;
+            var new_array_kind: KindId = arrVal.kind.*;
+            // Loop for each dimension of arrVal
+            for (arrVal.dimensions.slice()) |dim| {
+                new_array_kind = KindId.newArr(self.allocator, new_array_kind, dim, true);
+            }
+            // Update result kind
+            node.result_kind = new_array_kind;
+            return node.result_kind;
         },
     }
 }
@@ -322,12 +512,19 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     const symbol = self.stm.getSymbol(name) catch {
         return self.reportError(SemanticError.UnresolvableIdentifier, token, "Identifier is undeclared");
     };
-    // Return its stored kind
-    return symbol.kind;
+    // Return its stored kind and update final
+    node.result_kind = symbol.kind;
+    // Remove ownership if ptr or array
+    if (node.result_kind == .PTR) {
+        node.result_kind.PTR.own_self = false;
+    } else if (node.result_kind == .ARRAY) {
+        node.result_kind.ARRAY.own_self = false;
+    }
+    return node.result_kind;
 }
 
 //************************************//
-//       Call Exprs
+//       Access Exprs
 //************************************//
 fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract nativeExpr
@@ -364,7 +561,28 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         // Check arg types
         for (native.arg_kinds.?, call_args.?) |native_arg_kind, *call_arg| {
             // Evaluate argument type
-            const arg_kind = try self.analysisExpr(call_arg);
+            var arg_kind = try self.analyzeExpr(call_arg);
+
+            // Decay any arrays into pointers
+            if (arg_kind == .ARRAY) {
+                arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
+                // Check if arg is a literal expression
+                if (call_arg.*.expr == .LITERAL) {
+                    // Give pointer ownership of itself
+                    arg_kind.PTR.own_self = true;
+                }
+                // Update call_arg kind
+                call_arg.*.result_kind = arg_kind;
+            }
+
+            // Check if pointer arguments are being given pointer parameters
+            if ((native_arg_kind == .PTR or native_arg_kind == .ARRAY) and (arg_kind != .PTR and arg_kind != .ARRAY)) {
+                return self.reportError(
+                    SemanticError.UnsafeCoercion,
+                    native_token,
+                    "Cannot implicitly convert number into pointer",
+                );
+            }
 
             // Check if match or coerceable
             const coerce_result = try self.coerceKinds(
@@ -387,7 +605,6 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
                     self.allocator,
                     call_arg,
                     coerce_result.final_kind,
-                    node.weight,
                 );
             }
         }
@@ -406,6 +623,40 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     return native.ret_kind.*;
 }
 
+fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    // Extract index expression
+    const indexExpr = node.expr.INDEX;
+    // Find lhs kind
+    const lhs_kind = try self.analyzeExpr(&indexExpr.lhs);
+    // Used to return child kind
+    var dereferenced_kind: KindId = undefined;
+
+    // Check if lhs is an array and index is inbounds of array
+    if (lhs_kind == .ARRAY) {
+        dereferenced_kind = lhs_kind.ARRAY.dereference() catch
+            {
+            return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
+        };
+    } else if (lhs_kind == .PTR) {
+        dereferenced_kind = lhs_kind.PTR.dereference() catch {
+            return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
+        };
+    } else {
+        return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
+    }
+
+    // Find rhs kind
+    const rhs_kind = try self.analyzeExpr(&indexExpr.rhs);
+    // Checl if rhs is a U(INT)
+    if (rhs_kind != .UINT and rhs_kind != .INT) {
+        return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only access int or uint indexes");
+    }
+
+    // Update result kind
+    node.result_kind = dereferenced_kind;
+    return node.result_kind;
+}
+
 //************************************//
 //       Conversion Expr
 //************************************//
@@ -414,7 +665,7 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 fn visitConvExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const convExpr = node.expr.CONVERSION;
     const convKind = node.result_kind;
-    const operandKind = try self.analysisExpr(&convExpr.operand);
+    const operandKind = try self.analyzeExpr(&convExpr.operand);
     _ = operandKind;
     // convKind == convExpr.operand.result_kind || areLegal()
     return convKind;
@@ -425,7 +676,7 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract unaryExpr
     const unaryExpr = node.expr.UNARY;
     // Get kind of rhs
-    const rhs_kind = try self.analysisExpr(&unaryExpr.operand);
+    const rhs_kind = try self.analyzeExpr(&unaryExpr.operand);
 
     // Check type of this unary expr
     switch (unaryExpr.op.kind) {
@@ -477,9 +728,9 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract ARITH expr
     var arithExpr = node.expr.ARITH;
     // Get rhs type
-    const rhs_kind = try self.analysisExpr(&arithExpr.rhs);
+    const rhs_kind = try self.analyzeExpr(&arithExpr.rhs);
     // Get lhs type
-    const lhs_kind = try self.analysisExpr(&arithExpr.lhs);
+    const lhs_kind = try self.analyzeExpr(&arithExpr.lhs);
     // Get operator
     const op = arithExpr.op;
 
@@ -493,7 +744,7 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Rename form to be shorter
     const kind = coerce_result.final_kind;
     // Check if legal type for arithmetic
-    if (kind != .INT and kind != .UINT and kind != .FLOAT32 and kind != .FLOAT64) {
+    if (kind != .INT and kind != .UINT and kind != .FLOAT32 and kind != .FLOAT64 and kind != .PTR) {
         // No boolean algebra
         return self.reportError(
             SemanticError.TypeMismatch,
@@ -512,6 +763,15 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             "Cannot use modulo operator with floats",
         );
     }
+    // Non addition or subtraction pointer
+    if (kind == .PTR and op.kind != .PLUS and op.kind != .MINUS) {
+        // No pointer division, multi, or mod
+        return self.reportError(
+            SemanticError.TypeMismatch,
+            op,
+            "Pointers only support '+' and '-' arithmetic operators",
+        );
+    }
 
     // Check for inserts
     // Left side
@@ -520,14 +780,12 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             self.allocator,
             &arithExpr.*.lhs,
             coerce_result.final_kind,
-            node.weight,
         );
     } else if (coerce_result.upgraded_rhs) {
         insertConvExpr(
             self.allocator,
             &arithExpr.*.rhs,
             coerce_result.final_kind,
-            node.weight,
         );
     }
 
@@ -541,9 +799,9 @@ fn visitCompareExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract compare expr
     var compareExpr = node.expr.COMPARE;
     // Get rhs type
-    const rhs_kind = try self.analysisExpr(&compareExpr.rhs);
+    const rhs_kind = try self.analyzeExpr(&compareExpr.rhs);
     // Get lhs type
-    const lhs_kind = try self.analysisExpr(&compareExpr.lhs);
+    const lhs_kind = try self.analyzeExpr(&compareExpr.lhs);
     // Get operator
     const op = compareExpr.op;
 
@@ -554,6 +812,13 @@ fn visitCompareExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         rhs_kind,
     );
 
+    // Rename form to be shorter
+    const kind = coerce_result.final_kind;
+    // Check if legal type for comparison
+    if (kind != .INT and kind != .UINT and kind != .FLOAT32 and kind != .FLOAT64 and kind != .PTR) {
+        return self.reportError(SemanticError.TypeMismatch, op, "Cannot compare non-number values");
+    }
+
     // Check for inserts
     // Left side
     if (coerce_result.upgraded_lhs) {
@@ -561,14 +826,12 @@ fn visitCompareExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             self.allocator,
             &compareExpr.*.lhs,
             coerce_result.final_kind,
-            node.weight,
         );
     } else if (coerce_result.upgraded_rhs) {
         insertConvExpr(
             self.allocator,
             &compareExpr.*.rhs,
             coerce_result.final_kind,
-            node.weight,
         );
     }
 
@@ -582,9 +845,9 @@ fn visitAndExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract or expr
     var andExpr = node.expr.AND;
     // Get rhs type
-    const rhs_kind = try self.analysisExpr(&andExpr.rhs);
+    const rhs_kind = try self.analyzeExpr(&andExpr.rhs);
     // Get lhs type
-    const lhs_kind = try self.analysisExpr(&andExpr.lhs);
+    const lhs_kind = try self.analyzeExpr(&andExpr.lhs);
     // Get operator
     const op = andExpr.op;
 
@@ -604,9 +867,9 @@ fn visitOrExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract or expr
     var orExpr = node.expr.OR;
     // Get rhs type
-    const rhs_kind = try self.analysisExpr(&orExpr.rhs);
+    const rhs_kind = try self.analyzeExpr(&orExpr.rhs);
     // Get lhs type
-    const lhs_kind = try self.analysisExpr(&orExpr.lhs);
+    const lhs_kind = try self.analyzeExpr(&orExpr.lhs);
     // Get operator
     const op = orExpr.op;
 
@@ -626,11 +889,11 @@ fn visitIfExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract if expr
     const ifExpr = node.expr.IF;
     // Get conditional type
-    const condition_type = try self.analysisExpr(&ifExpr.conditional);
+    const condition_type = try self.analyzeExpr(&ifExpr.conditional);
     // Get then branch type
-    const then_kind = try self.analysisExpr(&ifExpr.then_branch);
+    const then_kind = try self.analyzeExpr(&ifExpr.then_branch);
     // Get else branch type
-    const else_kind = try self.analysisExpr(&ifExpr.else_branch);
+    const else_kind = try self.analyzeExpr(&ifExpr.else_branch);
     // Get token
     const if_token = ifExpr.if_token;
 
@@ -654,18 +917,23 @@ fn visitIfExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             self.allocator,
             &ifExpr.*.then_branch,
             coerce_result.final_kind,
-            node.weight,
         );
     } else if (coerce_result.upgraded_rhs) {
         insertConvExpr(
             self.allocator,
             &ifExpr.*.else_branch,
             coerce_result.final_kind,
-            node.weight,
         );
     }
 
     // Update return kind
-    node.result_kind = coerce_result.final_kind;
+    if (then_kind == .PTR or then_kind == .ARRAY) {
+        node.result_kind = then_kind;
+    } else if (else_kind == .PTR or else_kind == .ARRAY) {
+        node.result_kind = else_kind;
+    } else {
+        node.result_kind = coerce_result.final_kind;
+    }
+
     return node.result_kind;
 }

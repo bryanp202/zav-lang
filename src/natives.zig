@@ -37,6 +37,7 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "print_i", print_i_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "print_f", print_f_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "print_s", print_s_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "print_ss", print_ss_native(allocator)) catch unreachable;
 
     // return it
     return new_table;
@@ -110,11 +111,14 @@ fn print_f_native(allocator: std.mem.Allocator) Native {
     const kind = KindId.newFunc(allocator, arg_kinds, ret_kind);
     const source =
         \\@print_f:
+        \\    push rbp
+        \\    mov rbp, rsp
         \\    lea rcx, [@F_FMT]
-        \\    lea rdx, [rsp + 8]
+        \\    mov rdx, [rbp + 16]
         \\    sub rsp, 40 ; shadow space
         \\    call printf
         \\    add rsp, 40
+        \\    pop rbp
         \\    ret
         \\
     ;
@@ -131,21 +135,56 @@ fn print_f_native(allocator: std.mem.Allocator) Native {
 fn print_s_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
-    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), 1);
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
     // Make return kind
-    const ret_kind = KindId.newInt(32);
+    const ret_kind = KindId.newUInt(32);
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, ret_kind);
     const source =
         \\@print_s:
-        \\    lea rcx, [rsp + 16]
-        \\    lea rdx, [rsp + 8]
+        \\    push rbp
+        \\    mov rbp, rsp
+        \\    mov rcx, [rbp + 16]
         \\    sub rsp, 40 ; shadow space
         \\    call printf
         \\    add rsp, 40
+        \\    pop rbp
         \\    ret
         \\
     ;
     const native = Native.newNative(kind, source, null);
+    return native;
+}
+
+/// Used to print count chars from a char array
+/// Ex => @print_ss(char array, int count) null termination optional
+fn print_ss_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    arg_kinds[1] = KindId.newInt(64);
+    // Make return kind
+    const ret_kind = KindId.newUInt(32);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, ret_kind);
+    const source =
+        \\@print_ss:
+        \\    push rbp
+        \\    mov rbp, rsp
+        \\    lea rcx, [@SS_FMT]
+        \\    mov rdx, [rbp + 16]
+        \\    mov r8, [rbp + 24]
+        \\    sub rsp, 40 ; shadow space
+        \\    call printf
+        \\    add rsp, 40
+        \\    pop rbp
+        \\    ret
+        \\
+    ;
+    const data =
+        \\    @SS_FMT db "%.*s", 0
+        \\
+    ;
+    const native = Native.newNative(kind, source, data);
     return native;
 }

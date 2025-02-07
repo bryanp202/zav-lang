@@ -15,13 +15,13 @@ pub const SemanticError = error{
     TypeMismatch,
     UnsafeCoercion,
     UnresolvableIdentifier,
+    DuplicateDeclaration,
 };
 
 /// Asm Generation Errors
 pub const GenerationError = error{
     FailedToWrite,
-    OutOfCPURegisters,
-    OutOfSSERegisters,
+    OutOfRegisters,
 };
 
 /// General Compiler Errors

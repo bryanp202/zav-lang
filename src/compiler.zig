@@ -5,6 +5,8 @@ const Scan = @import("front_end/scanner.zig");
 const Scanner = Scan.Scanner;
 const TokenKind = Scan.TokenKind;
 const Token = Scan.Token;
+// Module import
+const Module = @import("module.zig");
 // Parser and AST import
 const Parser = @import("front_end/parser.zig");
 // Type checking
@@ -60,7 +62,7 @@ pub fn compile(self: *Compiler, source: []const u8, keep_asm: bool) void {
         std.debug.print("Successfully assembled\n", .{});
 
         // Link
-        const link_args = [_][]const u8{ "gcc", ".\\out.obj", "-o", ".\\out.exe" };
+        const link_args = [_][]const u8{ "gcc", ".\\out.obj", "-o", ".\\out.exe" }; // "-nostdlib", "-static" };
         const link_result = std.process.Child.run(.{ .allocator = self.allocator, .argv = &link_args }) catch {
             std.debug.print("Failed to link file\n", .{});
             return;
@@ -97,20 +99,20 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     // Make TypeChecker
     var type_checker = TypeChecker.init(self.allocator, &self.stm);
 
-    // Parser into stage 1 AST
-    var root = parser.parse();
-    defer if (root) |rt| rt.deinit(self.allocator);
+    // Make a new root module
+    var root_module = Module.init("out", self.allocator);
+    defer root_module.deinit(self.allocator);
+    // Parse into it
+    parser.parse(&root_module);
 
     // Output
-    if (!parser.hadError() and root != null) {
-        // Print ast
-        std.debug.print("AST: ", .{});
-        root.?.debugDisplay();
-        std.debug.print("\n", .{});
+    if (!parser.hadError()) {
+        // Print program
+        root_module.display();
 
         // Check types
-        const semantic_okay = type_checker.check(&root.?);
-        if (semantic_okay) {
+        type_checker.check(&root_module);
+        if (!type_checker.hadError()) {
             std.debug.print("Types all good\n", .{});
         } else {
             std.debug.print("Had Semantic Error\n", .{});
@@ -121,13 +123,12 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
         return false;
     }
 
-    // Print ast
-    std.debug.print("Post-TypeCheck AST: ", .{});
-    root.?.debugDisplay();
-    std.debug.print("\n", .{});
+    // Print root module post type checking
+    std.debug.print("Post type checking program:\n", .{});
+    root_module.display();
 
     // Generation
-    var generator = Generator.init(self.allocator, &self.stm, "out.asm") catch |err| {
+    var generator = Generator.init(self.allocator, &self.stm, root_module.name) catch |err| {
         // switch (err) {
         //     error.FailedToWrite => std.debug.print("Failed to make file\n", .{}),
         //     error.OutOfCPURegisters => std.debug.print("Ran out of CPU registers\n", .{}),
@@ -138,7 +139,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     };
     defer generator.deinit(self.allocator);
 
-    _ = generator.gen(root.?) catch {
+    _ = generator.gen(root_module) catch {
         std.debug.print("Failed to write file\n", .{});
         return false;
     };

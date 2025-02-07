@@ -16,6 +16,7 @@ pub const ExprUnion = union(enum) {
     LITERAL: *LiteralExpr,
     NATIVE: *NativeExpr,
     CONVERSION: *ConversionExpr,
+    INDEX: *IndexExpr,
     UNARY: *UnaryExpr,
     ARITH: *ArithExpr,
     COMPARE: *CompareExpr,
@@ -26,35 +27,39 @@ pub const ExprUnion = union(enum) {
 
 /// Generic node for all expression types
 pub const ExprNode = struct {
-    weight: isize,
     result_kind: KindId,
     expr: ExprUnion,
 
-    pub fn init(expr: ExprUnion, weight: isize) ExprNode {
+    pub fn init(expr: ExprUnion) ExprNode {
         return ExprNode{
             .result_kind = KindId.VOID,
             .expr = expr,
-            .weight = weight,
         };
     }
 
-    pub fn initWithKind(expr: ExprUnion, weight: isize, kind: KindId) ExprNode {
+    pub fn initWithKind(expr: ExprUnion, kind: KindId) ExprNode {
         return ExprNode{
-            .weight = weight,
             .result_kind = kind,
             .expr = expr,
         };
     }
 
     pub fn deinit(self: ExprNode, allocator: std.mem.Allocator) void {
-        // Deinit kindid
-        self.result_kind.deinit(allocator);
         // Check type and call next level of deinit
         switch (self.expr) {
-            .IDENTIFIER => |idExpr| allocator.destroy(idExpr),
-            .LITERAL => |litExpr| allocator.destroy(litExpr),
-            .CONVERSION => |convExpr| convExpr.deinit(allocator),
+            .IDENTIFIER => |idExpr| {
+                // Destroy self
+                allocator.destroy(idExpr);
+            },
+            .LITERAL => |litExpr| {
+                // Deallocate return_kind
+                self.result_kind.deinit(allocator);
+                // Destroy self
+                allocator.destroy(litExpr);
+            },
             .NATIVE => |nativeExpr| nativeExpr.deinit(allocator),
+            .CONVERSION => |convExpr| convExpr.deinit(allocator),
+            .INDEX => |indexExpr| indexExpr.deinit(allocator),
             .UNARY => |unaryExpr| unaryExpr.deinit(allocator),
             .ARITH => |arithExpr| arithExpr.deinit(allocator),
             .COMPARE => |compareExpr| compareExpr.deinit(allocator),
@@ -65,14 +70,14 @@ pub const ExprNode = struct {
     }
 
     /// Used to display an AST in polish notation
-    pub fn debugDisplay(self: ExprNode) void {
+    pub fn display(self: ExprNode) void {
         switch (self.expr) {
             .IDENTIFIER => |idExpr| std.debug.print("{s}", .{idExpr.id.lexeme}),
             .LITERAL => |litExpr| std.debug.print("{s}", .{litExpr.literal.lexeme}),
             .CONVERSION => |convExpr| {
-                std.debug.print("(", .{});
-                convExpr.operand.debugDisplay();
-                std.debug.print("->{any})", .{self.result_kind});
+                //std.debug.print("(", .{});
+                convExpr.operand.display();
+                //std.debug.print("->{any})", .{self.result_kind});
             },
             .NATIVE => |nativeExpr| {
                 std.debug.print("{s}(", .{nativeExpr.name.lexeme});
@@ -80,53 +85,61 @@ pub const ExprNode = struct {
                 if (nativeExpr.args) |args| {
                     // Print each arg, seperated by ','
                     for (args) |arg| {
-                        arg.debugDisplay();
+                        arg.display();
                         std.debug.print(",", .{});
                     }
                 }
-                std.debug.print(")->{any}", .{self.result_kind});
+                std.debug.print(")", .{});
+                //std.debug.print(")->{any}", .{self.result_kind});
+            },
+            .INDEX => |indexExpr| {
+                std.debug.print("(", .{});
+                indexExpr.lhs.display();
+                std.debug.print("[", .{});
+                indexExpr.rhs.display();
+                std.debug.print("])", .{});
             },
             .UNARY => |unaryExpr| {
                 std.debug.print("(", .{});
                 std.debug.print("{s}", .{unaryExpr.op.lexeme});
-                unaryExpr.operand.debugDisplay();
+                unaryExpr.operand.display();
                 std.debug.print(")", .{});
             },
             .ARITH => |arithExpr| {
                 std.debug.print("(", .{});
-                arithExpr.lhs.debugDisplay();
+                arithExpr.lhs.display();
                 std.debug.print("{s}", .{arithExpr.op.lexeme});
-                arithExpr.rhs.debugDisplay();
+                arithExpr.rhs.display();
                 std.debug.print(")", .{});
             },
             .COMPARE => |compareExpr| {
                 std.debug.print("(", .{});
-                compareExpr.lhs.debugDisplay();
+                compareExpr.lhs.display();
                 std.debug.print("{s}", .{compareExpr.op.lexeme});
-                compareExpr.rhs.debugDisplay();
+                compareExpr.rhs.display();
                 std.debug.print(")", .{});
             },
             .AND => |andExpr| {
                 std.debug.print("(", .{});
-                andExpr.lhs.debugDisplay();
+                andExpr.lhs.display();
                 std.debug.print(" and ", .{});
-                andExpr.rhs.debugDisplay();
+                andExpr.rhs.display();
                 std.debug.print(")", .{});
             },
             .OR => |orExpr| {
                 std.debug.print("(", .{});
-                orExpr.lhs.debugDisplay();
+                orExpr.lhs.display();
                 std.debug.print(" or ", .{});
-                orExpr.rhs.debugDisplay();
+                orExpr.rhs.display();
                 std.debug.print(")", .{});
             },
             .IF => |ifExpr| {
                 std.debug.print("(if(", .{});
-                ifExpr.conditional.debugDisplay();
+                ifExpr.conditional.display();
                 std.debug.print(")", .{});
-                ifExpr.then_branch.debugDisplay();
+                ifExpr.then_branch.display();
                 std.debug.print(" else ", .{});
-                ifExpr.else_branch.debugDisplay();
+                ifExpr.else_branch.display();
                 std.debug.print(")", .{});
             },
         }
@@ -198,6 +211,36 @@ pub const NativeExpr = struct {
 };
 
 //**********************************************//
+//          Access nodes
+//**********************************************//
+/// Operation for accessing an index
+pub const IndexExpr = struct {
+    lhs: ExprNode,
+    rhs: ExprNode,
+    op: Token,
+    // Marked true if evaluation order was swapped
+    reversed: bool,
+
+    /// Make a new Arithmatic Expr with a void return type
+    pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token, reversed: bool) IndexExpr {
+        return IndexExpr{
+            .lhs = lhs,
+            .rhs = rhs,
+            .op = op,
+            .reversed = reversed,
+        };
+    }
+
+    fn deinit(self: *IndexExpr, allocator: std.mem.Allocator) void {
+        // Deinit subnodes
+        self.lhs.deinit(allocator);
+        self.rhs.deinit(allocator);
+        // Destory self
+        allocator.destroy(self);
+    }
+};
+
+//**********************************************//
 //          Unary node
 //**********************************************//
 
@@ -229,13 +272,16 @@ pub const ArithExpr = struct {
     lhs: ExprNode,
     rhs: ExprNode,
     op: Token,
+    // Marked true if evaluation order was swapped
+    reversed: bool,
 
     /// Make a new Arithmatic Expr with a void return type
-    pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token) ArithExpr {
+    pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token, reversed: bool) ArithExpr {
         return ArithExpr{
             .lhs = lhs,
             .rhs = rhs,
             .op = op,
+            .reversed = reversed,
         };
     }
 
@@ -254,13 +300,16 @@ pub const CompareExpr = struct {
     lhs: ExprNode,
     rhs: ExprNode,
     op: Token,
+    // Marked true if evaluation order was swapped
+    reversed: bool,
 
     /// Make a new compare Expr with a void return type
-    pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token) CompareExpr {
+    pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token, reversed: bool) CompareExpr {
         return CompareExpr{
             .lhs = lhs,
             .rhs = rhs,
             .op = op,
+            .reversed = reversed,
         };
     }
 

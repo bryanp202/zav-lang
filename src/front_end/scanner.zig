@@ -284,9 +284,10 @@ pub const Scanner = struct {
 
     /// Scan a string literal
     fn string(self: *Scanner) Token {
-        // Continue until end of file or closing '"' or new line
-        while (self.peek() != '\"' and self.peek() != '\n' and !self.isAtEnd()) {
-            _ = self.advance();
+        var current: u8 = 0;
+        // Continue until end of file or closing '"' (ignores \") or new line
+        while ((self.peek() != '\"' or current == '\\') and self.peek() != '\n' and !self.isAtEnd()) {
+            current = self.advance();
         }
         // Check if string was not closed
         if (self.isAtEnd() or self.peek() == '\n') {
@@ -459,9 +460,17 @@ pub const Scanner = struct {
                         else => break :identifier_loop,
                     }
                 },
+                'm' => {
+                    _ = self.advance();
+                    return self.checkKeyword("ut", TokenKind.MUT);
+                },
                 'o' => {
                     _ = self.advance();
                     return self.checkKeyword("r", TokenKind.OR);
+                },
+                'r' => {
+                    _ = self.advance();
+                    return self.checkKeyword("eturn", TokenKind.RETURN);
                 },
                 's' => {
                     _ = self.advance();
@@ -618,6 +627,8 @@ pub const TokenKind = enum {
     FALSE,
     ELSE,
     OR,
+    RETURN,
+    MUT,
 
     //// Parser Tokens ////
     ERROR,
