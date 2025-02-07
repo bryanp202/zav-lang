@@ -58,10 +58,9 @@ label_count: usize,
 cpu_reg_stack: RegisterStack(cpu_reg_names),
 sse_reg_stack: RegisterStack(sse_reg_names),
 
-pub fn init(allocator: std.mem.Allocator, stm: *STM, name: []const u8) !Generator {
+pub fn open(allocator: std.mem.Allocator, stm: *STM, name: []const u8) !Generator {
     // Add .asm to path
     const path = std.fmt.allocPrint(allocator, "{s}.asm", .{name}) catch unreachable;
-    defer allocator.free(path);
 
     const file = try std.fs.cwd().createFile(path, .{ .read = true });
     const writer_ptr = allocator.create(WriterType) catch unreachable;
@@ -93,9 +92,9 @@ pub fn init(allocator: std.mem.Allocator, stm: *STM, name: []const u8) !Generato
     };
 }
 
-pub fn deinit(self: Generator, allocator: std.mem.Allocator) void {
+pub fn close(self: Generator, allocator: std.mem.Allocator) GenerationError!void {
     // Write end of file
-    self.write(
+    try self.write(
         \\    
         \\    ; Quit
         \\    xor ecx, ecx
@@ -106,26 +105,26 @@ pub fn deinit(self: Generator, allocator: std.mem.Allocator) void {
         \\;         Natives         ;
         \\;-------------------------;
         \\
-    ) catch unreachable;
+    );
 
     // Write native functions source
     var native_func = self.stm.natives_table.natives_table.iterator();
     // Go through each
     while (native_func.next()) |native| {
         if (native.value_ptr.used) {
-            self.print("{s}", .{native.value_ptr.source}) catch unreachable;
+            try self.print("{s}", .{native.value_ptr.source});
         }
     }
 
     // Write .data section
-    self.write(
+    try self.write(
         \\
         \\section .data
         \\    ; Native Constants ;
         \\    @SS_SIGN_BIT: dq 0x80000000, 0, 0, 0
         \\    @SD_SIGN_BIT: dq 0x8000000000000000, 0, 0, 0
         \\
-    ) catch unreachable;
+    );
     // Write native data
     // Write native functions source
     native_func = self.stm.natives_table.natives_table.iterator();
@@ -133,13 +132,13 @@ pub fn deinit(self: Generator, allocator: std.mem.Allocator) void {
     while (native_func.next()) |native| {
         if (native.value_ptr.used) {
             if (native.value_ptr.data) |data| {
-                self.print("{s}", .{data}) catch unreachable;
+                try self.print("{s}", .{data});
             }
         }
     }
 
     // Write the program defined constants section
-    self.write("\n    ; Program Constants\n") catch unreachable;
+    try self.write("\n    ; Program Constants\n");
     var const_iter = self.stm.constants.iterator();
     while (const_iter.next()) |entry| {
         // Extract entry
@@ -153,16 +152,16 @@ pub fn deinit(self: Generator, allocator: std.mem.Allocator) void {
             switch (real_value.kind) {
                 .FLOAT32 => {
                     const float = real_value.as.float32;
-                    self.print("    {s}: dd {e}\n", .{ name, float }) catch unreachable;
+                    try self.print("    {s}: dd {e}\n", .{ name, float });
                 },
                 .FLOAT64 => {
                     const float = real_value.as.float64;
-                    self.print("    {s}: dq {e}\n", .{ name, float }) catch unreachable;
+                    try self.print("    {s}: dq {e}\n", .{ name, float });
                 },
                 .STRING => {
                     const string = real_value.as.string.data.slice();
                     const extracted_str = string[1 .. string.len - 1];
-                    self.print("    {s}: db `{s}`, 0\n", .{ name, extracted_str }) catch unreachable;
+                    try self.print("    {s}: db `{s}`, 0\n", .{ name, extracted_str });
                 },
                 else => unreachable,
             }
@@ -170,7 +169,7 @@ pub fn deinit(self: Generator, allocator: std.mem.Allocator) void {
     }
 
     // Write global variables to bss section
-    self.write("\nsection .bss\n    ; Program Globals\n") catch unreachable;
+    try self.write("\nsection .bss\n    ; Program Globals\n");
     // Reset scope stack
     self.stm.resetStack();
     var global_iter = self.stm.active_scope.symbols.iterator();
@@ -179,7 +178,7 @@ pub fn deinit(self: Generator, allocator: std.mem.Allocator) void {
         // Extract global
         const global = global_entry.value_ptr;
         // Write to file
-        self.print("    _{s}: resb {d}\n", .{ global.name, global.size }) catch unreachable;
+        try self.print("    _{s}: resb {d}\n", .{ global.name, global.size });
     }
 
     // Close file and deallocate writer

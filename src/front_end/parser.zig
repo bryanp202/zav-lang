@@ -318,7 +318,6 @@ fn declareStmt(self: *Parser) SyntaxError!StmtNode {
     // Parse expression
     const assign_expr_result = try self.expression();
     const assign_expr = assign_expr_result.expr;
-    errdefer assign_expr.deinit(self.allocator);
     // Consume ';'
     try self.consume(TokenKind.SEMICOLON, "Expected ';' after declaration statement");
 
@@ -345,7 +344,6 @@ fn mutStmt(self: *Parser) SyntaxError!StmtNode {
     // Get id_expr
     const id_expr_result = try self.expression();
     const id_expr = id_expr_result.expr;
-    errdefer id_expr.deinit(self.allocator);
 
     // Consume (+-*/%)? '='
     if (!self.match(.{
@@ -364,7 +362,6 @@ fn mutStmt(self: *Parser) SyntaxError!StmtNode {
     // Parse Expression
     const assign_expr_result = try self.expression();
     const assign_expr = assign_expr_result.expr;
-    errdefer assign_expr.deinit(self.allocator);
     // Consume ';'
     try self.consume(TokenKind.SEMICOLON, "Expected ';' after mutation statement");
 
@@ -382,7 +379,6 @@ fn exprStmt(self: *Parser) SyntaxError!StmtNode {
     const expr_result = try self.expression();
     // Unwrap expressions
     const expr = expr_result.expr;
-    errdefer expr.deinit(self.allocator);
 
     // Consume ';'
     try self.consume(TokenKind.SEMICOLON, "Expected ';' after expression statement");
@@ -416,7 +412,6 @@ fn if_expr(self: *Parser) SyntaxError!ExprResult {
         const condition = try self.if_expr();
         // Inwrap condition expr
         const condition_expr = condition.expr;
-        errdefer condition_expr.deinit(self.allocator);
         // Unwrap precedence
         const precedence = condition.precedence;
 
@@ -427,7 +422,6 @@ fn if_expr(self: *Parser) SyntaxError!ExprResult {
         const then_branch = try self.if_expr();
         // Inwrap condition expr
         const then_expr = then_branch.expr;
-        errdefer then_expr.deinit(self.allocator);
 
         // Consume else
         try self.consume(TokenKind.ELSE, "If expressions must have an else branch");
@@ -457,7 +451,6 @@ fn logic_or(self: *Parser) SyntaxError!ExprResult {
     const lhs = try self.logic_and();
     // Unwrap expr
     var expr = lhs.expr;
-    errdefer expr.deinit(self.allocator);
     // Unwrap precedence
     var precedence = lhs.precedence;
 
@@ -490,7 +483,6 @@ fn logic_and(self: *Parser) SyntaxError!ExprResult {
     const lhs = try self.compare();
     // Unwrap expr
     var expr = lhs.expr;
-    errdefer expr.deinit(self.allocator);
     // Unwrap precedence
     var precedence = lhs.precedence;
 
@@ -522,7 +514,6 @@ fn compare(self: *Parser) SyntaxError!ExprResult {
     const lhs = try self.term();
     // Extract expression
     var expr = lhs.expr;
-    errdefer expr.deinit(self.allocator);
     // Extract precedence
     var precedence = lhs.precedence;
 
@@ -567,7 +558,6 @@ fn term(self: *Parser) SyntaxError!ExprResult {
     const lhs = try self.factor();
     // Extract expression
     var expr = lhs.expr;
-    errdefer expr.deinit(self.allocator);
     // Extract precedence
     var precedence = lhs.precedence;
 
@@ -605,7 +595,6 @@ fn factor(self: *Parser) SyntaxError!ExprResult {
     const lhs = try self.unary();
     // Extract expression
     var expr = lhs.expr;
-    errdefer expr.deinit(self.allocator);
     // Extract precedence
     var precedence = lhs.precedence;
 
@@ -664,7 +653,6 @@ fn unary(self: *Parser) SyntaxError!ExprResult {
 fn index(self: *Parser, expr: ExprNode, operator: Token, precedence: *isize) SyntaxError!ExprNode {
     // Parse number in square brackets
     const rhs = try self.expression();
-    errdefer rhs.expr.deinit(self.allocator);
 
     // Consume "]"
     try self.consume(TokenKind.RIGHT_SQUARE, "Expected ']' after index expression");
@@ -696,7 +684,6 @@ fn access(self: *Parser) SyntaxError!ExprResult {
     var expr = lhs.expr;
     // Extract precedence
     var precedence = lhs.precedence;
-    errdefer expr.deinit(self.allocator);
 
     // While there are "(" or "["
     while (self.match(.{ TokenKind.LEFT_PAREN, TokenKind.LEFT_SQUARE })) {
@@ -720,9 +707,8 @@ fn access(self: *Parser) SyntaxError!ExprResult {
 fn literal(self: *Parser) SyntaxError!ExprResult {
     // Check if this is a grouping
     if (self.match(.{TokenKind.LEFT_PAREN})) {
-        // Parse new sub expression, freeing on error
+        // Parse new sub expression
         const expr = try self.expression();
-        errdefer expr.expr.deinit(self.allocator);
 
         // Consume ')'
         try self.consume(TokenKind.RIGHT_PAREN, "Unclosed parenthesis");
@@ -754,7 +740,6 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
         .INTEGER => {
             // Make new constant expression
             const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;
-            errdefer self.allocator.destroy(constant_expr);
 
             // Parse lexeme
             const parsed_int = std.fmt.parseInt(i64, token.lexeme, 10) catch {
@@ -821,13 +806,6 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             try self.consume(TokenKind.LEFT_PAREN, "Expected '(' after native function");
             // Create arg list
             var arg_list = std.ArrayList(ExprNode).init(self.allocator);
-            defer arg_list.deinit(); // Deinit arg array list
-            errdefer {
-                // Deinit args
-                for (arg_list.items) |arg| {
-                    arg.deinit(self.allocator);
-                }
-            }
 
             // Check if next if next is ')'
             if (!self.check(TokenKind.RIGHT_PAREN)) {
@@ -842,13 +820,11 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             // Consume ')'
             try self.consume(TokenKind.RIGHT_PAREN, "Expected ')' after arg list");
 
-            // Make copy of arg_list items
-            const args = self.allocator.alloc(Expr.ExprNode, arg_list.items.len) catch unreachable;
-            @memcpy(args, arg_list.items);
             // Make new nativeExpr
             const native_expr = self.allocator.create(Expr.NativeExpr) catch unreachable;
             native_expr.name = token;
-            native_expr.args = args;
+            // "borrow" arg_list's items
+            native_expr.args = arg_list.items;
 
             const node = ExprNode.init(ExprUnion{ .NATIVE = native_expr });
             // Wrap in ExprResult

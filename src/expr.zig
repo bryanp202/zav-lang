@@ -44,31 +44,6 @@ pub const ExprNode = struct {
         };
     }
 
-    pub fn deinit(self: ExprNode, allocator: std.mem.Allocator) void {
-        // Check type and call next level of deinit
-        switch (self.expr) {
-            .IDENTIFIER => |idExpr| {
-                // Destroy self
-                allocator.destroy(idExpr);
-            },
-            .LITERAL => |litExpr| {
-                // Deallocate return_kind
-                self.result_kind.deinit(allocator);
-                // Destroy self
-                allocator.destroy(litExpr);
-            },
-            .NATIVE => |nativeExpr| nativeExpr.deinit(allocator),
-            .CONVERSION => |convExpr| convExpr.deinit(allocator),
-            .INDEX => |indexExpr| indexExpr.deinit(allocator),
-            .UNARY => |unaryExpr| unaryExpr.deinit(allocator),
-            .ARITH => |arithExpr| arithExpr.deinit(allocator),
-            .COMPARE => |compareExpr| compareExpr.deinit(allocator),
-            .AND => |andExpr| andExpr.deinit(allocator),
-            .OR => |orExpr| orExpr.deinit(allocator),
-            .IF => |ifExpr| ifExpr.deinit(allocator),
-        }
-    }
-
     /// Used to display an AST in polish notation
     pub fn display(self: ExprNode) void {
         switch (self.expr) {
@@ -173,11 +148,6 @@ pub const ConversionExpr = struct {
             .operand = operand,
         };
     }
-
-    pub fn deinit(self: *ConversionExpr, allocator: std.mem.Allocator) void {
-        self.operand.deinit(allocator);
-        allocator.destroy(self);
-    }
 };
 
 //**********************************************//
@@ -193,20 +163,6 @@ pub const NativeExpr = struct {
             .name = name,
             .args = args,
         };
-    }
-
-    pub fn deinit(self: *NativeExpr, allocator: std.mem.Allocator) void {
-        // Check if any args
-        if (self.args) |args| {
-            // Destroy each argument
-            for (args) |arg| {
-                arg.deinit(allocator);
-            }
-            // Destory argument list
-            allocator.free(args);
-        }
-        // Destry self
-        allocator.destroy(self);
     }
 };
 
@@ -230,14 +186,6 @@ pub const IndexExpr = struct {
             .reversed = reversed,
         };
     }
-
-    fn deinit(self: *IndexExpr, allocator: std.mem.Allocator) void {
-        // Deinit subnodes
-        self.lhs.deinit(allocator);
-        self.rhs.deinit(allocator);
-        // Destory self
-        allocator.destroy(self);
-    }
 };
 
 //**********************************************//
@@ -254,11 +202,6 @@ pub const UnaryExpr = struct {
             .operand = operand,
             .op = op,
         };
-    }
-
-    fn deinit(self: *UnaryExpr, allocator: std.mem.Allocator) void {
-        self.operand.deinit(allocator);
-        allocator.destroy(self);
     }
 };
 
@@ -284,14 +227,6 @@ pub const ArithExpr = struct {
             .reversed = reversed,
         };
     }
-
-    fn deinit(self: *ArithExpr, allocator: std.mem.Allocator) void {
-        // Deinit subnodes
-        self.lhs.deinit(allocator);
-        self.rhs.deinit(allocator);
-        // Destory self
-        allocator.destroy(self);
-    }
 };
 
 /// Compare operation on two operands and one operator.
@@ -311,14 +246,6 @@ pub const CompareExpr = struct {
             .op = op,
             .reversed = reversed,
         };
-    }
-
-    fn deinit(self: *CompareExpr, allocator: std.mem.Allocator) void {
-        // Deinit subnodes
-        self.lhs.deinit(allocator);
-        self.rhs.deinit(allocator);
-        // Destory self
-        allocator.destroy(self);
     }
 };
 
@@ -341,14 +268,6 @@ pub const AndExpr = struct {
             .op = op,
         };
     }
-
-    fn deinit(self: *AndExpr, allocator: std.mem.Allocator) void {
-        // Deinit subnodes
-        self.lhs.deinit(allocator);
-        self.rhs.deinit(allocator);
-        // Destory self
-        allocator.destroy(self);
-    }
 };
 
 pub const OrExpr = struct {
@@ -363,14 +282,6 @@ pub const OrExpr = struct {
             .rhs = rhs,
             .op = op,
         };
-    }
-
-    fn deinit(self: *OrExpr, allocator: std.mem.Allocator) void {
-        // Deinit subnodes
-        self.lhs.deinit(allocator);
-        self.rhs.deinit(allocator);
-        // Destory self
-        allocator.destroy(self);
     }
 };
 
@@ -393,14 +304,5 @@ pub const IfExpr = struct {
             .then_branch = then_branch,
             .else_branch = else_branch,
         };
-    }
-
-    fn deinit(self: *IfExpr, allocator: std.mem.Allocator) void {
-        // Deinit subnodes
-        self.conditional.deinit(allocator);
-        self.then_branch.deinit(allocator);
-        self.else_branch.deinit(allocator);
-        // Destory self
-        allocator.destroy(self);
     }
 };

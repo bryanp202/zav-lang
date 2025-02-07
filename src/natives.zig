@@ -43,17 +43,6 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     return new_table;
 }
 
-/// Deinit the natives table
-pub fn deinit(self: *NativesTable, allocator: std.mem.Allocator) void {
-    // Deinit all functions in the table
-    var natives = self.natives_table.iterator();
-    while (natives.next()) |nativeEntry| {
-        nativeEntry.value_ptr.kind.deinit(allocator);
-    }
-    // Dealloc table
-    self.natives_table.deinit(allocator);
-}
-
 /// Look for a native function and return its kind
 pub fn getNativeKind(self: *NativesTable, name: []const u8) ?KindId {
     const maybe_native = self.natives_table.getPtr(name);

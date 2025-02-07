@@ -54,26 +54,6 @@ pub const SymbolTableManager = struct {
             .natives_table = natives_table,
         };
     }
-    /// Deinit a STM
-    pub fn deinit(self: *SymbolTableManager) void {
-        // Deinitialize all scopes
-        for (self.scopes.items) |scope| {
-            scope.deinit();
-            self.allocator.destroy(scope);
-        }
-        // Deinit scopes stack
-        self.scopes.deinit();
-
-        // Deinit constants in constants map
-        var const_iter = self.constants.iterator();
-        while (const_iter.next()) |constant| {
-            // Deinit constant
-            constant.value_ptr.deinit(self.allocator);
-        }
-        self.constants.deinit();
-        // Deinit natives
-        self.natives_table.deinit(self.allocator);
-    }
 
     /// Reset the active scope stack and scope counter
     pub fn resetStack(self: *SymbolTableManager) void {
@@ -205,17 +185,6 @@ pub const Scope = struct {
             .next_address = 0,
         };
     }
-    /// Deinitialize a scope
-    pub fn deinit(self: *Scope) void {
-        // Free KindId for all values in the table
-        var symbol_iter = self.symbols.valueIterator();
-        while (symbol_iter.next()) |symbol| {
-            // Deinit KindId
-            symbol.kind.deinit(self.symbols.allocator);
-        }
-        // Deinit the table
-        self.symbols.deinit();
-    }
 
     /// Add a new symbol, providing all of its attributes and a null address
     pub fn declareSymbol(
@@ -231,8 +200,6 @@ pub const Scope = struct {
         const getOrPut = self.symbols.getOrPut(name) catch unreachable;
         // Check if it is already in table
         if (getOrPut.found_existing) {
-            // Free the KindId
-            kind.deinit(self.symbols.allocator);
             // Throw error
             return ScopeError.DuplicateDeclaration;
         }
@@ -335,98 +302,6 @@ pub const KindId = union(Kinds) {
     ARRAY: Array,
     FUNC: Function,
 
-    /// Deinit a KindId
-    pub fn deinit(self: KindId, allocator: std.mem.Allocator) void {
-        // Check if type needs to be destroyed
-        switch (self) {
-            // If non allocated types, do nothing
-            .VOID, .BOOL, .UINT, .INT, .FLOAT32, .FLOAT64 => return,
-            // If a pointer delete all children
-            .PTR => |ptr| {
-                if (ptr.own_self) {
-                    // Walk the linked list of children until a terminal node is found
-                    var curr = ptr.child;
-                    var next: *KindId = undefined;
-                    while (true) {
-                        switch (curr.*) {
-                            .PTR => |pointer| {
-                                if (pointer.own_self) {
-                                    next = pointer.child;
-                                    allocator.destroy(curr);
-                                    curr = next;
-                                } else {
-                                    break;
-                                }
-                            },
-                            .ARRAY => |array| {
-                                if (array.own_self) {
-                                    next = array.child;
-                                    allocator.destroy(curr);
-                                    curr = next;
-                                } else {
-                                    break;
-                                }
-                            },
-                            else => {
-                                allocator.destroy(curr);
-                                break;
-                            },
-                        }
-                    }
-                }
-            },
-            // If an array, delete all children
-            .ARRAY => |arr| {
-                if (arr.own_self) {
-                    // Walk the linked list of children until a terminal node is found
-                    var curr = arr.child;
-                    var next: *KindId = undefined;
-                    while (true) {
-                        switch (curr.*) {
-                            .PTR => |pointer| {
-                                if (pointer.own_self) {
-                                    next = pointer.child;
-                                    allocator.destroy(curr);
-                                    curr = next;
-                                } else {
-                                    break;
-                                }
-                            },
-                            .ARRAY => |array| {
-                                if (array.own_self) {
-                                    next = array.child;
-                                    allocator.destroy(curr);
-                                    curr = next;
-                                } else {
-                                    break;
-                                }
-                            },
-                            else => {
-                                allocator.destroy(curr);
-                                break;
-                            },
-                        }
-                    }
-                }
-            },
-            // If function, delete all arg types and return type
-            .FUNC => |func| {
-                // Check if any args
-                if (func.arg_kinds) |args| {
-                    // Deinit args
-                    for (args) |arg| {
-                        arg.deinit(allocator);
-                    }
-                    // Deinit args array
-                    allocator.free(args);
-                }
-                // Deinit return
-                func.ret_kind.deinit(allocator);
-                allocator.destroy(func.ret_kind);
-            },
-        }
-    }
-
     /// Init a new unsigned integer
     pub fn newUInt(bits: u16) KindId {
         const uint = UInteger{
@@ -450,7 +325,6 @@ pub const KindId = union(Kinds) {
         const ptr = Pointer{
             .child = child_ptr,
             .const_child = const_child,
-            .own_self = true,
             .dereferenced = false,
         };
         return KindId{ .PTR = ptr };
@@ -462,7 +336,6 @@ pub const KindId = union(Kinds) {
         const ptr = Pointer{
             .child = array.child,
             .const_child = const_items,
-            .own_self = false,
             .dereferenced = array.dereferenced,
         };
         return KindId{ .PTR = ptr };
@@ -478,7 +351,6 @@ pub const KindId = union(Kinds) {
             .length = length,
             .const_items = const_items,
             .dereferenced = false,
-            .own_self = true,
         };
         return KindId{ .ARRAY = arr };
     }
@@ -578,8 +450,6 @@ const Pointer = struct {
     child: *KindId,
     const_child: bool,
     dereferenced: bool,
-    // Used to keep track of deinit
-    own_self: bool,
 
     /// Returns true if this pointer is the same as another pointer
     pub fn equal(self: Pointer, other: Pointer) bool {
@@ -592,7 +462,6 @@ const Pointer = struct {
             .child = self.child,
             .const_child = self.const_child,
             .dereferenced = true,
-            .own_self = false,
         } };
     }
 };
@@ -603,8 +472,6 @@ const Array = struct {
     length: u64,
     const_items: bool,
     dereferenced: bool,
-    // Used to keep track of deinit
-    own_self: bool,
 
     /// Returns true if this array is the same as another array
     pub fn equal(self: Array, other: Array) bool {
@@ -626,7 +493,6 @@ const Array = struct {
             .length = self.length,
             .const_items = self.const_items,
             .dereferenced = true,
-            .own_self = false,
         } };
     }
 };
@@ -682,13 +548,6 @@ const ConstantData = struct {
             .size = size,
             .name = null,
         };
-    }
-
-    pub fn deinit(self: *ConstantData, allocator: std.mem.Allocator) void {
-        // Free name if it has been allocated
-        if (self.name) |name_slice| allocator.free(name_slice);
-        // Free Value struct
-        self.data.deinit(allocator);
     }
 };
 
@@ -792,15 +651,6 @@ pub const Value = extern struct {
         string: StringLiteral,
         array: ArrayLiteral,
     },
-
-    /// Deinit a Value struct instance
-    pub fn deinit(self: Value, allocator: std.mem.Allocator) void {
-        if (self.kind == ValueKind.ARRAY) {
-            allocator.free(self.as.array.data.slice());
-            allocator.free(self.as.array.dimensions.slice());
-            self.as.array.kind.deinit(allocator);
-        }
-    }
 
     ///Init a new unsigned integer value
     pub fn newUInt(value: u64, bits: u16) Value {

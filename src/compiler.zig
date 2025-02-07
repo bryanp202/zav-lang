@@ -23,23 +23,28 @@ const GenerationError = Error.GenerationError;
 
 // Compiler fields
 const Compiler = @This();
+arena: *std.heap.ArenaAllocator,
 allocator: std.mem.Allocator,
 stm: STM,
 
 /// Initialize a managed compiler
-pub fn init(allocator: std.mem.Allocator) Compiler {
-    const symbol_table = STM.init(allocator);
+pub fn init(setup_allocator: std.mem.Allocator, local_arena: *std.heap.ArenaAllocator) Compiler {
+    const symbol_table = STM.init(setup_allocator);
     return .{
-        .allocator = allocator,
+        .arena = local_arena,
+        .allocator = local_arena.*.allocator(),
         .stm = symbol_table,
     };
 }
-/// Deinitialize a managed compiler
-pub fn deinit(self: *Compiler) void {
-    self.stm.deinit();
+
+/// Deinit a managed compiler
+pub fn reset(self: *Compiler) void {
+    _ = self.arena.*.reset(.free_all);
 }
 
+/// Compile source text into assembly
 pub fn compile(self: *Compiler, source: []const u8, keep_asm: bool) void {
+    // Make assembly
     const asm_okay = self.compileToAsm(source);
 
     // If successfully made asm, assemble and link
@@ -50,10 +55,7 @@ pub fn compile(self: *Compiler, source: []const u8, keep_asm: bool) void {
             std.debug.print("Failed to assemble file\n", .{});
             return;
         };
-        defer {
-            self.allocator.free(asm_result.stderr);
-            self.allocator.free(asm_result.stdout);
-        }
+
         // Check if asm was successful
         if (asm_result.term != .Exited or asm_result.term.Exited != 0) {
             std.debug.print("Failed to assemble file\n", .{});
@@ -67,10 +69,7 @@ pub fn compile(self: *Compiler, source: []const u8, keep_asm: bool) void {
             std.debug.print("Failed to link file\n", .{});
             return;
         };
-        defer {
-            self.allocator.free(link_result.stderr);
-            self.allocator.free(link_result.stdout);
-        }
+
         // Check if link was successful
         if (link_result.term != .Exited or asm_result.term.Exited != 0) {
             std.debug.print("Failed to assemble file\n", .{});
@@ -93,7 +92,6 @@ pub fn compile(self: *Compiler, source: []const u8, keep_asm: bool) void {
 pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     // Make a scanner
     var scanner = Scanner.init(self.allocator, source);
-    defer scanner.deinit();
     // Make a parser
     var parser = Parser.init(self.allocator, &scanner);
     // Make TypeChecker
@@ -101,7 +99,6 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
 
     // Make a new root module
     var root_module = Module.init("out", self.allocator);
-    defer root_module.deinit(self.allocator);
     // Parse into it
     parser.parse(&root_module);
 
@@ -128,7 +125,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     root_module.display();
 
     // Generation
-    var generator = Generator.init(self.allocator, &self.stm, root_module.name) catch |err| {
+    var generator = Generator.open(self.allocator, &self.stm, root_module.name) catch |err| {
         // switch (err) {
         //     error.FailedToWrite => std.debug.print("Failed to make file\n", .{}),
         //     error.OutOfCPURegisters => std.debug.print("Ran out of CPU registers\n", .{}),
@@ -137,10 +134,16 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
         std.debug.print("{any}\n", .{err});
         return false;
     };
-    defer generator.deinit(self.allocator);
 
+    // Generate asm
     _ = generator.gen(root_module) catch {
         std.debug.print("Failed to write file\n", .{});
+        return false;
+    };
+
+    // Close file
+    generator.close(self.allocator) catch {
+        std.debug.print("Failed to close file\n", .{});
         return false;
     };
 

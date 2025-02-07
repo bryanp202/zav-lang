@@ -399,12 +399,6 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
     } else {
         // Update kind to expr result kind
         declareExpr.kind = expr_kind;
-        // If ptr or array remove ownership
-        if (declareExpr.kind.? == .PTR) {
-            declareExpr.kind.?.PTR.own_self = false;
-        } else if (declareExpr.kind.? == .ARRAY) {
-            declareExpr.kind.?.ARRAY.own_self = false;
-        }
     }
 
     // Create new symbol in STM
@@ -514,12 +508,6 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     };
     // Return its stored kind and update final
     node.result_kind = symbol.kind;
-    // Remove ownership if ptr or array
-    if (node.result_kind == .PTR) {
-        node.result_kind.PTR.own_self = false;
-    } else if (node.result_kind == .ARRAY) {
-        node.result_kind.ARRAY.own_self = false;
-    }
     return node.result_kind;
 }
 
@@ -565,12 +553,8 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
             // Decay any arrays into pointers
             if (arg_kind == .ARRAY) {
+                // Downgrade to a ptr
                 arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
-                // Check if arg is a literal expression
-                if (call_arg.*.expr == .LITERAL) {
-                    // Give pointer ownership of itself
-                    arg_kind.PTR.own_self = true;
-                }
                 // Update call_arg kind
                 call_arg.*.result_kind = arg_kind;
             }

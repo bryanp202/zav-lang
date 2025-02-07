@@ -20,16 +20,6 @@ pub fn init(name: []const u8, allocator: std.mem.Allocator) Module {
     };
 }
 
-/// Deinit a program
-pub fn deinit(self: *Module, allocator: std.mem.Allocator) void {
-    // Destroy each statement
-    for (self.declarations.items) |*stmt| {
-        stmt.deinit(allocator);
-    }
-    // Destroy list of statements
-    self.declarations.deinit();
-}
-
 /// Print out this module
 pub fn display(self: Module) void {
     std.debug.print("\n--- Module <{s}> ---\n", .{self.name});

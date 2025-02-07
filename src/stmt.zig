@@ -15,16 +15,6 @@ pub const StmtNode = union(enum) {
     DECLARE: *DeclareStmt,
     EXPRESSION: *ExprStmt,
 
-    /// Deinit a Stmt
-    pub fn deinit(self: StmtNode, allocator: std.mem.Allocator) void {
-        // Determine kind and call appropriate deinit function
-        switch (self) {
-            .MUTATE => |mutStmt| mutStmt.deinit(allocator),
-            .DECLARE => |declareStmt| declareStmt.deinit(allocator),
-            .EXPRESSION => |exprStmt| exprStmt.deinit(allocator),
-        }
-    }
-
     /// Display a stmt
     pub fn display(self: StmtNode) void {
         // Display based off of self
@@ -76,15 +66,6 @@ pub const MutStmt = struct {
             .assign_expr = assign_expr,
         };
     }
-
-    /// Deinit an AssignStmt
-    pub fn deinit(self: *MutStmt, allocator: std.mem.Allocator) void {
-        // Destroy exprnodes
-        self.id_expr.deinit(allocator);
-        self.assign_expr.deinit(allocator);
-        // Destroy self
-        allocator.destroy(self);
-    }
 };
 
 /// Used to store an DeclareStmt
@@ -95,8 +76,6 @@ pub const DeclareStmt = struct {
     kind: ?KindId,
     op: Token,
     expr: ExprNode,
-    /// Used to check if need to deinit kind
-    owns_kind: bool,
 
     /// Initialize a DeclareStmt with an mutablity, identifier token, optional kind, and expr
     pub fn init(mutable: bool, id: Token, kind: ?KindId, op: Token, expr: ExprNode) DeclareStmt {
@@ -106,18 +85,7 @@ pub const DeclareStmt = struct {
             .kind = kind,
             .op = op,
             .expr = expr,
-            .owns_kind = (kind != null),
         };
-    }
-
-    /// Deinit an DeclareStmt
-    pub fn deinit(self: *DeclareStmt, allocator: std.mem.Allocator) void {
-        // Destroy kind
-        if (self.owns_kind and self.kind != null) self.kind.?.deinit(allocator);
-        // Destroy exprnode
-        self.expr.deinit(allocator);
-        // Destroy self
-        allocator.destroy(self);
     }
 };
 
@@ -129,13 +97,5 @@ pub const ExprStmt = struct {
     /// Initialize an expr stmt with an exprnode
     pub fn init(expr: ExprNode) ExprStmt {
         return ExprStmt{ .expr = expr };
-    }
-
-    /// Deinit an ExprStmt
-    pub fn deinit(self: *ExprStmt, allocator: std.mem.Allocator) void {
-        // Destroy exprnode
-        self.expr.deinit(allocator);
-        // Destroy self
-        allocator.destroy(self);
     }
 };

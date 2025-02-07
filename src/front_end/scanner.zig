@@ -23,11 +23,6 @@ pub const Scanner = struct {
         };
     }
 
-    /// Deinit
-    pub fn deinit(self: *Scanner) void {
-        self.lexeme_table.deinit();
-    }
-
     /// Scan next token and return it
     pub fn nextToken(self: *Scanner) Token {
         // Skip past whitespace

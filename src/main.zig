@@ -16,36 +16,43 @@ pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
     // Alloc
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    const global_allocator = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(global_allocator);
+    const setup_allocator = arena.allocator();
     defer {
-        // Check for memory leaks at end of execution
+        arena.deinit();
         const maybeLeak = gpa.deinit();
-        std.debug.print("Memory Status: {}\n", .{maybeLeak});
+        std.debug.print("Memory status: {any}\n", .{maybeLeak});
     }
 
     // Get args
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try std.process.argsAlloc(setup_allocator);
     // Check if REPO or file run
     if (args.len == 1) {
-        try repl(allocator);
+        try repl(global_allocator, setup_allocator);
     } else if (args.len == 2) {
-        try runFile(allocator, args[1]);
+        try runFile(global_allocator, setup_allocator, args[1]);
     } else {
         _ = try stdout.write("Usage: Zave [path]\n");
     }
 }
 
 /// Execute code source
-fn run(allocator: std.mem.Allocator, source: []const u8) !void {
-    var compiler = Compiler.init(allocator);
-    defer compiler.deinit();
+fn run(global_allocator: std.mem.Allocator, setup_allocator: std.mem.Allocator, source: []const u8) !void {
+    // Make local arena for compiler
+    var local_arena = std.heap.ArenaAllocator.init(global_allocator);
+    defer local_arena.deinit();
 
+    // Make compiler
+    var compiler = Compiler.init(setup_allocator, &local_arena);
+    defer compiler.reset();
+
+    // Compile source code
     compiler.compile(source, true);
 }
 
 /// Read from a source file and execute it
-fn runFile(allocator: std.mem.Allocator, path: []const u8) !void {
+fn runFile(global_allocator: std.mem.Allocator, setup_allocator: std.mem.Allocator, path: []const u8) !void {
     const stdout = std.io.getStdOut().writer();
 
     // Try to open file
@@ -58,8 +65,7 @@ fn runFile(allocator: std.mem.Allocator, path: []const u8) !void {
     // Read file stats
     const file_stats = try file.stat();
     // Make input buffer
-    const buffer = try allocator.alloc(u8, file_stats.size + 1);
-    defer allocator.free(buffer);
+    const buffer = try setup_allocator.alloc(u8, file_stats.size + 1);
     // Read file
     const contents = try file.reader().read(buffer);
     // Add null at end
@@ -67,11 +73,11 @@ fn runFile(allocator: std.mem.Allocator, path: []const u8) !void {
 
     // Slice source
     const source = buffer[0..];
-    try run(allocator, source);
+    try run(global_allocator, setup_allocator, source);
 }
 
 /// Run an interactive REPL
-fn repl(allocator: std.mem.Allocator) !void {
+fn repl(global_allocator: std.mem.Allocator, setup_allocator: std.mem.Allocator) !void {
     // Std printer
     const stdout = std.io.getStdOut().writer();
     const stdin = std.io.getStdIn().reader();
@@ -80,8 +86,7 @@ fn repl(allocator: std.mem.Allocator) !void {
     while (true) {
         _ = try stdout.write("> ");
         // Make input buffer
-        const buffer = try allocator.alloc(u8, REPL_BUFF_LEN);
-        defer allocator.free(buffer);
+        var buffer = [_]u8{undefined} ** REPL_BUFF_LEN;
 
         // Get input
         const input = try stdin.readUntilDelimiterOrEof(buffer[0 .. REPL_BUFF_LEN - 1], '\n') orelse "";
@@ -97,6 +102,6 @@ fn repl(allocator: std.mem.Allocator) !void {
         }
         // Slice source
         const source = buffer[0..end_index];
-        try run(allocator, source);
+        try run(global_allocator, setup_allocator, source);
     }
 }
