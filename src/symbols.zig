@@ -66,11 +66,17 @@ pub const SymbolTableManager = struct {
     /// Create a new scope, add it to scopes stack,
     /// and then push it to the top of the active scopes stack
     pub fn addScope(self: *SymbolTableManager) void {
+        // Get next address
+        const next_address = self.active_scope.next_address;
+
         // Make new scope
         const new_scope = self.allocator.create(Scope) catch unreachable;
         new_scope.* = Scope.init(self.allocator, self.active_scope);
         // Set to active scope
         self.active_scope = new_scope;
+        // Transfer next address
+        self.active_scope.next_address = next_address;
+
         // Add to scopes stack
         self.scopes.append(new_scope) catch unreachable;
 
@@ -81,7 +87,7 @@ pub const SymbolTableManager = struct {
     /// Push the next scope onto the active scope stack
     pub fn pushScope(self: *SymbolTableManager) void {
         // Put next scope as active scope
-        self.active_scope = self.scopes.items[self.current];
+        self.active_scope = self.scopes.items[self.next_scope];
 
         // Increment counter
         self.next_scope += 1;
@@ -89,8 +95,15 @@ pub const SymbolTableManager = struct {
 
     /// Pop the current active scope from the active scope stack
     pub fn popScope(self: *SymbolTableManager) void {
+        // Get old scope size
+        const next_address = self.active_scope.next_address;
         // Pop scope
         self.active_scope = self.active_scope.enclosing.?;
+
+        // Add size if not global
+        if (self.active_scope != self.scopes.items[0]) {
+            self.active_scope.next_address = next_address;
+        }
     }
 
     /// Add a new symbol, with all of its attributes, and assign it with a null memory location
@@ -101,12 +114,23 @@ pub const SymbolTableManager = struct {
         scope: ScopeKind,
         dcl_line: u64,
         is_mutable: bool,
-    ) !void {
+    ) !u64 {
         // Calculate the size of the kind
         const size = kind.size();
 
         // Else let the local scope calculate the local scope
-        try self.active_scope.declareSymbol(name, kind, scope, dcl_line, is_mutable, size);
+        const mem_loc = try self.active_scope.declareSymbol(
+            name,
+            kind,
+            scope,
+            dcl_line,
+            is_mutable,
+            &self.next_address,
+            size,
+        );
+
+        // Return the memory location
+        return mem_loc;
     }
 
     /// Add a new symbol to the top scope on the stack, assign it a memory location
@@ -114,7 +138,7 @@ pub const SymbolTableManager = struct {
     /// and Local scope variables use a relative stack location
     pub fn getSymbol(self: *SymbolTableManager, name: []const u8) !*Symbol {
         // Get symbol, starting at active_scope
-        return self.active_scope.getSymbol(name, &self.next_address);
+        return self.active_scope.getSymbol(name);
     }
 
     /// Try to put a new Value in the constants table marked as not used,
@@ -194,8 +218,9 @@ pub const Scope = struct {
         scope: ScopeKind,
         dcl_line: u64,
         is_mutable: bool,
+        global_next_address: *u64,
         size: u64,
-    ) ScopeError!void {
+    ) ScopeError!u64 {
         // Check if in table
         const getOrPut = self.symbols.getOrPut(name) catch unreachable;
         // Check if it is already in table
@@ -204,39 +229,59 @@ pub const Scope = struct {
             return ScopeError.DuplicateDeclaration;
         }
 
+        // Calculate address location
+        var mem_loc: u64 = undefined;
+        // Get allignment of data size
+        const alignment: u64 = @min(size, 8);
+        const offset = self.next_address & (alignment - 1);
+
+        // If local add to next_address
+        if (scope == ScopeKind.LOCAL) {
+            // Check if address is aligned
+            if (offset != 0) {
+                // Increment next address
+                self.next_address += alignment - offset;
+            }
+            // Set location
+            mem_loc = self.next_address;
+            // Increment next addres
+            self.next_address += size;
+        } else {
+            // Add to global address
+            // Check if global address is aligned
+            if (offset != 0) {
+                global_next_address.* += alignment - offset;
+            }
+            // Use global address and increment it
+            mem_loc = global_next_address.*;
+            global_next_address.* += size;
+        }
+
         // Add symbol to the table
-        const new_symbol = Symbol.init(name, kind, scope, dcl_line, is_mutable, size);
+        const new_symbol = Symbol.init(
+            name,
+            kind,
+            scope,
+            dcl_line,
+            is_mutable,
+            mem_loc,
+            size,
+        );
         getOrPut.value_ptr.* = new_symbol;
+        // Return mem location
+        return mem_loc;
     }
 
     /// Try to get a symbol based off of a name
-    pub fn getSymbol(self: *Scope, name: []const u8, global_next_address: *u64) ScopeError!*Symbol {
+    pub fn getSymbol(self: *Scope, name: []const u8) ScopeError!*Symbol {
         // Check this and all enclosing scopes for a declared symbol as name
         var curr: ?*Scope = self;
         while (curr) |enclosing| : (curr = enclosing.enclosing) {
             const maybeSymbol = enclosing.symbols.getPtr(name);
             // Check if found symbol
             if (maybeSymbol) |sym| {
-                // Check if it has an address
-                if (sym.mem_loc != null) {
-                    return sym;
-                } else {
-                    // Calculate relative memory location if symbol is local
-                    var location: u64 = undefined;
-                    if (sym.scope == ScopeKind.LOCAL) {
-                        location = self.next_address;
-                        // Increment next address
-                        self.next_address += sym.size;
-                    } else {
-                        // Use global address and increment it
-                        location = global_next_address.*;
-                        global_next_address.* += sym.size;
-                    }
-
-                    // Assign it a new one
-                    sym.mem_loc = location;
-                    return sym;
-                }
+                // Return the symbol
+                return sym;
             }
         }
         return ScopeError.UndeclaredSymbol;
@@ -255,11 +300,11 @@ pub const Symbol = struct {
     dcl_line: u64,
     is_mutable: bool,
     has_mutated: bool,
-    mem_loc: ?u64,
+    mem_loc: u64,
     size: u64,
 
     /// Make a new symbol
-    pub fn init(name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, is_mutable: bool, size: u64) Symbol {
+    pub fn init(name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, is_mutable: bool, mem_loc: u64, size: u64) Symbol {
         return Symbol{
             .name = name,
             .kind = kind,
@@ -267,7 +312,7 @@ pub const Symbol = struct {
             .dcl_line = dcl_line,
             .is_mutable = is_mutable,
             .has_mutated = false,
-            .mem_loc = null,
+            .mem_loc = mem_loc,
             .size = size,
         };
     }
@@ -279,6 +324,7 @@ pub const Symbol = struct {
 
 // Enum for the types available in Zav
 pub const Kinds = enum {
+    ANY,
     VOID,
     BOOL,
     UINT,
@@ -292,6 +338,7 @@ pub const Kinds = enum {
 
 /// Used to mark what type a variable is
 pub const KindId = union(Kinds) {
+    ANY: void,
     VOID: void,
     BOOL: void,
     UINT: UInteger,
@@ -325,7 +372,6 @@ pub const KindId = union(Kinds) {
         const ptr = Pointer{
             .child = child_ptr,
             .const_child = const_child,
-            .dereferenced = false,
         };
         return KindId{ .PTR = ptr };
     }
@@ -336,7 +382,6 @@ pub const KindId = union(Kinds) {
         const ptr = Pointer{
             .child = array.child,
             .const_child = const_items,
-            .dereferenced = array.dereferenced,
         };
         return KindId{ .PTR = ptr };
     }
@@ -350,26 +395,34 @@ pub const KindId = union(Kinds) {
             .child = child_ptr,
             .length = length,
             .const_items = const_items,
-            .dereferenced = false,
         };
         return KindId{ .ARRAY = arr };
     }
     /// Init a new Function kindid
-    pub fn newFunc(allocator: std.mem.Allocator, arg_kinds: ?[]KindId, ret_kind: KindId) KindId {
+    pub fn newFunc(allocator: std.mem.Allocator, arg_kinds: []KindId, variadic: bool, ret_kind: KindId, name: []const u8) KindId {
         // Dynamically allocate the child KindId tag
         const ret_ptr = allocator.create(KindId) catch unreachable;
         ret_ptr.* = ret_kind;
         // Make new array
         const func = Function{
             .arg_kinds = arg_kinds,
+            .variadic = variadic,
             .ret_kind = ret_ptr,
+            .stack_offset = undefined,
+            .name = name,
         };
         return KindId{ .FUNC = func };
     }
 
     /// Return if this kindid is the same as another
     pub fn equal(self: KindId, other: KindId) bool {
+        // Check if other is any
+        if (other == .ANY) {
+            return true;
+        }
+        // Else check for compatible matches
         return switch (self) {
+            .ANY => return true,
             .VOID => return other == .VOID,
             .BOOL => return other == .BOOL,
             .UINT => return other == .UINT and self.UINT.bits == other.UINT.bits,
@@ -390,10 +443,8 @@ pub const KindId = union(Kinds) {
             .UINT => |uint| uint.size(),
             .INT => |int| int.size(),
             .FLOAT32 => 4,
-            .FLOAT64 => 8,
-            .PTR => |ptr| if (ptr.dereferenced) ptr.child.size() else 8,
-            .ARRAY => |arr| if (arr.dereferenced) arr.child.size() else arr.size(),
-            .FUNC => 8,
+            .ANY, .FLOAT64, .PTR, .FUNC => 8,
+            .ARRAY => |arr| arr.size(),
         };
     }
 
@@ -405,10 +456,7 @@ pub const KindId = union(Kinds) {
             .UINT => |uint| uint.size(),
             .INT => |int| int.size(),
             .FLOAT32 => 4,
-            .FLOAT64 => 8,
-            .PTR => |ptr| if (ptr.dereferenced) ptr.child.size() else 8,
-            .ARRAY => |arr| if (arr.dereferenced) arr.child.size() else 8,
-            .FUNC => 8,
+            .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC => 8,
         };
     }
 };
@@ -449,20 +497,10 @@ const Integer = struct {
 const Pointer = struct {
     child: *KindId,
     const_child: bool,
-    dereferenced: bool,
 
     /// Returns true if this pointer is the same as another pointer
     pub fn equal(self: Pointer, other: Pointer) bool {
         return self.child.equal(other.child.*);
-    }
-    /// Return copy of self but dereferenced
-    pub fn dereference(self: Pointer) !KindId {
-        if (self.dereferenced) return Error.SemanticError.TypeMismatch;
-        return KindId{ .PTR = Pointer{
-            .child = self.child,
-            .const_child = self.const_child,
-            .dereferenced = true,
-        } };
     }
 };
 
@@ -471,7 +509,6 @@ const Array = struct {
     child: *KindId,
     length: u64,
     const_items: bool,
-    dereferenced: bool,
 
     /// Returns true if this array is the same as another array
     pub fn equal(self: Array, other: Array) bool {
@@ -484,40 +521,31 @@ const Array = struct {
         const bytes = element_size * self.length;
         return bytes;
     }
-
-    /// Return copy of self but dereferenced
-    pub fn dereference(self: Array) !KindId {
-        if (self.dereferenced) return Error.SemanticError.TypeMismatch;
-        return KindId{ .ARRAY = Array{
-            .child = self.child,
-            .length = self.length,
-            .const_items = self.const_items,
-            .dereferenced = true,
-        } };
-    }
 };
 
 /// Function Type data
 const Function = struct {
-    arg_kinds: ?[]KindId,
+    arg_kinds: []KindId,
+    variadic: bool,
+    // Type of return value
     ret_kind: *KindId,
+    // How much stack offset
+    stack_offset: usize,
+    // Name of this function
+    name: []const u8,
 
     /// Returns true if this func is the same as another func
     pub fn equal(self: Function, other: Function) bool {
-        // Check if any args
-        if (self.arg_kinds == null) {
-            if (other.arg_kinds == null) {
-                return true;
-            } else {
-                return false;
-            }
+        // Check if both variadic or not
+        if (self.variadic != other.variadic) {
+            return false;
         }
         // Check arg count
-        if (self.arg_kinds.?.len != other.arg_kinds.?.len) {
+        if (self.arg_kinds.len != other.arg_kinds.len) {
             return false;
         }
         // Check arg types
-        for (self.arg_kinds.?, other.arg_kinds.?) |self_arg, other_arg| {
+        for (self.arg_kinds, other.arg_kinds) |self_arg, other_arg| {
             if (!self_arg.equal(other_arg)) {
                 return false;
             }

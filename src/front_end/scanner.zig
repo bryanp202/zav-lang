@@ -412,6 +412,10 @@ pub const Scanner = struct {
                             _ = self.advance();
                             return self.checkKeyword("lse", TokenKind.FALSE);
                         },
+                        'n' => {
+                            _ = self.advance();
+                            return self.checkKeyword("", TokenKind.FN);
+                        },
                         'o' => {
                             _ = self.advance();
                             return self.checkKeyword("r", TokenKind.FOR);
@@ -454,6 +458,10 @@ pub const Scanner = struct {
                         },
                         else => break :identifier_loop,
                     }
+                },
+                'l' => {
+                    _ = self.advance();
+                    return self.checkKeyword("oop", TokenKind.LOOP);
                 },
                 'm' => {
                     _ = self.advance();
@@ -624,6 +632,8 @@ pub const TokenKind = enum {
     OR,
     RETURN,
     MUT,
+    LOOP,
+    FN,
 
     //// Parser Tokens ////
     ERROR,

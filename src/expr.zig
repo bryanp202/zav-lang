@@ -16,6 +16,7 @@ pub const ExprUnion = union(enum) {
     LITERAL: *LiteralExpr,
     NATIVE: *NativeExpr,
     CONVERSION: *ConversionExpr,
+    CALL: *CallExpr,
     INDEX: *IndexExpr,
     UNARY: *UnaryExpr,
     ARITH: *ArithExpr,
@@ -47,7 +48,12 @@ pub const ExprNode = struct {
     /// Used to display an AST in polish notation
     pub fn display(self: ExprNode) void {
         switch (self.expr) {
-            .IDENTIFIER => |idExpr| std.debug.print("{s}", .{idExpr.id.lexeme}),
+            .IDENTIFIER => |idExpr| {
+                std.debug.print("{s}", .{idExpr.id.lexeme});
+                if (idExpr.stack_offset) |offset| {
+                    std.debug.print("(at [rbp+{d}])", .{offset});
+                }
+            },
             .LITERAL => |litExpr| std.debug.print("{s}", .{litExpr.literal.lexeme}),
             .CONVERSION => |convExpr| {
                 //std.debug.print("(", .{});
@@ -57,12 +63,23 @@ pub const ExprNode = struct {
             .NATIVE => |nativeExpr| {
                 std.debug.print("{s}(", .{nativeExpr.name.lexeme});
                 // Check if any args
-                if (nativeExpr.args) |args| {
-                    // Print each arg, seperated by ','
-                    for (args) |arg| {
-                        arg.display();
-                        std.debug.print(",", .{});
-                    }
+                // Print each arg, seperated by ','
+                for (nativeExpr.args) |arg| {
+                    arg.display();
+                    std.debug.print(",", .{});
+                }
+                std.debug.print(")", .{});
+                //std.debug.print(")->{any}", .{self.result_kind});
+            },
+            .CALL => |callExpr| {
+                // Print caller expr
+                callExpr.caller_expr.display();
+                std.debug.print("(", .{});
+                // Check if any args
+                // Print each arg, seperated by ','
+                for (callExpr.args) |arg| {
+                    arg.display();
+                    std.debug.print(",", .{});
                 }
                 std.debug.print(")", .{});
                 //std.debug.print(")->{any}", .{self.result_kind});
@@ -109,11 +126,11 @@ pub const ExprNode = struct {
                 std.debug.print(")", .{});
             },
             .IF => |ifExpr| {
-                std.debug.print("(if(", .{});
+                std.debug.print("(", .{});
                 ifExpr.conditional.display();
-                std.debug.print(")", .{});
+                std.debug.print("?", .{});
                 ifExpr.then_branch.display();
-                std.debug.print(" else ", .{});
+                std.debug.print(":", .{});
                 ifExpr.else_branch.display();
                 std.debug.print(")", .{});
             },
@@ -128,6 +145,7 @@ pub const ExprNode = struct {
 /// Used to access a variable or a constant
 pub const IdentifierExpr = struct {
     id: Token,
+    stack_offset: ?u64,
 };
 
 /// Used to access a variable or a constant
@@ -156,11 +174,28 @@ pub const ConversionExpr = struct {
 /// Used to call a native function
 pub const NativeExpr = struct {
     name: Token,
-    args: ?[]ExprNode,
+    args: []ExprNode,
+    arg_kinds: []KindId,
 
-    pub fn init(name: Token, args: ?[]ExprNode) NativeExpr {
+    pub fn init(name: Token, args: []ExprNode) NativeExpr {
         return NativeExpr{
             .name = name,
+            .args = args,
+            .arg_kinds = null,
+        };
+    }
+};
+
+/// Used to call a user defined function
+pub const CallExpr = struct {
+    caller_expr: ExprNode,
+    op: Token,
+    args: []ExprNode,
+
+    pub fn init(caller_expr: ExprNode, op: Token, args: []ExprNode) CallExpr {
+        return CallExpr{
+            .caller_expr = caller_expr,
+            .op = op,
             .args = args,
         };
     }

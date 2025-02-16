@@ -55,9 +55,9 @@ pub fn parse(self: *Parser, module: *Module) void {
     // Parse
     while (!self.isAtEnd()) {
         // Parse stmt
-        const stmt_node = self.declaration() catch {
+        const stmt_node = self.global() catch {
             // Attempt to realign to next statement start
-            self.synchronize();
+            self.globalSynchronize();
             continue;
         };
         // Try to append to module
@@ -161,6 +161,28 @@ fn consume(self: *Parser, kind: TokenKind, msg: []const u8) SyntaxError!void {
     return self.errorAtCurrent(msg);
 }
 
+/// Parse a kind into a KindId
+fn parseKind(self: *Parser) SyntaxError!KindId {
+    // Advance to next token
+    const token = self.advance();
+    return switch (token.kind) {
+        .BOOL_TYPE => KindId.BOOL,
+        .U8_TYPE => KindId.newUInt(8),
+        .U16_TYPE => KindId.newUInt(16),
+        .U32_TYPE => KindId.newUInt(32),
+        .U64_TYPE => KindId.newUInt(64),
+        .I8_TYPE => KindId.newInt(8),
+        .I16_TYPE => KindId.newInt(16),
+        .I32_TYPE => KindId.newInt(32),
+        .I64_TYPE => KindId.newInt(64),
+        .F32_TYPE => KindId.FLOAT32,
+        .F64_TYPE => KindId.FLOAT64,
+        //.ARRAY_TYPE => try self.parseArrayKind(),
+        //.STAR => try self.parsePtrKind(),
+        else => self.errorAt("Expected type"),
+    };
+}
+
 // ******************* //
 //   Error handling
 // ******************* //
@@ -207,6 +229,18 @@ fn errorAt(self: *Parser, msg: []const u8) SyntaxError {
     return self.reportError(self.previous, msg);
 }
 
+/// Synchronize to start of next global statement
+fn globalSynchronize(self: *Parser) void {
+    // Turn of panic mode
+    self.panic = false;
+
+    // Advance until end of file or potential start of new statement
+    while (self.current.kind != TokenKind.EOF) {
+        if (self.matchNoAdvance(.{ TokenKind.CONST, TokenKind.VAR, TokenKind.FN })) return;
+        _ = self.advance();
+    }
+}
+
 /// Synchronize to start of next statement
 fn synchronize(self: *Parser) void {
     // Turn of panic mode
@@ -218,6 +252,7 @@ fn synchronize(self: *Parser) void {
         if (self.previous.kind == TokenKind.SEMICOLON) return;
         // Check if next token is potential start of statement
         if (self.matchNoAdvance(.{
+            TokenKind.LEFT_BRACE,
             TokenKind.IF,
             TokenKind.WHILE,
             TokenKind.FOR,
@@ -252,6 +287,125 @@ const ExprResult = struct {
 //**************************//
 //      Parse Stmts
 //**************************//
+/// Parse a Global level stmt
+/// Global -> GlobalStmt | FunctionStmt
+fn global(self: *Parser) SyntaxError!StmtNode {
+    if (self.match(.{ TokenKind.CONST, TokenKind.VAR })) {
+        return self.globalStmt();
+    } else if (self.match(.{TokenKind.FN})) {
+        return self.functionStmt();
+    }
+    _ = self.advance();
+    return self.errorAt("Expected global variable or function declaration");
+}
+
+/// Parse a global declaration stmt
+/// GlobalStmt -> ("const" | "var") (':' type)? '=' expression ';'
+fn globalStmt(self: *Parser) SyntaxError!StmtNode {
+    // Get mutability of this declaration
+    const mutable = (self.previous.kind == .VAR);
+    // Consume identifier
+    try self.consume(TokenKind.IDENTIFIER, "Expected identifier name after declare statement");
+    const id = self.previous;
+
+    // Check if type declaration was included
+    var kind: ?KindId = null;
+    if (self.match(.{TokenKind.COLON})) {
+        kind = try self.parseKind();
+    }
+
+    // Consume "="
+    try self.consume(TokenKind.EQUAL, "Expected '=' after identifier in declaration");
+    // Get operator
+    const op = self.previous;
+
+    // Parse expression
+    const assign_expr_result = try self.expression();
+    const assign_expr = assign_expr_result.expr;
+    // Consume ';'
+    try self.consume(TokenKind.SEMICOLON, "Expected ';' after declaration statement");
+
+    // Allocate new DeclareStmt
+    const new_stmt = self.allocator.create(Stmt.GlobalStmt) catch unreachable;
+    new_stmt.* = Stmt.GlobalStmt.init(mutable, id, kind, op, assign_expr);
+
+    return StmtNode{ .GLOBAL = new_stmt };
+}
+
+/// Parse a function statement
+/// FunctionStmt -> "fn" identifier '(' arglist? ')' type BlockStmt
+/// arglist -> arg (',' arg)*
+/// arg -> identifier ':' type
+fn functionStmt(self: *Parser) SyntaxError!StmtNode {
+    // Get op
+    const op = self.previous;
+    // Get name
+    try self.consume(TokenKind.IDENTIFIER, "Expected function identifier");
+    const name = self.previous;
+
+    // Consume '('
+    try self.consume(TokenKind.LEFT_PAREN, "Expected '(' after function identifier");
+    // Parse args
+    var arg_name_list = std.ArrayList(Token).init(self.allocator);
+    var arg_kind_list = std.ArrayList(KindId).init(self.allocator);
+
+    // Check if any args
+    if (!self.match(.{TokenKind.RIGHT_PAREN})) {
+        // Do first arg
+        // Get name
+        try self.consume(TokenKind.IDENTIFIER, "Expected argument identifier");
+        const first_arg_name = self.previous;
+        // Consume ':'
+        try self.consume(TokenKind.COLON, "Expected ':' after argument identifier");
+        // Get type
+        const first_arg_kind = try self.parseKind();
+        // Add to arg_list
+        arg_name_list.append(first_arg_name) catch unreachable;
+        arg_kind_list.append(first_arg_kind) catch unreachable;
+
+        // Do sequential args
+        while (!self.match(.{TokenKind.RIGHT_PAREN}) and !self.isAtEnd()) {
+            // Consume ','
+            try self.consume(TokenKind.COMMA, "Expected ',' after argument");
+
+            // Get name
+            try self.consume(TokenKind.IDENTIFIER, "Expected argument identifier");
+            const arg_name = self.previous;
+            // Consume ':'
+            try self.consume(TokenKind.COLON, "Expected ':' after argument identifier");
+            // Get type
+            const arg_kind = try self.parseKind();
+
+            // Add to arg_list
+            arg_name_list.append(arg_name) catch unreachable;
+            arg_kind_list.append(arg_kind) catch unreachable;
+        }
+        // Check if at end
+        if (self.isAtEnd()) {
+            return self.errorAt("Expected ')' after function argument list");
+        }
+    }
+
+    // Parse return kind
+    const return_kind = try self.parseKind();
+    // Consume '{'
+    try self.consume(TokenKind.LEFT_BRACE, "Expected '{' after function return type");
+    // Parse body
+    const body = try self.blockStmt();
+
+    // Allocate new FunctionStmt
+    const new_stmt = self.allocator.create(Stmt.FunctionStmt) catch unreachable;
+    new_stmt.* = Stmt.FunctionStmt.init(
+        op,
+        name,
+        arg_name_list.items,
+        arg_kind_list.items,
+        return_kind,
+        body,
+    );
+    return StmtNode{ .FUNCTION = new_stmt };
+}
+
 /// Parse a declaration
 /// Declaration -> DeclareStmt | statement
 fn declaration(self: *Parser) SyntaxError!StmtNode {
@@ -272,44 +426,11 @@ fn declareStmt(self: *Parser) SyntaxError!StmtNode {
     const id = self.previous;
 
     // Check if type declaration was included
+    var kind: ?KindId = null;
     if (self.match(.{TokenKind.COLON})) {
-        if (!self.match(.{
-            TokenKind.BOOL_TYPE,
-            TokenKind.U8_TYPE,
-            TokenKind.U16_TYPE,
-            TokenKind.U32_TYPE,
-            TokenKind.U64_TYPE,
-            TokenKind.I8_TYPE,
-            TokenKind.I16_TYPE,
-            TokenKind.I32_TYPE,
-            TokenKind.I64_TYPE,
-            TokenKind.F32_TYPE,
-            TokenKind.F64_TYPE,
-            TokenKind.ARRAY_TYPE,
-            TokenKind.STAR,
-        })) {
-            // Throw error
-            return self.errorAtCurrent("Expected type after optional ':' in declaration statement");
-        }
+        kind = try self.parseKind();
     }
 
-    // Assign kind to type if it was provided, else null
-    const kind: ?KindId = switch (self.previous.kind) {
-        .BOOL_TYPE => KindId.BOOL,
-        .U8_TYPE => KindId.newUInt(8),
-        .U16_TYPE => KindId.newUInt(16),
-        .U32_TYPE => KindId.newUInt(32),
-        .U64_TYPE => KindId.newUInt(64),
-        .I8_TYPE => KindId.newInt(8),
-        .I16_TYPE => KindId.newInt(16),
-        .I32_TYPE => KindId.newInt(32),
-        .I64_TYPE => KindId.newInt(64),
-        .F32_TYPE => KindId.FLOAT32,
-        .F64_TYPE => KindId.FLOAT64,
-        //.ARRAY_TYPE => try self.parseArrayKind(),
-        //.STAR => try self.parsePtrKind(),
-        else => null,
-    };
     // Consume "="
     try self.consume(TokenKind.EQUAL, "Expected '=' after identifier in declaration");
     // Get operator
@@ -324,7 +445,6 @@ fn declareStmt(self: *Parser) SyntaxError!StmtNode {
     // Allocate new DeclareStmt
     const new_stmt = self.allocator.create(Stmt.DeclareStmt) catch unreachable;
     new_stmt.* = Stmt.DeclareStmt.init(mutable, id, kind, op, assign_expr);
-
     return StmtNode{ .DECLARE = new_stmt };
 }
 
@@ -333,13 +453,111 @@ fn declareStmt(self: *Parser) SyntaxError!StmtNode {
 fn statement(self: *Parser) SyntaxError!StmtNode {
     if (self.match(.{TokenKind.MUT})) { // MutStmt
         return self.mutStmt();
+    } else if (self.match(.{TokenKind.LEFT_BRACE})) {
+        return self.blockStmt();
+    } else if (self.match(.{TokenKind.WHILE})) { // WhileStmt
+        return self.whileStmt();
+    } else if (self.match(.{TokenKind.IF})) {
+        return self.ifStmt();
+    } else if (self.match(.{TokenKind.BREAK})) {
+        return self.breakStmt();
+    } else if (self.match(.{TokenKind.CONTINUE})) {
+        return self.continueStmt();
     } else { // ExprStmt fall through
         return self.exprStmt();
     }
 }
 
-/// Parse an AssignStmt
-/// AssignStmt -> identifier "=" expression ";"
+/// Parse a WhileStmt
+/// whileStmt -> "while" '(' expression ')' statement ("continue" ':' statement)?
+fn whileStmt(self: *Parser) SyntaxError!StmtNode {
+    // Store while keyword
+    const op = self.previous;
+
+    // Consume '('
+    try self.consume(TokenKind.LEFT_PAREN, "Expected '(' before while conditional");
+    // Get conditional expr
+    const conditional_result = try self.expression();
+    const conditional = conditional_result.expr;
+    // Consume ')'
+    try self.consume(TokenKind.RIGHT_PAREN, "Expected ')' after while conditional");
+
+    // Parse body
+    const body = try self.statement();
+
+    // Check for loop stmt
+    var loop_stmt: ?StmtNode = null;
+    if (self.match(.{TokenKind.LOOP})) {
+        // Consume ':'
+        try self.consume(TokenKind.COLON, "Expected ':' after loop keyword");
+        // Try to parse the statement
+        loop_stmt = try self.statement();
+    }
+
+    // Make new stmt node
+    const new_stmt = self.allocator.create(Stmt.WhileStmt) catch unreachable;
+    new_stmt.* = Stmt.WhileStmt.init(op, conditional, body, loop_stmt);
+    // Return new stmt node
+    return StmtNode{ .WHILE = new_stmt };
+}
+
+/// Parses an if stmt
+/// IfStmt -> "if" '(' expression ')' statement ("else" statement)?
+fn ifStmt(self: *Parser) SyntaxError!StmtNode {
+    // Get the if token
+    const op = self.previous;
+
+    // Consume '('
+    try self.consume(TokenKind.LEFT_PAREN, "Expected '(' before if statement conditional");
+    // Parse conditional
+    const conditional_result = try self.expression();
+    const conditional = conditional_result.expr;
+    // Consume ')'
+    try self.consume(TokenKind.RIGHT_PAREN, "Expected ')' after if statement conditional");
+
+    // Parse then branch
+    const then_branch = try self.statement();
+
+    // Check for else
+    var else_branch: ?StmtNode = null;
+    if (self.match(.{TokenKind.ELSE})) {
+        else_branch = try self.statement();
+    }
+
+    // Make new stmt node
+    const new_stmt = self.allocator.create(Stmt.IfStmt) catch unreachable;
+    new_stmt.* = Stmt.IfStmt.init(op, conditional, then_branch, else_branch);
+    // Return new stmt node
+    return StmtNode{ .IF = new_stmt };
+}
+
+/// Parses a BlockStmt
+/// BlockStmt -> '{' statement? '}'
+fn blockStmt(self: *Parser) SyntaxError!StmtNode {
+    // Make list for body statements
+    var stmt_list = std.ArrayList(StmtNode).init(self.allocator);
+
+    // Parse until next '}'
+    while (!self.isAtEnd() and !self.check(TokenKind.RIGHT_BRACE)) {
+        const stmt = self.declaration() catch {
+            // Attempt to synch
+            self.synchronize();
+            continue;
+        };
+        stmt_list.append(stmt) catch unreachable;
+    }
+    // Consume '}'
+    try self.consume(TokenKind.RIGHT_BRACE, "Unclosed block statement");
+
+    // Make new stmt node
+    const new_stmt = self.allocator.create(Stmt.BlockStmt) catch unreachable;
+    new_stmt.* = Stmt.BlockStmt.init(stmt_list.items);
+    // Return new stmt node
+    return StmtNode{ .BLOCK = new_stmt };
+}
+
+/// Parse an MutateStmt
+/// MutateStmt -> "mut" identifier "=" expression ";"
 fn mutStmt(self: *Parser) SyntaxError!StmtNode {
     // Get id_expr
     const id_expr_result = try self.expression();
@@ -389,6 +607,36 @@ fn exprStmt(self: *Parser) SyntaxError!StmtNode {
     return StmtNode{ .EXPRESSION = new_stmt };
 }
 
+/// Parse a break stmt
+/// BreakStmt -> "break" ';'
+fn breakStmt(self: *Parser) SyntaxError!StmtNode {
+    // Get keyword
+    const op = self.previous;
+    // Consume ';'
+    try self.consume(TokenKind.SEMICOLON, "Expected ';' after break statement");
+
+    // Allocate memory for new statement
+    const new_stmt = self.allocator.create(Stmt.BreakStmt) catch unreachable;
+    new_stmt.* = Stmt.BreakStmt.init(op);
+    // Return new node
+    return StmtNode{ .BREAK = new_stmt };
+}
+
+/// Parse a break stmt
+/// ContinueStmt -> "continue" ';'
+fn continueStmt(self: *Parser) SyntaxError!StmtNode {
+    // Get keyword
+    const op = self.previous;
+    // Consume ';'
+    try self.consume(TokenKind.SEMICOLON, "Expected ';' after continue statement");
+
+    // Allocate memory for new statement
+    const new_stmt = self.allocator.create(Stmt.ContinueStmt) catch unreachable;
+    new_stmt.* = Stmt.ContinueStmt.init(op);
+    // Return new node
+    return StmtNode{ .CONTINUE = new_stmt };
+}
+
 //**************************//
 //      Parse Exprs
 //**************************//
@@ -401,30 +649,23 @@ fn expression(self: *Parser) SyntaxError!ExprResult {
 
 /// Parse an If Expression
 fn if_expr(self: *Parser) SyntaxError!ExprResult {
-    // Check for if
-    if (self.match(.{TokenKind.IF})) {
+    // Get lhs
+    const expr_result = try self.logic_or();
+    var expr = expr_result.expr;
+    // Upwrap precedence
+    const precendence = expr_result.precedence;
+    // Check for '?'
+    if (self.match(.{TokenKind.QUESTION_MARK})) {
         // Extract if token
         const if_token = self.previous;
-        // Consume '('
-        try self.consume(TokenKind.LEFT_PAREN, "Expected '('  after 'if'");
-
-        // Get conditional expr
-        const condition = try self.if_expr();
-        // Inwrap condition expr
-        const condition_expr = condition.expr;
-        // Unwrap precedence
-        const precedence = condition.precedence;
-
-        // Consume ')'
-        try self.consume(TokenKind.RIGHT_PAREN, "Expected ')' after 'if'");
 
         // Get then branch
         const then_branch = try self.if_expr();
         // Inwrap condition expr
         const then_expr = then_branch.expr;
 
-        // Consume else
-        try self.consume(TokenKind.ELSE, "If expressions must have an else branch");
+        // Consume ':'
+        try self.consume(TokenKind.COLON, "Expected ':' after conditional then branch");
 
         // Get then branch
         const else_branch = try self.if_expr();
@@ -433,15 +674,12 @@ fn if_expr(self: *Parser) SyntaxError!ExprResult {
 
         // Make new inner expression
         const new_expr = self.allocator.create(Expr.IfExpr) catch unreachable;
-        new_expr.* = Expr.IfExpr.init(if_token, condition_expr, then_expr, else_expr);
+        new_expr.* = Expr.IfExpr.init(if_token, expr, then_expr, else_expr);
         // Get precedence
-        const expr = ExprNode.init(ExprUnion{ .IF = new_expr });
-
-        // Wrap and return
-        return ExprResult.init(expr, precedence);
+        expr = ExprNode.init(ExprUnion{ .IF = new_expr });
     }
-    // Fall through
-    return self.logic_or();
+    // Wrap and return
+    return ExprResult.init(expr, precendence);
 }
 
 /// Parse an and statement
@@ -648,6 +886,47 @@ fn unary(self: *Parser) SyntaxError!ExprResult {
 }
 
 /// Helper function to "access"
+/// Parse a user function call expression
+/// call -> identifier '(' expression (',' expression)* ')'
+fn call(self: *Parser, expr: ExprNode, operator: Token, precedence: *isize) SyntaxError!ExprNode {
+    // Make call args list
+    var arg_list = std.ArrayList(ExprNode).init(self.allocator);
+
+    // Check if next token is ')'
+    if (!self.match(.{TokenKind.RIGHT_PAREN})) {
+        // Parse first arg
+        const first_arg_result = try self.expression();
+        const first_arg = first_arg_result.expr;
+        // Add to list
+        arg_list.append(first_arg) catch unreachable;
+
+        // Until ')' or end of file
+        while (!self.match(.{TokenKind.RIGHT_PAREN}) or self.isAtEnd()) {
+            // Consume ','
+            try self.consume(TokenKind.COMMA, "Expected ',' after function call argument");
+            // Parse first arg
+            const arg_result = try self.expression();
+            const arg = arg_result.expr;
+            // Add to list
+            arg_list.append(arg) catch unreachable;
+        }
+
+        // Check if at end
+        if (self.isAtEnd()) {
+            return self.errorAt("Unclosed function call argument list");
+        }
+    }
+    // Set precedence to -1
+    precedence.* = -1;
+    // Make new expression
+    const new_expr = self.allocator.create(Expr.CallExpr) catch unreachable;
+    // Make new call expression
+    new_expr.* = Expr.CallExpr.init(expr, operator, arg_list.items);
+    const node = ExprNode.init(ExprUnion{ .CALL = new_expr });
+    return node;
+}
+
+/// Helper function to "access"
 /// Parse a index expression
 /// index -> "[" U(INT) "]"
 fn index(self: *Parser, expr: ExprNode, operator: Token, precedence: *isize) SyntaxError!ExprNode {
@@ -693,7 +972,7 @@ fn access(self: *Parser) SyntaxError!ExprResult {
         // Parse rhs based on operator kind
         // Make new expr node and store it in expr
         expr = switch (operator.kind) {
-            //.LEFT_PAREN => try self.call(expr, &precedence),
+            .LEFT_PAREN => try self.call(expr, operator, &precedence),
             .LEFT_SQUARE => try self.index(expr, operator, &precedence),
             else => unreachable,
         };
@@ -796,7 +1075,7 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
         .IDENTIFIER => {
             // Make new constant expression
             const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-            identifier_expr.* = .{ .id = token };
+            identifier_expr.* = .{ .id = token, .stack_offset = null };
             const node = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
             // Wrap in ExprResult
             return ExprResult.init(node, 0);

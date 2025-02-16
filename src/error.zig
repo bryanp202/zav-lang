@@ -16,6 +16,10 @@ pub const SemanticError = error{
     UnsafeCoercion,
     UnresolvableIdentifier,
     DuplicateDeclaration,
+    InvalidControlFlow,
+    UnmutatedVarIdentifier,
+    FoundMainFunction,
+    InvalidMainFunction,
 };
 
 /// Asm Generation Errors

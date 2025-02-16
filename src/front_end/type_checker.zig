@@ -28,6 +28,12 @@ const Module = @import("../module.zig");
 const TypeChecker = @This();
 allocator: std.mem.Allocator,
 stm: *STM,
+// Main function
+main_function: ?StmtNode,
+// Control flow handling
+in_loop: bool,
+in_switch: bool,
+// Error handling
 had_error: bool,
 panic: bool,
 
@@ -36,6 +42,9 @@ pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
     return TypeChecker{
         .allocator = allocator,
         .stm = stm,
+        .main_function = null,
+        .in_loop = false,
+        .in_switch = false,
         .had_error = false,
         .panic = false,
     };
@@ -46,14 +55,38 @@ pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
 /// in preparation for code generation
 /// Returns true if semantics are okay
 pub fn check(self: *TypeChecker, module: *Module) void {
-    // Check all stmts in the module
-    for (module.stmts()) |*stmt| {
-        // analyze stmt, continue if there was an error
-        self.analyzeStmt(stmt) catch {
+    // Check all global statements and functions first
+    for (module.globalSlice()) |*global| {
+        // Analyze globals
+        self.visitGlobalStmt(global.GLOBAL) catch {
             self.panic = false;
+            self.had_error = true;
             continue;
         };
     }
+    // Declare all functions
+    for (module.functionSlice()) |function| {
+        // Declare function but do not analyze body
+        self.declareFunction(function.FUNCTION) catch {
+            self.panic = false;
+            self.had_error = true;
+            continue;
+        };
+    }
+    // Look for function called main and make sure it has proper arguments
+    self.checkForMain();
+
+    // Check all function bodies in the module
+    for (module.functionSlice()) |*function| {
+        // analyze all function bodies, continue if there was an error
+        self.visitFunctionStmt(function.FUNCTION) catch {
+            self.panic = false;
+            self.had_error = true;
+            continue;
+        };
+    }
+    // Check for unmutated var in global scope
+    self.checkVarInScope();
 }
 
 /// Returns true if this type checker has ever encountered an error
@@ -64,6 +97,46 @@ pub fn hadError(self: TypeChecker) bool {
 // ********************** //
 // Private helper methods //
 // ********************** //
+/// Look for main function, ensure it has proper argmunents and return type
+fn checkForMain(self: *TypeChecker) void {
+    // Used to report errors
+    const stderr = std.io.getStdErr().writer();
+
+    // Check if main was found
+    if (self.main_function) |main| {
+        // Check if kind matches
+        const main_kind = main.FUNCTION;
+        _ = main_kind;
+        // Check main arg and return types match expected //////////////////////////////
+        //
+        //
+    } else {
+        _ = stderr.write("Expected identifier 'main' to be a function with args (argc: u64, argv: *u8)\n") catch unreachable;
+        self.had_error = true;
+    }
+}
+
+/// Pop the active STM scope, checking for any unmutated var declared symbols
+fn checkVarInScope(self: *TypeChecker) void {
+    // Used to report errors
+    const stderr = std.io.getStdErr().writer();
+
+    // Check each symbol
+    var symbol_iter = self.stm.active_scope.symbols.iterator();
+    // Check each symbol
+    while (symbol_iter.next()) |entry| {
+        const symbol = entry.value_ptr;
+        if (symbol.is_mutable and !symbol.has_mutated) {
+            // Alert user
+            stderr.print(
+                "[Declared on Line {d}] as \'{s}\': Var identifier was never mutated\n",
+                .{ symbol.dcl_line, symbol.name },
+            ) catch unreachable;
+            // Update had error
+            self.had_error = true;
+        }
+    }
+}
 
 /// Return the new size for a UInt being upgraded to a signed int
 /// UInt.bits < 64 -> x2; else 64
@@ -120,6 +193,159 @@ const CoercionResult = struct {
     }
 };
 
+/// Returns a CoercionResult for two KindIds, one argument/static type and one expression defined type
+/// If the two kindids can be coerced or are equal, then it returns the upgraded type,
+/// but will return error if the static kind is upgraded
+fn staticCoerceKinds(self: *TypeChecker, op: Token, static_kind: KindId, rhs_kind: KindId) SemanticError!CoercionResult {
+    switch (static_kind) {
+        // Any kind
+        .ANY => {
+            return CoercionResult.init(rhs_kind, false, false);
+        },
+        // Left Bool
+        .BOOL => switch (rhs_kind) {
+            // Left Bool | Right Bool
+            .BOOL => {
+                // Return lhs, both the same
+                return CoercionResult.init(static_kind, false, false);
+            },
+            // All other combinations are illegal
+            else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
+        },
+        // Left UInt
+        .UINT => |l_uint| switch (rhs_kind) {
+            // Left UInt | Right Bool
+            .BOOL => {
+                return CoercionResult.init(static_kind, false, false);
+            },
+            // Left UInt | Right UInt
+            .UINT => |r_uint| {
+                // See if static type is bigger or equal
+                if (l_uint.bits >= r_uint.bits) {
+                    return CoercionResult.init(static_kind, false, false);
+                }
+                // Throw error
+                return self.reportError(SemanticError.TypeMismatch, op, "Cannot implicitly downgrade UINT size");
+            },
+            // All other combinations are illegal
+            else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
+        },
+        // Left Int
+        .INT => |l_int| switch (rhs_kind) {
+            // Left Int | Right Bool
+            .BOOL => {
+                // Return the int
+                return CoercionResult.init(static_kind, false, false);
+            },
+            // Left Int | Right UInt
+            .UINT => |r_uint| {
+                // See what upgraded UINT would be
+                const signed_int = upgradeUIntBits(r_uint.bits);
+                // Determine if int can hold upgraded UINT
+                if (l_int.bits >= signed_int.INT.bits) {
+                    return CoercionResult.init(static_kind, false, false);
+                }
+                // Cannot fit error
+                return self.reportError(SemanticError.UnsafeCoercion, op, "This INT cannot store all values of this UINT");
+            },
+            // Left Int | Right Int
+            .INT => |r_int| {
+                // See if static type is bigger or equal
+                if (l_int.bits >= r_int.bits) {
+                    return CoercionResult.init(static_kind, false, false);
+                }
+                // Throw error
+                return self.reportError(SemanticError.TypeMismatch, op, "Cannot implicitly downgrade INT size");
+            },
+            // All other combinations are illegal
+            else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
+        },
+        // Left Float32
+        .FLOAT32 => switch (rhs_kind) {
+            // Left Float | Right Int
+            .BOOL, .UINT, .INT => {
+                // Return the float
+                return CoercionResult.init(static_kind, false, true);
+            },
+            // Left Float | Right Float
+            .FLOAT32 => {
+                // Else they are the same, no coercion
+                return CoercionResult.init(static_kind, false, false);
+            },
+            .FLOAT64 => {
+                // Return error
+                return self.reportError(SemanticError.TypeMismatch, op, "Cannot implicitly downgrade F32 to F64 size");
+            },
+            // All other combinations are illegal
+            else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
+        },
+        // Left Float32
+        .FLOAT64 => switch (rhs_kind) {
+            // Left Float | Right Int
+            .BOOL, .UINT, .INT => {
+                // Return the float
+                return CoercionResult.init(static_kind, false, true);
+            },
+            // Left Float | Right Float
+            .FLOAT32 => {
+                // Return the float with more bits
+                return CoercionResult.init(static_kind, false, true);
+            },
+            .FLOAT64 => {
+                // Else they are the same, no coercion
+                return CoercionResult.init(static_kind, false, false);
+            },
+            // All other combinations are illegal
+            else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
+        },
+        // Left PTR
+        .PTR => |l_ptr| switch (rhs_kind) {
+            .PTR => |r_ptr| {
+                if (!l_ptr.equal(r_ptr)) {
+                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
+                }
+                // Return static kind
+                return CoercionResult.init(static_kind, false, false);
+            },
+            // Right - array
+            .ARRAY => |array| {
+                const array_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
+                if (!l_ptr.equal(array_ptr.PTR)) {
+                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
+                }
+                // Return a static kind
+                return CoercionResult.init(static_kind, false, false);
+            },
+            // All other combinations are illegal
+            else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
+        },
+        // Left bool | Right Array
+        .ARRAY => |l_array| switch (rhs_kind) {
+            // Right - array
+            .ARRAY => |r_array| {
+                // If not equal, error
+                if (!l_array.equal(r_array)) {
+                    return self.reportError(SemanticError.TypeMismatch, op, "Arrays must be the same length");
+                }
+                // Return static kind
+                return CoercionResult.init(static_kind, false, false);
+            },
+            // All other combinations are illegal
+            else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
+        },
+        // For all other types
+        else => {
+            // If the equal
+            if (static_kind.equal(rhs_kind)) {
+                // Return lhs and and no upgrades
+                return CoercionResult.init(static_kind, false, false);
+            }
+            // Else no implicit coercion defined
+            return self.reportError(SemanticError.TypeMismatch, op, "Incompatible types");
+        },
+    }
+}
+
 /// Returns a CoercionResult for two KindIds
 /// If the two kindids can be coerced or are equal, then it returns the upgraded type
 fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId) SemanticError!CoercionResult {
@@ -170,7 +396,7 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
             // Left UInt | Right Int
             .INT => |r_int| {
                 // Determine (u)int with most bits
-                if (l_uint.bits > r_int.bits) {
+                if (l_uint.bits >= r_int.bits) {
                     // Upgrade unsigned
                     const signed_int = upgradeUIntBits(l_uint.bits);
                     return CoercionResult.init(signed_int, false, false);
@@ -358,12 +584,108 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
 // ********************** //
 // Stmt anaylsis  methods //
 // ********************** //
+
+/// Declare a function, but do not check its body
+fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!void {
+    // Create new kindid
+    const new_func = self.allocator.create(KindId) catch unreachable;
+    // Create new function
+    new_func.* = KindId.newFunc(self.allocator, func.arg_kinds, false, func.return_kind, func.name.lexeme);
+
+    // Declare it
+    _ = self.stm.declareSymbol(
+        func.name.lexeme,
+        new_func.*,
+        ScopeKind.GLOBAL,
+        func.name.line,
+        false,
+    ) catch {
+        return self.reportError(SemanticError.DuplicateDeclaration, func.name, "Duplicate declaration of function");
+    };
+
+    // If functions name is 'main,' update type checkers main
+    if (std.mem.eql(u8, "main", func.name.lexeme)) {
+        self.main_function = StmtNode{ .FUNCTION = func };
+    }
+}
+
+/// Analyze a function body
+fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!void {
+    // Enter new scope
+    self.stm.addScope();
+
+    // Declare args
+    for (func.arg_names, func.arg_kinds) |name, kind| {
+        // Declare arg
+        _ = self.stm.declareSymbol(name.lexeme, kind, ScopeKind.LOCAL, name.line, false) catch {
+            return self.reportError(SemanticError.UnresolvableIdentifier, name, "Failed to declare function argument");
+        };
+    }
+
+    // Analyze body
+    try self.analyzeStmt(&func.body);
+
+    // Get scope size
+    const stack_size = self.stm.active_scope.next_address;
+    // Get function symbol
+    const function_symbol = self.stm.getSymbol(func.name.lexeme) catch unreachable;
+    // Update stack offset
+    function_symbol.kind.FUNC.stack_offset = stack_size;
+
+    // Exit scope
+    self.stm.popScope();
+}
+
 /// analyze the types of stmtnodes
 fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
     return switch (stmt.*) {
+        //.GLOBAL => |globalStmt| self.visitGlobalStmt(globalStmt),
         .DECLARE => |declareStmt| self.visitDeclareStmt(declareStmt),
         .EXPRESSION => |exprStmt| self.visitExprStmt(exprStmt),
+        .MUTATE => |mutStmt| self.visitMutateStmt(mutStmt),
+        .WHILE => |whileStmt| self.visitWhileStmt(whileStmt),
+        .IF => |ifStmt| self.visitIfStmt(ifStmt),
+        .BLOCK => |blockStmt| self.visitBlockStmt(blockStmt),
+        .BREAK => |breakStmt| self.visitBreakStmt(breakStmt),
+        .CONTINUE => |continueStmt| self.visitContinueStmt(continueStmt),
         else => unreachable,
+    };
+}
+
+/// Analze the types of an GlobalStmt
+fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticError!void {
+    // Get the type of expression
+    const expr_kind = try self.analyzeExpr(&globalStmt.expr);
+    // Extract declaration kind
+    const maybe_declared_kind = globalStmt.kind;
+
+    // Check if declared with a kind
+    if (maybe_declared_kind) |declared_kind| {
+        // Check if the expr kind and declared kind are coerceable
+        const coerce_result = try self.staticCoerceKinds(globalStmt.op, declared_kind, expr_kind);
+
+        // Check if need to insert conversion nodes
+        if (coerce_result.upgraded_rhs) {
+            insertConvExpr(
+                self.allocator,
+                &globalStmt.expr,
+                coerce_result.final_kind,
+            );
+        }
+    } else {
+        // Update kind to expr result kind
+        globalStmt.kind = expr_kind;
+    }
+
+    // Create new symbol in STM
+    _ = self.stm.declareSymbol(
+        globalStmt.id.lexeme,
+        globalStmt.kind.?,
+        ScopeKind.GLOBAL,
+        globalStmt.id.line,
+        globalStmt.mutable,
+    ) catch {
+        return self.reportError(SemanticError.DuplicateDeclaration, globalStmt.id, "Identifier already declared");
     };
 }
 
@@ -377,16 +699,7 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
     // Check if declared with a kind
     if (maybe_declared_kind) |declared_kind| {
         // Check if the expr kind and declared kind are coerceable
-        const coerce_result = try self.coerceKinds(declareExpr.op, declared_kind, expr_kind);
-
-        // Check if declared kind was "upgraded"
-        if (!declared_kind.equal(coerce_result.final_kind)) {
-            return self.reportError(
-                SemanticError.TypeMismatch,
-                declareExpr.op,
-                "Invalid assignment, cannot implicitly downgrade types",
-            );
-        }
+        const coerce_result = try self.staticCoerceKinds(declareExpr.op, declared_kind, expr_kind);
 
         // Check if need to insert conversion nodes
         if (coerce_result.upgraded_rhs) {
@@ -402,15 +715,56 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
     }
 
     // Create new symbol in STM
-    self.stm.declareSymbol(
+    const stack_offset = self.stm.declareSymbol(
         declareExpr.id.lexeme,
         declareExpr.kind.?,
-        ScopeKind.GLOBAL,
+        ScopeKind.LOCAL,
         declareExpr.id.line,
         declareExpr.mutable,
     ) catch {
-        return self.reportError(SemanticError.DuplicateDeclaration, declareExpr.id, "Duplicate usage of identifier");
+        return self.reportError(SemanticError.DuplicateDeclaration, declareExpr.id, "Identifier already declared");
     };
+
+    // Update stack offset
+    declareExpr.stack_offset = stack_offset;
+}
+
+/// Analyze types of a mutation statement
+fn visitMutateStmt(self: *TypeChecker, mutStmt: *Stmt.MutStmt) SemanticError!void {
+    // Analze the id expression
+    const id_result = try self.analyzeIDExpr(&mutStmt.id_expr, mutStmt.op);
+    const id_kind = id_result.kind;
+    const is_mutable = id_result.mutable;
+    // Update id_kind in stmt
+    mutStmt.id_kind = id_kind;
+
+    // Make sure it is mutable
+    if (!is_mutable) {
+        return self.reportError(SemanticError.TypeMismatch, mutStmt.op, "Cannot mutate constant identifiers");
+    }
+
+    // Check if lhs is a float and using '%='
+    if (mutStmt.op.kind == .PERCENT_EQUAL and (id_kind == .FLOAT32 or id_kind == .FLOAT64)) {
+        return self.reportError(
+            SemanticError.TypeMismatch,
+            mutStmt.op,
+            "Floating point numbers do not support the modulo operator",
+        );
+    }
+
+    // Get assign expr kind
+    const expr_kind = try self.analyzeExpr(&mutStmt.assign_expr);
+    // Coerce rhs into lhs
+    const coerce_result = try self.staticCoerceKinds(mutStmt.op, id_kind, expr_kind);
+
+    // Check if need to insert conversion nodes
+    if (coerce_result.upgraded_rhs) {
+        insertConvExpr(
+            self.allocator,
+            &mutStmt.assign_expr,
+            coerce_result.final_kind,
+        );
+    }
 }
 
 /// analyze the types of an ExprStmt
@@ -419,9 +773,93 @@ fn visitExprStmt(self: *TypeChecker, exprStmt: *Stmt.ExprStmt) SemanticError!voi
     _ = try self.analyzeExpr(&exprStmt.expr);
 }
 
+/// Analyze the types of a whileStmt
+fn visitWhileStmt(self: *TypeChecker, whileStmt: *Stmt.WhileStmt) SemanticError!void {
+    // Analyze the conditional kind
+    const cond_kind = try self.analyzeExpr(&whileStmt.conditional);
+    // Check if kind is a bool
+    if (cond_kind != .BOOL) {
+        return self.reportError(SemanticError.TypeMismatch, whileStmt.op, "Expected while loop conditional to be a bool");
+    }
+
+    // Set in loop to true
+    self.in_loop = true;
+    // Check types of body
+    try self.analyzeStmt(&whileStmt.body);
+    // Check types of loop stmt if there is one
+    if (whileStmt.loop_stmt != null) {
+        try self.analyzeStmt(&whileStmt.loop_stmt.?);
+    }
+    // Exit loop
+    self.in_loop = false;
+}
+
+/// Analyze the types of an ifStmt
+fn visitIfStmt(self: *TypeChecker, ifStmt: *Stmt.IfStmt) SemanticError!void {
+    // Check if conditional is bool
+    const cond_kind = try self.analyzeExpr(&ifStmt.conditional);
+    if (cond_kind != .BOOL) {
+        return self.reportError(SemanticError.TypeMismatch, ifStmt.op, "Expected a bool for if statement conditional");
+    }
+
+    // Check then branch
+    try self.analyzeStmt(&ifStmt.then_branch);
+    // If else branch, check it
+    if (ifStmt.else_branch != null) {
+        try self.analyzeStmt(&ifStmt.else_branch.?);
+    }
+}
+
+/// Analyze the types of a blockStmt
+fn visitBlockStmt(self: *TypeChecker, blockStmt: *Stmt.BlockStmt) SemanticError!void {
+    // Enter new scope
+    self.stm.addScope();
+    // Loop through each statement in the block, checking its types
+    for (blockStmt.statements) |*stmt| {
+        try self.analyzeStmt(stmt);
+    }
+    // Check var in scope
+    self.checkVarInScope();
+    // Pop scope
+    self.stm.popScope();
+}
+
+/// Analyze break stmt
+/// Check if in loop or switch
+fn visitBreakStmt(self: *TypeChecker, breakStmt: *Stmt.BreakStmt) SemanticError!void {
+    // Check if in loop or switch
+    if (!(self.in_loop or self.in_switch)) {
+        return self.reportError(SemanticError.InvalidControlFlow, breakStmt.op, "Expected to be inside of a loop or switch statement");
+    }
+}
+
+/// Analyze break stmt
+/// Check if in loop or switch
+fn visitContinueStmt(self: *TypeChecker, continueStmt: *Stmt.ContinueStmt) SemanticError!void {
+    // Check if in loop or switch
+    if (!self.in_loop) {
+        return self.reportError(SemanticError.InvalidControlFlow, continueStmt.op, "Expected to be inside of a loop statement");
+    }
+}
+
 // ********************** //
 // Expr anaylsis  methods //
 // ********************** //
+
+/// Used to return if an assignment operand is mutable or not
+const IDResult = struct {
+    kind: KindId,
+    mutable: bool,
+};
+
+/// Analysis an ID expression
+fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!IDResult {
+    switch (node.*.expr) {
+        .IDENTIFIER => return self.visitIdentifierExprWrapped(node),
+        .INDEX => return self.visitIndexExprWrapped(node),
+        else => return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array"),
+    }
+}
 
 /// Analysis a ExprNode
 fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
@@ -430,6 +868,7 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .IDENTIFIER => self.visitIdentifierExpr(node),
         .LITERAL => self.visitLiteralExpr(node),
         .NATIVE => self.visitNativeExpr(node),
+        .CALL => self.visitCallExpr(node),
         .CONVERSION => self.visitConvExpr(node),
         .INDEX => self.visitIndexExpr(node),
         .UNARY => self.visitUnaryExpr(node),
@@ -497,6 +936,29 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
     }
 }
 
+/// Visit an Identifier Expr wrapped with an IDResult
+fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
+    // Extract name from id token
+    const token = node.*.expr.IDENTIFIER.id;
+    const name = token.lexeme;
+    // Try to get the symbol, else throw error
+    const symbol = self.stm.getSymbol(name) catch {
+        return self.reportError(SemanticError.UnresolvableIdentifier, token, "Identifier is undeclared");
+    };
+    // Set symbol as mutated
+    symbol.has_mutated = true;
+    // Set stack offset if local
+    if (symbol.scope == .LOCAL) {
+        node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc;
+    }
+
+    // Wrap in id_result with constant status of symbol
+    const id_result = IDResult{ .kind = symbol.kind, .mutable = symbol.is_mutable };
+    // Return id result and update final
+    node.result_kind = symbol.kind;
+    return id_result;
+}
+
 /// Visit an Identifier Expr
 fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract name from id token
@@ -506,6 +968,12 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     const symbol = self.stm.getSymbol(name) catch {
         return self.reportError(SemanticError.UnresolvableIdentifier, token, "Identifier is undeclared");
     };
+
+    // Set stack offset if local
+    if (symbol.scope == .LOCAL) {
+        node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc;
+    }
+
     // Return its stored kind and update final
     node.result_kind = symbol.kind;
     return node.result_kind;
@@ -519,92 +987,178 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const nativeExpr = node.expr.NATIVE;
     // Get native token
     const native_token = nativeExpr.name;
-    // Get native kindid
+    // Get native name
     const native_name = nativeExpr.name.lexeme[1..];
-    // Check for native function
-    const maybe_native = self.stm.natives_table.getNativeKind(native_name);
-
-    // Check if native found
-    if (maybe_native == null) {
-        // Throw error
+    // Check for native function kindid
+    const native_kind: KindId = self.stm.natives_table.getNativeKind(native_name) orelse {
+        // Did not find throw error
         return self.reportError(
             SemanticError.UnresolvableIdentifier,
             native_token,
             "Invalid native function",
         );
-    }
-    const native = maybe_native.?.FUNC;
+    };
+
+    // Extract function kindid
+    const native = native_kind.FUNC;
+    // Get caller args
     const call_args = nativeExpr.args;
+    // Update native calls kindids
+    nativeExpr.arg_kinds = self.allocator.alloc(KindId, call_args.len) catch unreachable;
 
-    // Check if any args
-    if (native.arg_kinds != null) {
-        // Check arg count
-        if (native.arg_kinds.?.len != call_args.?.len) {
-            return self.reportError(
-                SemanticError.TypeMismatch,
-                native_token,
-                "Invalid amount of arguments",
+    // Check arg count, if variadic ensure all static arguments are present
+    if (native.arg_kinds.len != call_args.len and !(native.arg_kinds.len <= call_args.len and native.variadic)) {
+        return self.reportError(
+            SemanticError.TypeMismatch,
+            native_token,
+            "Invalid amount of arguments",
+        );
+    }
+    // Check arg types, ignoring variadic arguments
+    const static_arg_count = native.arg_kinds.len;
+    for (native.arg_kinds, call_args[0..static_arg_count], 0..) |native_arg_kind, *call_arg, count| {
+        // Evaluate argument type
+        var arg_kind = try self.analyzeExpr(call_arg);
+        // Update arg_kinds
+        nativeExpr.arg_kinds[count] = arg_kind;
+
+        // Decay any arrays into pointers
+        if (arg_kind == .ARRAY) {
+            // Downgrade to a ptr
+            arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
+            // Update call_arg kind
+            call_arg.*.result_kind = arg_kind;
+        }
+
+        // Check if match or coerceable
+        const coerce_result = try self.staticCoerceKinds(
+            native_token,
+            native_arg_kind,
+            arg_kind,
+        );
+
+        // Check if need to insert conversion nodes
+        if (coerce_result.upgraded_rhs) {
+            insertConvExpr(
+                self.allocator,
+                call_arg,
+                coerce_result.final_kind,
             );
         }
-        // Check arg types
-        for (native.arg_kinds.?, call_args.?) |native_arg_kind, *call_arg| {
-            // Evaluate argument type
-            var arg_kind = try self.analyzeExpr(call_arg);
+    }
 
-            // Decay any arrays into pointers
-            if (arg_kind == .ARRAY) {
-                // Downgrade to a ptr
-                arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
-                // Update call_arg kind
-                call_arg.*.result_kind = arg_kind;
-            }
+    // Check types of all variadic arguments
+    for (call_args[static_arg_count..call_args.len]) |*call_arg| {
+        // Evaluate
+        var arg_kind = try self.analyzeExpr(call_arg);
 
-            // Check if pointer arguments are being given pointer parameters
-            if ((native_arg_kind == .PTR or native_arg_kind == .ARRAY) and (arg_kind != .PTR and arg_kind != .ARRAY)) {
-                return self.reportError(
-                    SemanticError.UnsafeCoercion,
-                    native_token,
-                    "Cannot implicitly convert number into pointer",
-                );
-            }
-
-            // Check if match or coerceable
-            const coerce_result = try self.coerceKinds(
-                native_token,
-                native_arg_kind,
-                arg_kind,
-            );
-
-            // Check if argument was coerced
-            if (coerce_result.upgraded_lhs) {
-                return self.reportError(
-                    SemanticError.TypeMismatch,
-                    native_token,
-                    "Invalid argument, cannot implicitly downgrade types",
-                );
-            }
-            // Check if need to insert conversion nodes
-            if (coerce_result.upgraded_rhs) {
-                insertConvExpr(
-                    self.allocator,
-                    call_arg,
-                    coerce_result.final_kind,
-                );
-            }
+        // Decay any arrays into pointers
+        if (arg_kind == .ARRAY) {
+            // Downgrade to a ptr
+            arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
         }
-    } else {
-        // Check both no args
-        if (call_args != null) {
-            return self.reportError(
-                SemanticError.TypeMismatch,
-                native_token,
-                "Unexpected arguments",
-            );
+
+        // Check if float32 needs to be upgraded to float 64
+        if (arg_kind == .FLOAT32) {
+            // Upgrade to a float 64
+            insertConvExpr(self.allocator, call_arg, KindId.FLOAT64);
+        } else {
+            // Update call_arg kind
+            call_arg.*.result_kind = arg_kind;
         }
     }
     // Everything matches
     node.result_kind = native.ret_kind.*;
     return native.ret_kind.*;
+}
+
+fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    // Extract nativeExpr
+    const callExpr = node.expr.CALL;
+
+    // Parse caller_expr
+    const callee_kind = try self.analyzeExpr(&callExpr.caller_expr);
+    // Check if function
+    if (callee_kind != .FUNC) {
+        return self.reportError(SemanticError.TypeMismatch, callExpr.op, "Expected a function type");
+    }
+    // Extract function
+    const callee = callee_kind.FUNC;
+
+    // Check arg count
+    if (callExpr.args.len != callee.arg_kinds.len) {
+        return self.reportError(
+            SemanticError.TypeMismatch,
+            callExpr.op,
+            "Invalid amount of arguments",
+        );
+    }
+    // Check arg types
+    for (callee.arg_kinds, callExpr.args) |callee_arg, *caller_arg| {
+        // Evaluate argument type
+        var arg_kind = try self.analyzeExpr(caller_arg);
+
+        // Decay any arrays into pointers
+        if (arg_kind == .ARRAY) {
+            // Downgrade to a ptr
+            arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
+            // Update call_arg kind
+            caller_arg.*.result_kind = arg_kind;
+        }
+
+        // Check if match or coerceable
+        const coerce_result = try self.staticCoerceKinds(
+            callExpr.op,
+            callee_arg,
+            arg_kind,
+        );
+
+        // Check if need to insert conversion nodes
+        if (coerce_result.upgraded_rhs) {
+            insertConvExpr(
+                self.allocator,
+                caller_arg,
+                coerce_result.final_kind,
+            );
+        }
+    }
+    // Everything matches
+    node.result_kind = callee.ret_kind.*;
+    return node.result_kind;
+}
+
+/// Used for ID Expression resolution, returns if data is constant or not
+fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
+    // Extract index expression
+    const indexExpr = node.expr.INDEX;
+    // Find lhs kind
+    const lhs_kind = try self.analyzeExpr(&indexExpr.lhs);
+    // Used to return child kind
+    var dereferenced_kind: KindId = undefined;
+    var mutable: bool = undefined;
+
+    // Check if lhs is an array and index is inbounds of array
+    if (lhs_kind == .ARRAY) {
+        dereferenced_kind = lhs_kind.ARRAY.child.*;
+        mutable = !lhs_kind.ARRAY.const_items;
+    } else if (lhs_kind == .PTR) {
+        dereferenced_kind = lhs_kind.PTR.child.*;
+        mutable = !lhs_kind.PTR.const_child;
+    } else {
+        return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
+    }
+
+    // Find rhs kind
+    const rhs_kind = try self.analyzeExpr(&indexExpr.rhs);
+    // Checl if rhs is a U(INT)
+    if (rhs_kind != .UINT and rhs_kind != .INT) {
+        return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only access int or uint indexes");
+    }
+
+    // Update result kind
+    node.result_kind = dereferenced_kind;
+    // Wrap in IDResult
+    return IDResult{ .kind = dereferenced_kind, .mutable = mutable };
 }
 
 fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
@@ -617,14 +1171,9 @@ fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
     // Check if lhs is an array and index is inbounds of array
     if (lhs_kind == .ARRAY) {
-        dereferenced_kind = lhs_kind.ARRAY.dereference() catch
-            {
-            return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
-        };
+        dereferenced_kind = lhs_kind.ARRAY.child.*;
     } else if (lhs_kind == .PTR) {
-        dereferenced_kind = lhs_kind.PTR.dereference() catch {
-            return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
-        };
+        dereferenced_kind = lhs_kind.PTR.child.*;
     } else {
         return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
     }
