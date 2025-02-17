@@ -77,8 +77,8 @@ pub const SymbolTableManager = struct {
         // Transfer next address
         self.active_scope.next_address = next_address;
 
-        // Add to scopes stack
-        self.scopes.append(new_scope) catch unreachable;
+        // Insert new scope into stack
+        self.scopes.insert(self.next_scope, new_scope) catch unreachable;
 
         // Increment current scope counter
         self.next_scope += 1;
@@ -235,8 +235,8 @@ pub const Scope = struct {
         const alignment: u64 = @min(size, 8);
         const offset = self.next_address & (alignment - 1);
 
-        // If local add to next_address
-        if (scope == ScopeKind.LOCAL) {
+        // If not global add to next_address
+        if (scope != ScopeKind.GLOBAL) {
             // Check if address is aligned
             if (offset != 0) {
                 // Increment next address
@@ -399,7 +399,7 @@ pub const KindId = union(Kinds) {
         return KindId{ .ARRAY = arr };
     }
     /// Init a new Function kindid
-    pub fn newFunc(allocator: std.mem.Allocator, arg_kinds: []KindId, variadic: bool, ret_kind: KindId, name: []const u8) KindId {
+    pub fn newFunc(allocator: std.mem.Allocator, arg_kinds: []KindId, variadic: bool, ret_kind: KindId) KindId {
         // Dynamically allocate the child KindId tag
         const ret_ptr = allocator.create(KindId) catch unreachable;
         ret_ptr.* = ret_kind;
@@ -408,8 +408,7 @@ pub const KindId = union(Kinds) {
             .arg_kinds = arg_kinds,
             .variadic = variadic,
             .ret_kind = ret_ptr,
-            .stack_offset = undefined,
-            .name = name,
+            .args_size = undefined,
         };
         return KindId{ .FUNC = func };
     }
@@ -463,6 +462,7 @@ pub const KindId = union(Kinds) {
 
 /// Used to mark what kind of scope a variable has
 pub const ScopeKind = enum {
+    ARG,
     LOCAL,
     GLOBAL,
 };
@@ -530,9 +530,7 @@ const Function = struct {
     // Type of return value
     ret_kind: *KindId,
     // How much stack offset
-    stack_offset: usize,
-    // Name of this function
-    name: []const u8,
+    args_size: usize,
 
     /// Returns true if this func is the same as another func
     pub fn equal(self: Function, other: Function) bool {

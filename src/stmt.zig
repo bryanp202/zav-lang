@@ -178,6 +178,7 @@ pub const FunctionStmt = struct {
     name: Token,
     arg_names: []Token,
     arg_kinds: []KindId,
+    locals_size: u64,
     return_kind: KindId,
     body: StmtNode,
 
@@ -188,6 +189,7 @@ pub const FunctionStmt = struct {
             .name = name,
             .arg_names = arg_names,
             .arg_kinds = arg_kinds,
+            .locals_size = undefined,
             .return_kind = return_kind,
             .body = body,
         };

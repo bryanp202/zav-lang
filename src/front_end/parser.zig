@@ -1075,7 +1075,7 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
         .IDENTIFIER => {
             // Make new constant expression
             const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-            identifier_expr.* = .{ .id = token, .stack_offset = null };
+            identifier_expr.* = .{ .id = token };
             const node = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
             // Wrap in ExprResult
             return ExprResult.init(node, 0);

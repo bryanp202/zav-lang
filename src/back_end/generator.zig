@@ -60,6 +60,10 @@ break_label: usize,
 /// Used for continue statements jump point
 continue_label: usize,
 
+// Access helpers
+current_func_locals_size: usize,
+current_func_args_size: usize,
+
 // Register count
 cpu_reg_stack: RegisterStack(cpu_reg_names),
 sse_reg_stack: RegisterStack(sse_reg_names),
@@ -99,6 +103,8 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
         .label_count = 0,
         .break_label = undefined,
         .continue_label = undefined,
+        .current_func_locals_size = undefined,
+        .current_func_args_size = undefined,
         .cpu_reg_stack = RegisterStack(cpu_reg_names).init(),
         .sse_reg_stack = RegisterStack(sse_reg_names).init(),
     };
@@ -206,21 +212,10 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
         try self.visitGlobalStmt(global.GLOBAL.*);
     }
 
-    // Get stack size of main
-    const main_symbol = self.stm.getSymbol("main") catch unreachable;
-    const stack_size = main_symbol.kind.FUNC.stack_offset;
-
-    // Set up main call
-    try self.write("\n    push rbp\n    mov rbp, rsp\n");
-
-    // Offset stack for locals
-    try self.print("    sub rsp, {d} ; Set up main locals\n", .{stack_size});
-    // Write jump to _main
-    try self.write("    call _main\n");
-    // Clear mains locals
-    try self.print("    add rsp, {d} ; Clean up main locals\n", .{stack_size});
+    // Call main
+    try self.write("\n    call _main ; Execute main\n");
     // Write exit
-    try self.write("    mov rcx, rax\n    leave\n    ret\n\n");
+    try self.write("    mov rcx, rax\n    ret\n\n");
 
     // Generate all functions in the module
     for (module.functionSlice()) |function| {
@@ -413,19 +408,40 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
 
 /// Generate the asm for a function declaration
 fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt) GenerationError!void {
+    // Set current function stack size
+    const function_sym = self.stm.getSymbol(functionStmt.name.lexeme) catch unreachable;
+    self.current_func_args_size = function_sym.kind.FUNC.args_size;
+    self.current_func_locals_size = functionStmt.locals_size;
     // Enter scope
     self.stm.pushScope();
+    // Get locals stack size
+    const locals_size = functionStmt.locals_size;
 
     // Write the functions label
     try self.print("\n_{s}:\n", .{functionStmt.name.lexeme});
+    // Allocate stack space for locals
+    if (locals_size > 0) {
+        try self.print("    sub rsp, {d} ; Reserve locals space\n", .{locals_size});
+    }
+    // Generate label for return
+    const return_label = self.label_count;
+    self.label_count += 1;
+
     // Push rbp and move rsp to rbp
     try self.write("    push rbp\n    mov rbp, rsp\n");
 
     // Generate body
     try self.genStmt(functionStmt.body);
 
-    // Generate default return and rbp pop
-    _ = try self.write("    pop rbp\n    xor ecx, ecx\n    ret\n");
+    // Generate return stmt
+    try self.print(".L{d}:\n", .{return_label});
+    // Pop rbp
+    try self.write("    pop rbp\n");
+    // Free locals and return
+    if (locals_size > 0) {
+        try self.print("    add rsp, {d}\n", .{locals_size});
+    }
+    try self.write("    ret\n");
 
     // Exit scope
     self.stm.popScope();
@@ -436,7 +452,7 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
     // Generate expression
     try self.genExpr(declareStmt.expr);
     // Get stack offset
-    const offset = declareStmt.stack_offset + 16;
+    const offset = declareStmt.stack_offset;
 
     // Pop register based on result type
     const result_kind = declareStmt.expr.result_kind;
@@ -666,13 +682,11 @@ fn visitIdentifierExprID(self: *Generator, idExpr: *Expr.IdentifierExpr) Generat
     // Get pointer to the identifier
     const id_name = idExpr.id.lexeme;
 
-    // Check if stack offset
-    if (idExpr.stack_offset) |offset| {
-        // Write as local
-        try self.print("    lea {s}, [rbp+{d}] ; Get Local\n", .{ reg.name, offset + 16 });
-    } else {
-        // Write as global
-        try self.print("    lea {s}, [_{s}] ; Get Global\n", .{ reg.name, id_name });
+    // Access based on scope kind
+    switch (idExpr.scope_kind) {
+        .ARG => try self.print("    lea {s}, [rbp+{d}] ; Get Arg\n", .{ reg.name, idExpr.stack_offset + self.current_func_locals_size }),
+        .LOCAL => try self.print("    lea {s}, [rbp+{d}] ; Get Arg\n", .{ reg.name, idExpr.stack_offset - self.current_func_args_size }),
+        .GLOBAL => try self.print("    lea {s}, [_{s}] ; Get Global\n", .{ reg.name, id_name }),
     }
 }
 
@@ -683,22 +697,29 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
     // Get keyword based on size
     const size_keyword = getSizeKeyword(kind_size);
 
-    // Check if stack offset
-    if (idExpr.stack_offset) |stack_offset| {
-        const offset = stack_offset + 16;
-        // Generate as local
+    // Get stack offset based on scope kind
+    const stack_offset: ?u64 = switch (idExpr.scope_kind) {
+        .ARG => idExpr.stack_offset + self.current_func_locals_size,
+        .LOCAL => idExpr.stack_offset - self.current_func_args_size,
+        .GLOBAL => null,
+    };
+
+    // If there is an offset, use it
+    // Else treat as a global
+    if (stack_offset) |offset| {
+        // Generate as local/arg
         if (result_kind == .FLOAT32) {
             const reg = try self.getNextSSEReg();
             // Mov normally
             try self.print(
-                "    movss {s}, {s} [rbp+{d}] ; Get Local\n",
+                "    movss {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
                 .{ reg.name, size_keyword, offset },
             );
         } else if (result_kind == .FLOAT64) {
             const reg = try self.getNextSSEReg();
             // Mov normally
             try self.print(
-                "    movsd {s}, {s} [rbp+{d}] ; Get Local\n",
+                "    movsd {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
                 .{ reg.name, size_keyword, offset },
             );
         } else {
@@ -707,7 +728,7 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
             if (kind_size == 8) {
                 // Mov normally
                 try self.print(
-                    "    mov {s}, {s} [rbp+{d}] ; Get Local\n",
+                    "    mov {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
                     .{ reg.name, size_keyword, offset },
                 );
             } else {
@@ -715,13 +736,13 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
                 if (result_kind == .INT) {
                     // Move and extend sign bit
                     try self.print(
-                        "    movsx {s}, {s} [rbp+{d}] ; Get Local\n",
+                        "    movsx {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
                         .{ reg.name, size_keyword, offset },
                     );
                 } else {
                     // Move and zero top
                     try self.print(
-                        "    movzx {s}, {s} [rbp+{d}] ; Get Local\n",
+                        "    movzx {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
                         .{ reg.name, size_keyword, offset },
                     );
                 }
@@ -847,7 +868,7 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
     // Make space for all args
     const args_size = args.len * 8;
     if (args_size > 0) {
-        try self.print("    sub rsp, {d}\n", .{args_size});
+        try self.print("    sub rsp, {d} ; Make space for native args\n", .{args_size});
     }
 
     // Generate each arg
@@ -1000,10 +1021,10 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
 fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId) GenerationError!void {
     // Generate the operand
     try self.genExpr(callExpr.caller_expr);
-    // Get function from STM
-    const function_symbol = self.stm.getSymbol(callExpr.caller_expr.result_kind.FUNC.name) catch unreachable;
-    // Get stack_size
-    const stack_size = function_symbol.kind.FUNC.stack_offset;
+    // Get arguments size
+    const args_size = callExpr.caller_expr.result_kind.FUNC.args_size;
+    // Align it
+    const args_size_aligned = (args_size % 8) + args_size;
 
     // Pop function pointer register
     const func_ptr_reg = self.popCPUReg();
@@ -1012,7 +1033,9 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     const sse_reg_count = try self.storeSSEReg();
 
     // Reserve stack space
-    try self.print("    sub rsp, {d}\n", .{stack_size});
+    if (args_size_aligned > 0) {
+        try self.print("    sub rsp, {d} ; Reserve call arg space\n", .{args_size_aligned});
+    }
     // Move function ptr to top of stack
     try self.print("    push {s}\n", .{func_ptr_reg.name});
 
@@ -1113,7 +1136,9 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     // Generate call
     try self.write("    pop rcx\n    call rcx\n");
     // Remove locals from stack
-    try self.print("    add rsp, {d}\n", .{stack_size});
+    if (args_size_aligned > 0) {
+        try self.print("    add rsp, {d}\n", .{args_size_aligned});
+    }
 
     // Restore registers
     try self.restoreSSEReg(sse_reg_count);

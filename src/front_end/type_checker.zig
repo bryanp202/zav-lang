@@ -75,6 +75,8 @@ pub fn check(self: *TypeChecker, module: *Module) void {
     }
     // Look for function called main and make sure it has proper arguments
     self.checkForMain();
+    // Reset the symbol table managers stack for function evaluation
+    self.stm.resetStack();
 
     // Check all function bodies in the module
     for (module.functionSlice()) |*function| {
@@ -590,9 +592,28 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
     // Create new kindid
     const new_func = self.allocator.create(KindId) catch unreachable;
     // Create new function
-    new_func.* = KindId.newFunc(self.allocator, func.arg_kinds, false, func.return_kind, func.name.lexeme);
+    new_func.* = KindId.newFunc(self.allocator, func.arg_kinds, false, func.return_kind);
 
-    // Declare it
+    // Add new scope for arguments
+    self.stm.addScope();
+
+    // Declare args
+    for (func.arg_names, func.arg_kinds) |name, kind| {
+        // Declare arg
+        _ = self.stm.declareSymbol(name.lexeme, kind, ScopeKind.ARG, name.line, false) catch {
+            return self.reportError(SemanticError.UnresolvableIdentifier, name, "Failed to declare function argument");
+        };
+    }
+
+    // Get size of arguments
+    const args_size = self.stm.active_scope.next_address;
+    // Update stack offset for arguments
+    new_func.FUNC.args_size = args_size;
+
+    // Pop scope
+    self.stm.popScope();
+
+    // Declare this function
     _ = self.stm.declareSymbol(
         func.name.lexeme,
         new_func.*,
@@ -612,25 +633,18 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
 /// Analyze a function body
 fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!void {
     // Enter new scope
-    self.stm.addScope();
-
-    // Declare args
-    for (func.arg_names, func.arg_kinds) |name, kind| {
-        // Declare arg
-        _ = self.stm.declareSymbol(name.lexeme, kind, ScopeKind.LOCAL, name.line, false) catch {
-            return self.reportError(SemanticError.UnresolvableIdentifier, name, "Failed to declare function argument");
-        };
-    }
+    self.stm.pushScope();
 
     // Analyze body
     try self.analyzeStmt(&func.body);
 
+    // Get arg_size
+    const func_symbol = self.stm.getSymbol(func.name.lexeme) catch unreachable;
+    const args_size = func_symbol.kind.FUNC.args_size;
     // Get scope size
     const stack_size = self.stm.active_scope.next_address;
-    // Get function symbol
-    const function_symbol = self.stm.getSymbol(func.name.lexeme) catch unreachable;
-    // Update stack offset
-    function_symbol.kind.FUNC.stack_offset = stack_size;
+    // Update FunctionStmts local variable stack size
+    func.locals_size = stack_size - args_size;
 
     // Exit scope
     self.stm.popScope();
@@ -726,7 +740,7 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
     };
 
     // Update stack offset
-    declareExpr.stack_offset = stack_offset;
+    declareExpr.stack_offset = stack_offset + 8;
 }
 
 /// Analyze types of a mutation statement
@@ -816,7 +830,10 @@ fn visitBlockStmt(self: *TypeChecker, blockStmt: *Stmt.BlockStmt) SemanticError!
     self.stm.addScope();
     // Loop through each statement in the block, checking its types
     for (blockStmt.statements) |*stmt| {
-        try self.analyzeStmt(stmt);
+        self.analyzeStmt(stmt) catch {
+            self.panic = false;
+            continue;
+        };
     }
     // Check var in scope
     self.checkVarInScope();
@@ -947,9 +964,14 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     };
     // Set symbol as mutated
     symbol.has_mutated = true;
-    // Set stack offset if local
-    if (symbol.scope == .LOCAL) {
-        node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc;
+
+    // Update scope kind
+    node.*.expr.IDENTIFIER.scope_kind = symbol.scope;
+    // Set stack offset based on scope type
+    switch (symbol.scope) {
+        .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
+        .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
+        .GLOBAL => undefined,
     }
 
     // Wrap in id_result with constant status of symbol
@@ -969,9 +991,13 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
         return self.reportError(SemanticError.UnresolvableIdentifier, token, "Identifier is undeclared");
     };
 
-    // Set stack offset if local
-    if (symbol.scope == .LOCAL) {
-        node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc;
+    // Update scope kind
+    node.*.expr.IDENTIFIER.scope_kind = symbol.scope;
+    // Set stack offset based on scope type
+    switch (symbol.scope) {
+        .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
+        .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
+        .GLOBAL => undefined,
     }
 
     // Return its stored kind and update final

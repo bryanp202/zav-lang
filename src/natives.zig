@@ -123,7 +123,7 @@ fn printf_native(allocator: std.mem.Allocator) Native {
     // Make return kind
     const ret_kind = KindId.newUInt(32);
     // Make the function kindid
-    const kind = KindId.newFunc(allocator, arg_kinds, true, ret_kind, "printf");
+    const kind = KindId.newFunc(allocator, arg_kinds, true, ret_kind);
     const source = undefined;
     const data = null;
 
@@ -153,7 +153,7 @@ fn sizeof_native(allocator: std.mem.Allocator) Native {
     // Make return kind
     const ret_kind = KindId.newUInt(32);
     // Make the function kindid
-    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind, "sizeof");
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
     const data = null;
 
@@ -180,7 +180,7 @@ fn nanoTimestamp_native(allocator: std.mem.Allocator) Native {
     // Make return kind
     const ret_kind = KindId.newUInt(64);
     // Make the function kindid
-    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind, "nanoTimestamp");
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source =
         \\@nanoTimestamp:
         \\    push rbp
@@ -212,7 +212,7 @@ fn cvt2Nonfloating_native(allocator: std.mem.Allocator, convert_kind: KindId) Na
     // Make return kind
     const ret_kind = convert_kind;
     // Make the function kindid
-    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind, "cvt2NonF");
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
     const data = null;
 
@@ -250,7 +250,7 @@ fn cvt2f32_native(allocator: std.mem.Allocator) Native {
     // Make return kind
     const ret_kind = KindId.FLOAT32;
     // Make the function kindid
-    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind, "cvt2f32");
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
     const data = null;
 
@@ -289,7 +289,7 @@ fn cvt2f64_native(allocator: std.mem.Allocator) Native {
     // Make return kind
     const ret_kind = KindId.FLOAT64;
     // Make the function kindid
-    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind, "cvt2f64");
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
     const data = null;
 
@@ -328,7 +328,7 @@ fn cvt2bool_native(allocator: std.mem.Allocator) Native {
     // Make return kind
     const ret_kind = KindId.BOOL;
     // Make the function kindid
-    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind, "cvt2bool");
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
     const data = null;
 
