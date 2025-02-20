@@ -463,10 +463,6 @@ pub const Scanner = struct {
                     _ = self.advance();
                     return self.checkKeyword("oop", TokenKind.LOOP);
                 },
-                'm' => {
-                    _ = self.advance();
-                    return self.checkKeyword("ut", TokenKind.MUT);
-                },
                 'o' => {
                     _ = self.advance();
                     return self.checkKeyword("r", TokenKind.OR);
@@ -631,7 +627,6 @@ pub const TokenKind = enum {
     ELSE,
     OR,
     RETURN,
-    MUT,
     LOOP,
     FN,
 

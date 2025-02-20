@@ -113,6 +113,7 @@ pub const SymbolTableManager = struct {
         kind: KindId,
         scope: ScopeKind,
         dcl_line: u64,
+        dcl_column: u64,
         is_mutable: bool,
     ) !u64 {
         // Calculate the size of the kind
@@ -124,6 +125,7 @@ pub const SymbolTableManager = struct {
             kind,
             scope,
             dcl_line,
+            dcl_column,
             is_mutable,
             &self.next_address,
             size,
@@ -141,6 +143,10 @@ pub const SymbolTableManager = struct {
         return self.active_scope.getSymbol(name);
     }
 
+    /// Peak if a symbol is in the table, but do not mark as used
+    pub fn peakSymbol(self: *SymbolTableManager, name: []const u8) !*Symbol {
+        return self.active_scope.peakSymbol(name);
+    }
     /// Try to put a new Value in the constants table marked as not used,
     /// but if there is a pre-existing constant mark it as used
     pub fn addConstant(self: *SymbolTableManager, constant: Value) void {
@@ -217,6 +223,7 @@ pub const Scope = struct {
         kind: KindId,
         scope: ScopeKind,
         dcl_line: u64,
+        dcl_column: u64,
         is_mutable: bool,
         global_next_address: *u64,
         size: u64,
@@ -263,6 +270,7 @@ pub const Scope = struct {
             kind,
             scope,
             dcl_line,
+            dcl_column,
             is_mutable,
             mem_loc,
             size,
@@ -273,7 +281,26 @@ pub const Scope = struct {
     }
 
     /// Try to get a symbol based off of a name
+    /// Mark as used
     pub fn getSymbol(self: *Scope, name: []const u8) ScopeError!*Symbol {
+        // Check this and all enclosing scopes for a declared symbol as name
+        var curr: ?*Scope = self;
+        while (curr) |enclosing| : (curr = enclosing.enclosing) {
+            const maybeSymbol = enclosing.symbols.getPtr(name);
+            // Check if found symbol
+            if (maybeSymbol) |sym| {
+                // Mark as used
+                sym.used = true;
+                // Return the symbol
+                return sym;
+            }
+        }
+        return ScopeError.UndeclaredSymbol;
+    }
+
+    /// Try to get a symbol based off of a name
+    /// Do not mark as used
+    pub fn peakSymbol(self: *Scope, name: []const u8) ScopeError!*Symbol {
         // Check this and all enclosing scopes for a declared symbol as name
         var curr: ?*Scope = self;
         while (curr) |enclosing| : (curr = enclosing.enclosing) {
@@ -298,22 +325,26 @@ pub const Symbol = struct {
     kind: KindId,
     scope: ScopeKind,
     dcl_line: u64,
+    dcl_column: u64,
     is_mutable: bool,
     has_mutated: bool,
     mem_loc: u64,
     size: u64,
+    used: bool,
 
     /// Make a new symbol
-    pub fn init(name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, is_mutable: bool, mem_loc: u64, size: u64) Symbol {
+    pub fn init(name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, dcl_column: u64, is_mutable: bool, mem_loc: u64, size: u64) Symbol {
         return Symbol{
             .name = name,
             .kind = kind,
             .scope = scope,
             .dcl_line = dcl_line,
+            .dcl_column = dcl_column,
             .is_mutable = is_mutable,
             .has_mutated = false,
             .mem_loc = mem_loc,
             .size = size,
+            .used = false,
         };
     }
 };

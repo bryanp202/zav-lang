@@ -28,25 +28,25 @@ const Module = @import("../module.zig");
 const TypeChecker = @This();
 allocator: std.mem.Allocator,
 stm: *STM,
-// Main function
-main_function: ?StmtNode,
 // Control flow handling
-in_loop: bool,
-in_switch: bool,
+loop_depth: u32,
+switch_depth: u32,
 // Error handling
 had_error: bool,
 panic: bool,
+// Current functions return type
+current_return_kind: KindId,
 
 /// Initialize a new TypeChecker
 pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
     return TypeChecker{
         .allocator = allocator,
         .stm = stm,
-        .main_function = null,
-        .in_loop = false,
-        .in_switch = false,
+        .loop_depth = 0,
+        .switch_depth = 0,
         .had_error = false,
         .panic = false,
+        .current_return_kind = KindId.VOID,
     };
 }
 
@@ -64,6 +64,7 @@ pub fn check(self: *TypeChecker, module: *Module) void {
             continue;
         };
     }
+
     // Declare all functions
     for (module.functionSlice()) |function| {
         // Declare function but do not analyze body
@@ -74,10 +75,17 @@ pub fn check(self: *TypeChecker, module: *Module) void {
         };
     }
     // Look for function called main and make sure it has proper arguments
-    self.checkForMain();
+    self.checkForMain() catch {
+        return;
+    };
+
+    // If had error in delcarations return
+    if (self.had_error) {
+        return;
+    }
+
     // Reset the symbol table managers stack for function evaluation
     self.stm.resetStack();
-
     // Check all function bodies in the module
     for (module.functionSlice()) |*function| {
         // analyze all function bodies, continue if there was an error
@@ -100,22 +108,18 @@ pub fn hadError(self: TypeChecker) bool {
 // Private helper methods //
 // ********************** //
 /// Look for main function, ensure it has proper argmunents and return type
-fn checkForMain(self: *TypeChecker) void {
+fn checkForMain(self: *TypeChecker) SemanticError!void {
     // Used to report errors
     const stderr = std.io.getStdErr().writer();
-
-    // Check if main was found
-    if (self.main_function) |main| {
-        // Check if kind matches
-        const main_kind = main.FUNCTION;
-        _ = main_kind;
-        // Check main arg and return types match expected //////////////////////////////
-        //
-        //
-    } else {
-        _ = stderr.write("Expected identifier 'main' to be a function with args (argc: u64, argv: *u8)\n") catch unreachable;
+    // Search for symbol
+    const main_func = self.stm.getSymbol("main") catch {
+        _ = stderr.write("Expected 'main' function with args (argc: u64, argv: *u8)\n") catch unreachable;
         self.had_error = true;
-    }
+        return SemanticError.InvalidMainFunction;
+    };
+
+    // Check types of main
+    _ = main_func;
 }
 
 /// Pop the active STM scope, checking for any unmutated var declared symbols
@@ -146,6 +150,28 @@ fn checkVarInScope(self: *TypeChecker) void {
 inline fn upgradeUIntBits(bits: u16) KindId {
     const new_bits = if (bits < 64) bits * 2 else bits;
     return KindId.newInt(new_bits);
+}
+
+/// Report an error and set error flag
+/// Do not show errors in panic mode
+/// Show where a the previous usage of the identifier was declared
+fn reportDuplicateError(self: *TypeChecker, duplicate_id: Token, dcl_line: u64, dcl_column: u64) SemanticError {
+    const stderr = std.io.getStdErr().writer();
+
+    // Only display errors when not in panic mode
+    if (!self.panic) {
+        // Display message
+        stderr.print(
+            "[Line {d}:{d}] at \'{s}\': Identifier already declared on [Line {d}:{d}]\n",
+            .{ duplicate_id.line, duplicate_id.column, duplicate_id.lexeme, dcl_line, dcl_column },
+        ) catch unreachable;
+
+        // Update had error and panic mode
+        self.had_error = true;
+        self.panic = true;
+    }
+    // Raise error
+    return SemanticError.DuplicateDeclaration;
 }
 
 /// Report an error and set error flag
@@ -600,8 +626,9 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
     // Declare args
     for (func.arg_names, func.arg_kinds) |name, kind| {
         // Declare arg
-        _ = self.stm.declareSymbol(name.lexeme, kind, ScopeKind.ARG, name.line, false) catch {
-            return self.reportError(SemanticError.UnresolvableIdentifier, name, "Failed to declare function argument");
+        _ = self.stm.declareSymbol(name.lexeme, kind, ScopeKind.ARG, name.line, name.column, false) catch {
+            const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
+            return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
         };
     }
 
@@ -619,27 +646,26 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
         new_func.*,
         ScopeKind.GLOBAL,
         func.name.line,
+        func.name.column,
         false,
     ) catch {
-        return self.reportError(SemanticError.DuplicateDeclaration, func.name, "Duplicate declaration of function");
+        const old_id = self.stm.getSymbol(func.name.lexeme) catch unreachable;
+        return self.reportDuplicateError(func.name, old_id.dcl_line, old_id.dcl_column);
     };
-
-    // If functions name is 'main,' update type checkers main
-    if (std.mem.eql(u8, "main", func.name.lexeme)) {
-        self.main_function = StmtNode{ .FUNCTION = func };
-    }
 }
 
 /// Analyze a function body
 fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!void {
     // Enter new scope
     self.stm.pushScope();
+    // Update current return kind
+    self.current_return_kind = func.return_kind;
 
     // Analyze body
     try self.analyzeStmt(&func.body);
 
     // Get arg_size
-    const func_symbol = self.stm.getSymbol(func.name.lexeme) catch unreachable;
+    const func_symbol = self.stm.peakSymbol(func.name.lexeme) catch unreachable;
     const args_size = func_symbol.kind.FUNC.args_size;
     // Get scope size
     const stack_size = self.stm.active_scope.next_address;
@@ -653,13 +679,13 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError
 /// analyze the types of stmtnodes
 fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
     return switch (stmt.*) {
-        //.GLOBAL => |globalStmt| self.visitGlobalStmt(globalStmt),
         .DECLARE => |declareStmt| self.visitDeclareStmt(declareStmt),
         .EXPRESSION => |exprStmt| self.visitExprStmt(exprStmt),
         .MUTATE => |mutStmt| self.visitMutateStmt(mutStmt),
         .WHILE => |whileStmt| self.visitWhileStmt(whileStmt),
         .IF => |ifStmt| self.visitIfStmt(ifStmt),
         .BLOCK => |blockStmt| self.visitBlockStmt(blockStmt),
+        .RETURN => |returnStmt| self.visitReturnStmt(returnStmt),
         .BREAK => |breakStmt| self.visitBreakStmt(breakStmt),
         .CONTINUE => |continueStmt| self.visitContinueStmt(continueStmt),
         else => unreachable,
@@ -697,9 +723,11 @@ fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticErr
         globalStmt.kind.?,
         ScopeKind.GLOBAL,
         globalStmt.id.line,
+        globalStmt.id.column,
         globalStmt.mutable,
     ) catch {
-        return self.reportError(SemanticError.DuplicateDeclaration, globalStmt.id, "Identifier already declared");
+        const old_id = self.stm.getSymbol(globalStmt.id.lexeme) catch unreachable;
+        return self.reportDuplicateError(globalStmt.id, old_id.dcl_line, old_id.dcl_column);
     };
 }
 
@@ -734,9 +762,11 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
         declareExpr.kind.?,
         ScopeKind.LOCAL,
         declareExpr.id.line,
+        declareExpr.id.column,
         declareExpr.mutable,
     ) catch {
-        return self.reportError(SemanticError.DuplicateDeclaration, declareExpr.id, "Identifier already declared");
+        const old_id = self.stm.getSymbol(declareExpr.id.lexeme) catch unreachable;
+        return self.reportDuplicateError(declareExpr.id, old_id.dcl_line, old_id.dcl_column);
     };
 
     // Update stack offset
@@ -796,8 +826,8 @@ fn visitWhileStmt(self: *TypeChecker, whileStmt: *Stmt.WhileStmt) SemanticError!
         return self.reportError(SemanticError.TypeMismatch, whileStmt.op, "Expected while loop conditional to be a bool");
     }
 
-    // Set in loop to true
-    self.in_loop = true;
+    // Increase loop depth
+    self.loop_depth += 1;
     // Check types of body
     try self.analyzeStmt(&whileStmt.body);
     // Check types of loop stmt if there is one
@@ -805,7 +835,7 @@ fn visitWhileStmt(self: *TypeChecker, whileStmt: *Stmt.WhileStmt) SemanticError!
         try self.analyzeStmt(&whileStmt.loop_stmt.?);
     }
     // Exit loop
-    self.in_loop = false;
+    self.loop_depth -= 1;
 }
 
 /// Analyze the types of an ifStmt
@@ -841,11 +871,31 @@ fn visitBlockStmt(self: *TypeChecker, blockStmt: *Stmt.BlockStmt) SemanticError!
     self.stm.popScope();
 }
 
+/// Analyze the return types of a return stmt
+fn visitReturnStmt(self: *TypeChecker, returnStmt: *Stmt.ReturnStmt) SemanticError!void {
+    // Check if return current return type is void
+    if (self.current_return_kind == .VOID) {
+        if (returnStmt.expr != null) {
+            return self.reportError(SemanticError.TypeMismatch, returnStmt.op, "Expected no return expression");
+        }
+    } else if (returnStmt.*.expr) |*return_expr| {
+        // Check if return types matches
+        const expr_kind = try self.analyzeExpr(return_expr);
+        const coerce_result = try self.staticCoerceKinds(returnStmt.op, self.current_return_kind, expr_kind);
+        // If rhs upgraded, add conversion node
+        if (coerce_result.upgraded_rhs) {
+            insertConvExpr(self.allocator, return_expr, self.current_return_kind);
+        }
+    } else {
+        return self.reportError(SemanticError.TypeMismatch, returnStmt.op, "Expected a return expression");
+    }
+}
+
 /// Analyze break stmt
 /// Check if in loop or switch
 fn visitBreakStmt(self: *TypeChecker, breakStmt: *Stmt.BreakStmt) SemanticError!void {
     // Check if in loop or switch
-    if (!(self.in_loop or self.in_switch)) {
+    if (self.loop_depth == 0 and self.switch_depth == 0) {
         return self.reportError(SemanticError.InvalidControlFlow, breakStmt.op, "Expected to be inside of a loop or switch statement");
     }
 }
@@ -854,7 +904,7 @@ fn visitBreakStmt(self: *TypeChecker, breakStmt: *Stmt.BreakStmt) SemanticError!
 /// Check if in loop or switch
 fn visitContinueStmt(self: *TypeChecker, continueStmt: *Stmt.ContinueStmt) SemanticError!void {
     // Check if in loop or switch
-    if (!self.in_loop) {
+    if (self.loop_depth == 0) {
         return self.reportError(SemanticError.InvalidControlFlow, continueStmt.op, "Expected to be inside of a loop statement");
     }
 }

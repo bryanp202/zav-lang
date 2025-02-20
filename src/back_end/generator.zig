@@ -59,6 +59,8 @@ label_count: usize,
 break_label: usize,
 /// Used for continue statements jump point
 continue_label: usize,
+/// Used for jumping to return at end of functions
+return_label: usize,
 
 // Access helpers
 current_func_locals_size: usize,
@@ -103,6 +105,7 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
         .label_count = 0,
         .break_label = undefined,
         .continue_label = undefined,
+        .return_label = undefined,
         .current_func_locals_size = undefined,
         .current_func_args_size = undefined,
         .cpu_reg_stack = RegisterStack(cpu_reg_names).init(),
@@ -190,8 +193,8 @@ pub fn close(self: Generator) GenerationError!void {
     while (global_iter.next()) |global_entry| {
         // Extract global
         const global = global_entry.value_ptr;
-        // Write to file if not function
-        if (global.kind != .FUNC) {
+        // Write to file if not function and used
+        if (global.kind != .FUNC and global.used) {
             try self.print("    _{s}: resb {d}\n", .{ global.name, global.size });
         }
     }
@@ -371,6 +374,7 @@ fn genStmt(self: *Generator, stmt: StmtNode) GenerationError!void {
         .MUTATE => |mutStmt| try self.visitMutateStmt(mutStmt.*),
         .WHILE => |whileStmt| try self.visitWhileStmt(whileStmt.*),
         .IF => |ifStmt| try self.visitIfStmt(ifStmt.*),
+        .RETURN => |returnStmt| try self.visitReturnStmt(returnStmt.*),
         .BLOCK => |blockStmt| try self.visitBlockStmt(blockStmt.*),
         .BREAK => |breakStmt| try self.visitBreakStmt(breakStmt.*),
         .CONTINUE => |continueStmt| try self.visitContinueStmt(continueStmt.*),
@@ -381,7 +385,11 @@ fn genStmt(self: *Generator, stmt: StmtNode) GenerationError!void {
 /// Generate the asm for a global declare stmt
 fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationError!void {
     // Get the symbol
-    const identifier = self.stm.getSymbol(globalStmt.id.lexeme) catch unreachable;
+    const identifier = self.stm.peakSymbol(globalStmt.id.lexeme) catch unreachable;
+    // If not used, do not generate
+    if (!identifier.used) {
+        return;
+    }
     // Generate expression
     try self.genExpr(globalStmt.expr);
 
@@ -409,7 +417,12 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
 /// Generate the asm for a function declaration
 fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt) GenerationError!void {
     // Set current function stack size
-    const function_sym = self.stm.getSymbol(functionStmt.name.lexeme) catch unreachable;
+    const function_sym = self.stm.peakSymbol(functionStmt.name.lexeme) catch unreachable;
+    // Do not generate if not used
+    if (!function_sym.used) {
+        return;
+    }
+
     self.current_func_args_size = function_sym.kind.FUNC.args_size;
     self.current_func_locals_size = functionStmt.locals_size;
     // Enter scope
@@ -424,7 +437,7 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt) Generati
         try self.print("    sub rsp, {d} ; Reserve locals space\n", .{locals_size});
     }
     // Generate label for return
-    const return_label = self.label_count;
+    self.return_label = self.label_count;
     self.label_count += 1;
 
     // Push rbp and move rsp to rbp
@@ -434,7 +447,7 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt) Generati
     try self.genStmt(functionStmt.body);
 
     // Generate return stmt
-    try self.print(".L{d}:\n", .{return_label});
+    try self.print(".L{d}:\n", .{self.return_label});
     // Pop rbp
     try self.write("    pop rbp\n");
     // Free locals and return
@@ -452,7 +465,7 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
     // Generate expression
     try self.genExpr(declareStmt.expr);
     // Get stack offset
-    const offset = declareStmt.stack_offset;
+    const offset = declareStmt.stack_offset - self.current_func_args_size;
 
     // Pop register based on result type
     const result_kind = declareStmt.expr.result_kind;
@@ -512,18 +525,109 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
     if (mutStmt.id_kind == .FLOAT32) {
         // Get register
         const expr_reg = self.popSSEReg();
-        // Write assignemnt
-        try self.print("    movss [{s}], {s} ; Mutate\n", .{ id_reg.name, expr_reg.name });
+        // Check if '='
+        if (mutStmt.op.kind == .EQUAL) {
+            // Write to memory
+            try self.print("    mov [{s}], {s} ; Mutate\n", .{ id_reg.name, expr_reg.name });
+        } else {
+            // Check op type
+            switch (mutStmt.op.kind) {
+                .PLUS_EQUAL => {
+                    try self.print("    addss {s}, [{s}] ; Mutate\n", .{ expr_reg.name, id_reg.name });
+                    try self.print("    movd [{s}], {s}\n", .{ id_reg.name, expr_reg.name });
+                },
+                .MINUS_EQUAL => {
+                    try self.print("    subss {s}, [{s}] ; Mutate\n", .{ expr_reg.name, id_reg.name });
+                    try self.print("    movd [{s}], {s}\n", .{ id_reg.name, expr_reg.name });
+                },
+                .STAR_EQUAL => {
+                    try self.print("    mulss {s}, [{s}] ; Mutate\n", .{ expr_reg.name, id_reg.name });
+                    try self.print("    movd [{s}], {s}\n", .{ id_reg.name, expr_reg.name });
+                },
+                .SLASH_EQUAL => {
+                    // Get temp register after expr_reg
+                    _ = try self.getNextSSEReg();
+                    _ = try self.getNextSSEReg();
+                    const temp_reg = self.popSSEReg();
+                    _ = self.popSSEReg();
+                    try self.print("    movss {s}, [{s}] ; Mutate\n", .{ temp_reg.name, id_reg.name });
+                    try self.print("    divss {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
+                    try self.print("    movd [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
+                },
+                else => unreachable,
+            }
+        }
     } else if (mutStmt.id_kind == .FLOAT64) {
         // Get register
         const expr_reg = self.popSSEReg();
-        // Write assignemnt
-        try self.print("    movsd [{s}], {s} ; Mutate\n", .{ id_reg.name, expr_reg.name });
+        // Check if '='
+        if (mutStmt.op.kind == .EQUAL) {
+            // Write to memory
+            try self.print("    mov [{s}], {s} ; Mutate\n", .{ id_reg.name, expr_reg.name });
+        } else {
+            // Check op type
+            switch (mutStmt.op.kind) {
+                .PLUS_EQUAL => {
+                    try self.print("    addsd {s}, [{s}] ; Mutate\n", .{ expr_reg.name, id_reg.name });
+                    try self.print("    movq [{s}], {s}\n", .{ id_reg.name, expr_reg.name });
+                },
+                .MINUS_EQUAL => {
+                    try self.print("    subsd {s}, [{s}] ; Mutate\n", .{ expr_reg.name, id_reg.name });
+                    try self.print("    movq [{s}], {s}\n", .{ id_reg.name, expr_reg.name });
+                },
+                .STAR_EQUAL => {
+                    try self.print("    mulsd {s}, [{s}] ; Mutate\n", .{ expr_reg.name, id_reg.name });
+                    try self.print("    movq [{s}], {s}\n", .{ id_reg.name, expr_reg.name });
+                },
+                .SLASH_EQUAL => {
+                    // Get temp register after expr_reg
+                    _ = try self.getNextSSEReg();
+                    _ = try self.getNextSSEReg();
+                    const temp_reg = self.popSSEReg();
+                    _ = self.popSSEReg();
+                    try self.print("    movsd {s}, [{s}] ; Mutate\n", .{ temp_reg.name, id_reg.name });
+                    try self.print("    divsd {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
+                    try self.print("    movq [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
+                },
+                else => unreachable,
+            }
+        }
     } else {
         // Get register
         const expr_reg = self.popCPUReg();
-        // Write assignemnt
-        try self.print("    mov [{s}], {s} ; Mutate\n", .{ id_reg.name, expr_reg.name });
+        // Get sized reg
+        const size = mutStmt.id_kind.size_runtime();
+        const sized_reg = getSizedCPUReg(expr_reg.index, size);
+        // Check op type
+        switch (mutStmt.op.kind) {
+            .EQUAL => try self.print("    mov [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
+            .PLUS_EQUAL => try self.print("    add [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
+            .MINUS_EQUAL => try self.print("    sub [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
+            .STAR_EQUAL => try self.print("    imul [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
+            .SLASH_EQUAL => {
+                const size_keyword = getSizeKeyword(mutStmt.id_kind.size());
+                try self.print(
+                    \\    xor rax, rax ; Mutate
+                    \\    mov rax, {s} [{s}]
+                    \\    xor edx, edx
+                    \\    idiv {s}
+                    \\    mov [{s}], rax
+                    \\
+                , .{ id_reg.name, size_keyword, expr_reg.name, id_reg.name });
+            },
+            .PERCENT_EQUAL => {
+                const size_keyword = getSizeKeyword(mutStmt.id_kind.size());
+                try self.print(
+                    \\    xor rax, rax ; Mutate
+                    \\    mov rax, {s} [{s}]
+                    \\    xor edx, edx
+                    \\    idiv {s}
+                    \\    mov [{s}], rdx
+                    \\
+                , .{ id_reg.name, size_keyword, expr_reg.name, id_reg.name });
+            },
+            else => unreachable,
+        }
     }
 }
 
@@ -623,6 +727,39 @@ fn visitIfStmt(self: *Generator, ifStmt: Stmt.IfStmt) GenerationError!void {
         // Generate then branch skip label
         try self.print(".L{d}:\n", .{else_label});
     }
+}
+
+/// Generate a return stmt
+fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationError!void {
+    // Determine if return expression provided
+    if (returnStmt.expr) |return_expr| {
+        // Generate it
+        try self.genExpr(return_expr);
+
+        // Move to rax
+        switch (return_expr.result_kind) {
+            .FLOAT32 => {
+                // Get cpu register
+                const reg = self.popSSEReg();
+                try self.print("    movd rax, {s}\n", .{reg.name});
+            },
+            .FLOAT64 => {
+                // Get cpu register
+                const reg = self.popSSEReg();
+                try self.print("    movq rax, {s}\n", .{reg.name});
+            },
+            .VOID => undefined,
+            else => {
+                // Get cpu register
+                const reg = self.popCPUReg();
+                try self.print("    mov rax, {s}\n", .{reg.name});
+            },
+        }
+    } else {
+        try self.write("    xor eax, eax\n");
+    }
+    // Jump to return label
+    try self.print("    jmp .L{d}\n", .{self.return_label});
 }
 
 /// Generate the jump for a break stmt
@@ -1524,6 +1661,27 @@ fn visitCompareExpr(self: *Generator, compareExpr: *Expr.CompareExpr) Generation
                 lhs_reg = self.popCPUReg();
             }
 
+            // Zero out top parts of registers if necessary
+            const lhs_size = compareExpr.lhs.result_kind.size_runtime();
+            if (lhs_size != 8) {
+                const sized_reg = getSizedCPUReg(lhs_reg.index, lhs_size);
+                if (lhs_size == 4) {
+                    try self.print("    mov {s}, {s}\n", .{ lhs_reg.name, sized_reg });
+                } else {
+                    try self.print("    movzx {s}, {s}\n", .{ lhs_reg.name, sized_reg });
+                }
+            }
+            // Zero out top parts of registers if necessary
+            const rhs_size = compareExpr.rhs.result_kind.size_runtime();
+            if (rhs_size != 8) {
+                const sized_reg = getSizedCPUReg(rhs_reg.index, rhs_size);
+                if (lhs_size == 4) {
+                    try self.print("    mov {s}, {s}\n", .{ rhs_reg.name, sized_reg });
+                } else {
+                    try self.print("    movzx {s}, {s}\n", .{ rhs_reg.name, sized_reg });
+                }
+            }
+
             // Print common asm for all compares
             try self.print("    cmp {s}, {s} ; UINT ", .{ lhs_reg.name, rhs_reg.name });
             switch (compareExpr.op.kind) {
@@ -1551,6 +1709,19 @@ fn visitCompareExpr(self: *Generator, compareExpr: *Expr.CompareExpr) Generation
             } else {
                 rhs_reg = self.popCPUReg();
                 lhs_reg = self.popCPUReg();
+            }
+
+            // Zero out top parts of registers if necessary
+            const lhs_size = compareExpr.lhs.result_kind.size_runtime();
+            if (lhs_size != 8) {
+                const sized_reg = getSizedCPUReg(lhs_reg.index, lhs_size);
+                try self.print("    movsx {s}, {s}\n", .{ lhs_reg.name, sized_reg });
+            }
+            // Zero out top parts of registers if necessary
+            const rhs_size = compareExpr.rhs.result_kind.size_runtime();
+            if (rhs_size != 8) {
+                const sized_reg = getSizedCPUReg(rhs_reg.index, rhs_size);
+                try self.print("    movsx {s}, {s}\n", .{ rhs_reg.name, sized_reg });
             }
 
             // Print common asm for all compares

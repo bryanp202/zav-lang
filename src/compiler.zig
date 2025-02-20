@@ -155,6 +155,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
         std.debug.print("Checking types...\n", .{});
         // Check types
         type_checker.check(&root_module);
+
         if (!type_checker.hadError()) {
             std.debug.print("Types all good\n", .{});
         } else {

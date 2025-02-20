@@ -266,7 +266,7 @@ fn cvt2f32_native(allocator: std.mem.Allocator) Native {
                 },
                 .FLOAT64 => {
                     // Write conversion
-                    try generator.write("    mov xmm0, rcx\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n");
+                    try generator.write("    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n");
                 },
                 else => {
                     // Write conversion
@@ -301,7 +301,7 @@ fn cvt2f64_native(allocator: std.mem.Allocator) Native {
             switch (arg) {
                 .FLOAT32 => {
                     // Write conversion
-                    try generator.write("    movq xmm0, rcx\n    cvtss2sd xmm0, xmm0\n    movq rax, xmm0\n");
+                    try generator.write("    cvtss2sd xmm0, xmm0\n    movq rax, xmm0\n");
                 },
                 .FLOAT64 => {
                     // Move rcx to dest

@@ -42,7 +42,6 @@ pub const StmtNode = union(enum) {
                 std.debug.print(";\n", .{});
             },
             .MUTATE => |mutStmt| {
-                std.debug.print("mut ", .{});
                 mutStmt.id_expr.display();
                 std.debug.print(" {s} ", .{mutStmt.op.lexeme});
                 mutStmt.assign_expr.display();

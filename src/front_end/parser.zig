@@ -451,20 +451,32 @@ fn declareStmt(self: *Parser) SyntaxError!StmtNode {
 /// Parse a Stmt
 /// statement -> AssignStmt | ExprStmt
 fn statement(self: *Parser) SyntaxError!StmtNode {
-    if (self.match(.{TokenKind.MUT})) { // MutStmt
-        return self.mutStmt();
-    } else if (self.match(.{TokenKind.LEFT_BRACE})) {
+    if (self.match(.{TokenKind.LEFT_BRACE})) {
         return self.blockStmt();
     } else if (self.match(.{TokenKind.WHILE})) { // WhileStmt
         return self.whileStmt();
     } else if (self.match(.{TokenKind.IF})) {
         return self.ifStmt();
+    } else if (self.match(.{TokenKind.RETURN})) {
+        return self.returnStmt();
     } else if (self.match(.{TokenKind.BREAK})) {
         return self.breakStmt();
     } else if (self.match(.{TokenKind.CONTINUE})) {
         return self.continueStmt();
-    } else { // ExprStmt fall through
-        return self.exprStmt();
+    } else { // ExprStmt or MutStmt fall through
+        const expr = try self.expression();
+        if (self.match(.{
+            TokenKind.EQUAL,
+            TokenKind.PLUS_EQUAL,
+            TokenKind.MINUS_EQUAL,
+            TokenKind.STAR_EQUAL,
+            TokenKind.SLASH_EQUAL,
+            TokenKind.PERCENT_EQUAL,
+        })) {
+            return self.mutStmt(expr);
+        }
+        // Fall through to expr stmt
+        return self.exprStmt(expr);
     }
 }
 
@@ -558,22 +570,10 @@ fn blockStmt(self: *Parser) SyntaxError!StmtNode {
 
 /// Parse an MutateStmt
 /// MutateStmt -> "mut" identifier "=" expression ";"
-fn mutStmt(self: *Parser) SyntaxError!StmtNode {
+fn mutStmt(self: *Parser, id_expr_result: ExprResult) SyntaxError!StmtNode {
     // Get id_expr
-    const id_expr_result = try self.expression();
     const id_expr = id_expr_result.expr;
 
-    // Consume (+-*/%)? '='
-    if (!self.match(.{
-        TokenKind.EQUAL,
-        TokenKind.PLUS_EQUAL,
-        TokenKind.MINUS_EQUAL,
-        TokenKind.STAR_EQUAL,
-        TokenKind.SLASH_EQUAL,
-        TokenKind.PERCENT_EQUAL,
-    })) {
-        return self.errorAtCurrent("Expected a mutation operator ('=', '+=', '-=', '*=', '/=', or '%=')");
-    }
     // Get operator
     const op = self.previous;
 
@@ -592,9 +592,7 @@ fn mutStmt(self: *Parser) SyntaxError!StmtNode {
 
 /// Parse an ExprStmt
 /// ExprStm -> expression ";"
-fn exprStmt(self: *Parser) SyntaxError!StmtNode {
-    // Parse expression
-    const expr_result = try self.expression();
+fn exprStmt(self: *Parser, expr_result: ExprResult) SyntaxError!StmtNode {
     // Unwrap expressions
     const expr = expr_result.expr;
 
@@ -605,6 +603,27 @@ fn exprStmt(self: *Parser) SyntaxError!StmtNode {
     new_stmt.* = Stmt.ExprStmt.init(expr);
     // Return new node
     return StmtNode{ .EXPRESSION = new_stmt };
+}
+
+/// Parse a return stmt
+/// ReturnStmt -> "return" expression? ';'
+fn returnStmt(self: *Parser) SyntaxError!StmtNode {
+    // Get keyword
+    const op = self.previous;
+    // Check if ';'
+    var expr: ?ExprNode = null;
+    if (!self.check(TokenKind.SEMICOLON)) {
+        const expr_result = try self.expression();
+        expr = expr_result.expr;
+    }
+
+    // Consume ';'
+    try self.consume(TokenKind.SEMICOLON, "Expected ';' after return statement");
+    // Allocate memory for new statement
+    const new_stmt = self.allocator.create(Stmt.ReturnStmt) catch unreachable;
+    new_stmt.* = Stmt.ReturnStmt.init(op, expr);
+    // Return new node
+    return StmtNode{ .RETURN = new_stmt };
 }
 
 /// Parse a break stmt
