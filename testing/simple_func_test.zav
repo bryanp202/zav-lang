@@ -1,0 +1,35 @@
+var functions_visited = 0;
+
+fn main() i64 {
+    mut functions_visited = functions_visited + 1;
+    const num = 80000;
+    @printf("The number in main is: %d\n", num);
+    printNum(num);
+    @printf("Total functions visited: %d\n", functions_visited);
+    printTimeFloat();
+}
+
+fn printNum(num: i64) i64 {
+    mut functions_visited = functions_visited + 1;
+    @printf("The number is: %d\n", num);
+    if (num > 0) {
+        printNum(num - 1);
+    } else {
+        printDoneWithThreeExitCode(@i8(1), @i8(2), 3);
+    }
+    @printf("The number was: %d\n", num);
+}
+
+fn printDoneWithThreeExitCode(exit_code1: i8, exit_code2: i8, exit_code3: i64) i64 {
+    mut functions_visited = functions_visited + 1;
+    @printf("YAY, now going to retrace stack and exit!\n");
+    @printf("Exit code 1: %d\n", exit_code1);
+    @printf("Exit code 2: %d\n", exit_code2);
+    @printf("Exit code 3: %d\n", exit_code3);
+}
+
+fn printTimeFloat() i64 {
+    mut functions_visited = functions_visited + 1;
+    const runtime = @nanoTimestamp() / 1000000000.0;
+    @printf("Current runtime: %f\n", runtime);
+}

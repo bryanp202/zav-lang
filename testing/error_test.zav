@@ -1,0 +1,23 @@
+const not_used_thing = 1942984759345;
+
+fn main() i64 {
+    var test = @u8(100);
+    
+    var times = 0;
+    while (times < 256) {
+        @printf("Test: %d\n", test);
+    } loop: {
+        times += 1;
+        test += @u8(1);
+    }
+
+    const test2 = @u8(100);
+    const bool_test = test2 + @u8(255) == 99;
+    @printf("Temp value should be: %d\n", @u8(255) + test2);
+
+    if (bool_test) {
+        @printf("Was equal!\n");
+    } else {
+        @printf("Was not equal!\n");
+    }
+}

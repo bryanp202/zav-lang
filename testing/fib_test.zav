@@ -1,0 +1,80 @@
+const max_num = 40;
+var fib_visits = 0;
+
+fn main() i64 {
+    // Do it iteratively
+    const iter_start = @nanoTimestamp();
+    fib_iter_loop(max_num);
+    const iter_end = @nanoTimestamp();
+    const iter_time = (iter_end - iter_start) / 1000000000.0;
+    @printf("Time to calculate %d fibonacci numbers iteratively: %f second(s)\n\n", max_num, iter_time);
+
+    // Do it recursively
+    const recursive_start = @nanoTimestamp();
+    fib_recursive_loop(max_num);
+    const recursive_end = @nanoTimestamp();
+    const recursive_time = (recursive_end - recursive_start) / 1000000000.0;
+    @printf("Time to calculate %d fibonacci numbers recursively: %f second(s)\n", max_num, recursive_time);
+    @printf("Total fib_recursive calls: %d\n\n", fib_visits);
+
+    @printf("Total time to run: %f second(s)\n", @nanoTimestamp() / 1000000000.0);
+}
+
+// Calculates all fibonacci numbers from [1-'max'] iteratively
+fn fib_iter_loop(max: i64) i64 {
+    @printf("Iteratively calculating the first %d number(s) in the Fibonacci Sequence: ", max_num);
+    var num = 0;
+    const max_num_minus_one = max - 1;
+
+    while (num < max_num_minus_one) {
+        @printf("%lld, ", fib_iter(num));
+    } loop: num += 1;
+
+    // Print last one
+    if (num < max) {
+        @printf("%lld", fib_iter(num));
+    }
+    @printf("\n");
+}
+
+// Calculates the 'num'th fibonacci number iteratively
+fn fib_iter(num: i64) i64 {
+    var a = 0;
+    var b = 1;
+
+    var times = 0;
+    while (times < num) {
+        const temp = a;
+        a = b;
+        b += temp;
+    } loop: times += 1;
+
+    return a;
+}
+
+// Calculates all fibonacci numbers from [1-'max'] recursively
+fn fib_recursive_loop(max: i64) i64 {
+    @printf("Recursively calculating the first %d number(s) in the Fibonacci Sequence: ", max);
+    var num = 0;
+    const max_num_minus_one = max - 1;
+
+    while (num < max_num_minus_one) {
+        @printf("%lld, ", fib_recursive(num));
+    } loop: num += 1;
+
+    // Print last one
+    if (num < max) {
+        @printf("%lld", fib_recursive(num));
+    }
+    @printf("\n");
+}
+
+
+// Calculates the 'num'th fibonacci number recursively
+fn fib_recursive(num: i64) i64 {
+    fib_visits += 1;
+    if (num == 0 or num == 1) {
+        return num;
+    }
+    return fib_recursive(num - 1) + fib_recursive(num - 2);
+}

@@ -1,0 +1,42 @@
+fn main() i64 {
+    var number = 100.0;
+    const ptr = &number;
+    const ptr_ptr = &ptr;
+
+    ptr.* = 2;
+    @printf("Number is: %f\n", number);
+
+    ptr_ptr.*.* = 100;
+    @printf("Number is: %f\n", number);
+
+    @printf("Ptr dereferenced is: %f\n", ptr.*);
+    @printf("Ptr_ptr dereferenced is %f\n", ptr_ptr.*.*);
+
+    printNumber(1000);
+    @printf("Void as number: %d\n", @i64(printNumber(10)));
+
+    var function_ptr = &printNumber;
+    function_ptr.*(100);
+
+    function_ptr = &printNumber2;
+    function_ptr.*(100);
+
+    var test_number = 0;
+    @printf("Test_number is %d\n", test_number);
+    editNumberFromPtr(&test_number);
+    @printf("Test_number is %d\n", test_number);
+}
+
+fn printNumber2(num: i64) void {
+    @printf("Now in print number 2!\n");
+}
+
+fn printNumber(num: i64) void {
+    if (num < 100) return;
+
+    @printf("The number is %d\n", num);
+}
+
+fn editNumberFromPtr(numPtr: *i64) void {
+    numPtr.* = 123456789;
+}

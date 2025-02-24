@@ -1,0 +1,39 @@
+struct Node {
+    child: *Node;
+    data: f64;
+}
+
+fn main(argc: i64, argv: **u8) i64 {
+    @printf("Starting...\n");
+    const nodes: [2048]Node = undefined;
+    
+
+    {
+        var index = 0;
+        const len_minus_one = @sizeof(nodes) / @sizeof(nodes[0]) - 1;
+        while (index < len_minus_one) {
+            nodes[index].child = &nodes[index + 1];
+            nodes[index].data = index;
+        } loop: index += 1;
+
+        // Set up last node
+        nodes[index].child = nullptr;
+        nodes[index].data = index;
+    }
+
+    const list_head: *Node = &nodes[0];
+
+    printLinkedList(list_head);
+
+    const time = @nanoTimestamp() / 1000000000.0;
+    @printf("Time to run: %f second(s)\n", time);
+}
+
+fn printLinkedList(start: *Node) void {
+    @printf("Linked list: ");
+    var current = start;
+    while (current.*.child != nullptr) {
+        @printf("%f, ", current.*.data);
+    } loop: current = current.*.child;
+    @printf("%f\n", current.*.data);
+}

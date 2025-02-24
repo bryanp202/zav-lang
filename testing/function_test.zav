@@ -1,0 +1,13 @@
+fn main(argc: i64, argv: **u8) i32 {
+    const temp_test = 10000;
+    checkIfHundred(@i32(temp_test));
+    @printf("Temp_test: %d\n", temp_test);
+    @printf("Total runtime: %f seconds!\n", @nanoTimestamp() / 1000000000.0);
+}
+
+fn checkIfHundred(num: i32) i64 {
+    if (num > 0) {
+        @printf("Num: %d is greater than 0!\n", num);
+        checkIfHundred(num - @i32(1));
+    }
+}

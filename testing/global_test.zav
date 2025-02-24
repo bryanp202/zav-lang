@@ -1,0 +1,25 @@
+@print_f(@time());
+@print_s("\n");
+
+@print_s("Hello!\n");
+
+var float = 199.9;
+mut float = 99.9;
+@print_f(float);
+@print_s("\n");
+
+const isLessThanHundred = float < 100;
+const msg = if (isLessThanHundred) "float is < than 100!!" else "float is >= than 100!";
+
+@print_s(msg);
+@print_s("\n\n");
+
+const string = "ABCDEFG";
+
+@print_i(string[0]);
+@print_s("\n");
+@print_f(100 * 2);
+@print_s("\n");
+
+@print_f(@time());
+@print_s("\n");

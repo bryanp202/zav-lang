@@ -1,0 +1,33 @@
+fn main(argc: i64, argv: **u8) i64 {
+
+    var current_arg = 0;
+    while (current_arg < argc) {
+        @printf("Arg %d: %s\n", current_arg, argv[current_arg]);
+    } loop: current_arg += 1;
+
+    var function_ptr = getFunction(100);
+    const function_ptr_ptr = &function_ptr;
+
+    function_ptr();
+    function_ptr_ptr.*();
+
+    function_ptr = getFunction(1);
+
+    function_ptr();
+    function_ptr_ptr.*();
+}
+
+fn getFunction(num: i64) fn()void {
+    if (num == 1) {
+        return printOne;
+    }
+    return printNotOne;
+}
+
+fn printOne() void {
+    @printf("This is the printOne function!\n");
+}
+
+fn printNotOne() void {
+    @printf("This is the printNotOne function!\n");
+}

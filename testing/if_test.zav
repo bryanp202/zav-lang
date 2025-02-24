@@ -1,0 +1,7 @@
+var count: u8 = @u8(33);
+
+if (count > 30 and count % 11 == 0) {
+    @printf("Count is: %d\n", count);
+} else {
+    @printf("NOPE\n");
+}

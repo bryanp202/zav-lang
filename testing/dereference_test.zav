@@ -1,0 +1,24 @@
+var string = "hello";
+mut string = "cool!";
+var id = 100;
+mut id = 2;
+
+@print_i(id);
+@print_s("\n");
+
+mut id = 1238243;
+
+@print_i(id);
+@print_s("\n");
+
+const test = if (false) "nice" else "not nice";
+const sumOfTest: i32 = test[0] + test[1] + test[2]; //+ test[3];
+@print_i(sumOfTest);
+@print_s("\n");
+
+@print_s(test);
+@print_s("\n");
+
+const time = @time();
+@print_f(time);
+@print_s("\n");

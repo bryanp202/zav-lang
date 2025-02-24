@@ -1,0 +1,8 @@
+var i = 0;
+
+while (i < 17000) {
+    @printf("LOOP: %d\n", i);
+} loop: mut i = i + 1;
+
+const time = @nanoTimestamp() / 1000000000.0;
+@printf("Done\nTotal time: %f seconds\n", time);

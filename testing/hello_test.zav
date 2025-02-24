@@ -1,0 +1,73 @@
+const total_times = 100;
+const total_cycles = 150;
+
+var cycles = total_cycles;
+var times = total_times;
+var freq = 0;
+var i = 0;
+var i_inverse = 0;
+var sum = 0;
+
+// Repeat until out of cycles
+while (cycles > 0) {
+    // Repeat the wave until times is zero
+    while (times > 0) {
+        // Calculate frequency
+        mut freq = ((times >= 50) ? (times - 50) : (50 - times)) / (total_cycles - cycles + 1);
+
+        // Peak to trough
+        while (i > 0) {
+            @printf("Countdown from %d: ", i);
+        } loop: {
+            mut i_inverse = i;
+            @printf("%d", i_inverse);
+
+            // Increment sum
+            mut sum = sum + 1;
+            // Decrement i_inverse
+            mut i_inverse = i_inverse - 1;
+
+            while (i_inverse > 0) {
+                @printf(",%d", i_inverse);
+                // Increment sum
+                mut sum = sum + 1;
+            } loop: mut i_inverse = i_inverse - 1;
+
+            @printf("\n");
+            mut i = i - 1;
+        }
+
+        // Trough to peak
+        while (i < freq) {
+            @printf("Countdown from %d: ", i);
+        } loop: {
+            mut i_inverse = i;
+            @printf("%d", i_inverse);
+
+            // Increment sum
+            mut sum = sum + 1;
+            // Decrement i_inverse
+            mut i_inverse = i_inverse - 1;
+
+            while (i_inverse > 0) {
+                @printf(",%d", i_inverse);
+                // Increment sum
+                mut sum = sum + 1;
+            } loop: mut i_inverse = i_inverse - 1;
+
+            @printf("\n");
+            mut i = i + 1;
+        }
+    } loop: mut times = times - 1;
+
+    // Reset times
+    mut times = total_times;
+} loop: mut cycles = cycles - 1;
+
+// Display total numbers printed
+@printf("Total numbers counted: %d\n", sum);
+
+// Calculate time to run
+const time = @nanoTimestamp() / 1000000000.0;
+
+@printf("Total time to run: %f seconds\n", time);

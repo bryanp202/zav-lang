@@ -1,0 +1,1 @@
+@print_s(if (true) "hi? wow" else "no!");

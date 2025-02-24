@@ -1,0 +1,65 @@
+struct ComplexClass {
+    num: Complex;
+    display: fn (*Complex) void;
+}
+
+struct Complex {
+    real: Fraction;
+    imag: Fraction;
+}
+
+struct Fraction {
+    numerator: i64;
+    denominator: i64;
+}
+
+fn main (argc: i64, argv: **u8) i64 {
+    var complex1: ComplexClass = undefined;
+    complex1.num.real.numerator = 1;
+    complex1.num.real.denominator = 1;
+    complex1.num.imag.numerator = -1;
+    complex1.num.imag.denominator = 2;
+    complex1.display = printComplex;
+
+    @printf("Start: ");
+    complex1.display(&complex1.num);
+    @printf("\n");
+
+    complex1.display = corruptedPrintComplex;
+
+    @printf("Multiply by 10/3: ");
+    var scalar: Fraction = undefined;
+    scalar.numerator = 10;
+    scalar.denominator = 3;
+    scalarMulti(&complex1.num, &scalar);
+    complex1.display(&complex1.num);
+    @printf("\n");
+
+    const magnitude = calcMagnitude(&complex1.num);
+    @printf("Magnitude is: %f\n", magnitude);
+}
+
+fn printComplex(num: *Complex) void {
+    const real = @f64(num.*.real.numerator) / num.*.real.denominator;
+    const imag = @f64(num.*.imag.numerator) / num.*.imag.denominator; 
+    @printf("%f + %fi", real, imag);
+}
+
+fn corruptedPrintComplex(num: *Complex) void {
+    @printf("HAHA");
+}
+
+fn scalarMulti(num: *Complex, scalar: *Fraction) void {
+    num.*.real.numerator *= scalar.*.numerator;
+    num.*.real.denominator *= scalar.*.denominator;
+    num.*.imag.numerator *= scalar.*.numerator;
+    num.*.imag.denominator *= scalar.*.denominator;
+}
+
+fn calcMagnitude(num: *Complex) f64 {
+    const real = @f64(num.*.real.numerator) / num.*.real.denominator;
+    const imag = @f64(num.*.imag.numerator) / num.*.imag.denominator;
+
+    const mag_square = real * real + imag * imag;
+    return @sqrtf64(mag_square);
+}

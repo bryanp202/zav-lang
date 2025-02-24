@@ -1,0 +1,40 @@
+const max = 250;
+
+fn main() i64 {
+    if (max <= 1) {
+        @printf("Max must be > 1\n");
+        return 1;
+    }
+    @printf("Checking from 0 to %d for prime numbers\n", max);
+
+    // Count how many numbers in range are prime
+    var prime_count = 0;
+
+    @printf("Primes: ");
+    var current = 2;
+    while (current <= max) {
+        if (isPrime(current)) {
+            prime_count += 1;
+            @printf(" %d,", current);
+        }
+    } loop: current += 1;
+
+
+    @printf("\nFound %d total prime numbers\n", prime_count);
+    @printf("Out of %d numbers, %f%% where prime numbers!\n", max - 1, @f64(100 * prime_count) / (max - 1));
+    const time = @nanoTimestamp() / 1000000000.0;
+    @printf("Time to calculate: %f second(s)", time);
+}
+
+fn isPrime(num: i64) bool {
+    const half = num / 2;
+
+    var current = 2;
+    while (current <= half) {
+        if (num % current == 0) {
+            return false;
+        }
+    } loop: current += 1;
+
+    return true;
+}

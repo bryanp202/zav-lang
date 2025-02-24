@@ -1,0 +1,13 @@
+/*
+@printf("Stress testing!!! %d %d %d %d %d %d\n", 1, 1, 1, 1, 1, 1);
+
+const hello_msg = "HELLO WORLD!";
+
+@printf("\n%d\n", @printf("The size of an int is: %d", @sizeof(hello_msg)));
+
+@printf("Truncating %f to and i8: %d\n", 164.234, @i8(1645889.234));
+*/
+
+//const wow = @i32(100.0);
+
+@printf("Float numbers are equal: %d\n",  @u8(128) * @u8(2) == 256);

@@ -1,0 +1,11 @@
+fn main() i64 {
+    const str = "Testing 123 Testing 123";
+
+    const size = @sizeof(str);
+    @printf("String '%s' is of size: %d\n", str, size);
+
+    var index = 0;
+    while (index < size) {
+        @printf("Char at index %d: %c\n", index, str[index]);
+    } loop: index += 1;
+}
