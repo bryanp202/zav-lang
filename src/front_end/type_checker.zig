@@ -55,16 +55,35 @@ pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
 /// in preparation for code generation
 /// Returns true if semantics are okay
 pub fn check(self: *TypeChecker, module: *Module) void {
-    // Check all global statements and functions first
-    for (module.globalSlice()) |*global| {
-        // Analyze globals
-        self.visitGlobalStmt(global.GLOBAL) catch {
+    // Index all struct definitions
+    for (module.structSlice(), 0..) |strct, index| {
+        // Add it to symbol table
+        self.indexStruct(strct.STRUCT.id, index) catch {
             self.panic = false;
             self.had_error = true;
             continue;
         };
     }
+    // If had error in struct names, return
+    if (self.had_error) {
+        return;
+    }
 
+    // Define all structs
+    for (module.structSlice()) |strct| {
+        // Get from stm
+        const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
+        if (!symbol.kind.STRUCT.declared) {
+            // Declare the new kind with its fields, checking for circular dependencies
+            self.declareStruct(module, symbol, strct.STRUCT) catch {
+                self.panic = false;
+                self.had_error = true;
+                return;
+            };
+        }
+    }
+
+    // Check all global statements and functions first
     // Declare all functions
     for (module.functionSlice()) |function| {
         // Declare function but do not analyze body
@@ -74,8 +93,18 @@ pub fn check(self: *TypeChecker, module: *Module) void {
             continue;
         };
     }
+    // Visit globals
+    for (module.globalSlice()) |*global| {
+        // Analyze globals
+        self.visitGlobalStmt(global.GLOBAL) catch {
+            self.panic = false;
+            self.had_error = true;
+            continue;
+        };
+    }
     // Look for function called main and make sure it has proper arguments
     self.checkForMain() catch {
+        self.had_error = true;
         return;
     };
 
@@ -113,13 +142,30 @@ fn checkForMain(self: *TypeChecker) SemanticError!void {
     const stderr = std.io.getStdErr().writer();
     // Search for symbol
     const main_func = self.stm.getSymbol("main") catch {
-        _ = stderr.write("Expected 'main' function with args (argc: u64, argv: *u8)\n") catch unreachable;
-        self.had_error = true;
+        _ = stderr.write("Expected 'main' function with args (argc: u64, argv: **u8)\n") catch unreachable;
         return SemanticError.InvalidMainFunction;
     };
 
     // Check types of main
-    _ = main_func;
+    const main_kindid = main_func.kind;
+    if (main_kindid == .FUNC) {
+        const main_kind = main_kindid.FUNC;
+        if (main_kind.arg_kinds.len == 2) {
+            const first_arg = main_kind.arg_kinds[0];
+            if (first_arg == .INT and first_arg.INT.bits == 64) {
+                const second_arg = main_kind.arg_kinds[1];
+                if (second_arg == .PTR and second_arg.PTR.child.* == .PTR) {
+                    const second_arg_child = second_arg.PTR.child.*;
+                    if (second_arg_child == .PTR and second_arg_child.PTR.child.* == .UINT and second_arg_child.PTR.child.UINT.bits == 8) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    _ = stderr.write("Expected 'main' function with args (argc: i64, argv: **u8)\n") catch unreachable;
+    return SemanticError.InvalidMainFunction;
 }
 
 /// Pop the active STM scope, checking for any unmutated var declared symbols
@@ -332,11 +378,19 @@ fn staticCoerceKinds(self: *TypeChecker, op: Token, static_kind: KindId, rhs_kin
                 if (!l_ptr.equal(r_ptr)) {
                     return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
                 }
+                // Check if making constant data mutable
+                if (r_ptr.const_child and !l_ptr.const_child) {
+                    return self.reportError(SemanticError.UnsafeCoercion, op, "Cannot downgrade pointer of constant data");
+                }
                 // Return static kind
                 return CoercionResult.init(static_kind, false, false);
             },
             // Right - array
             .ARRAY => |array| {
+                // Check if making constant data mutable
+                if (array.const_items and !l_ptr.const_child) {
+                    return self.reportError(SemanticError.UnsafeCoercion, op, "Cannot downgrade pointer of constant data");
+                }
                 const array_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
                 if (!l_ptr.equal(array_ptr.PTR)) {
                     return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
@@ -351,6 +405,10 @@ fn staticCoerceKinds(self: *TypeChecker, op: Token, static_kind: KindId, rhs_kin
         .ARRAY => |l_array| switch (rhs_kind) {
             // Right - array
             .ARRAY => |r_array| {
+                // Check if making constant data mutable
+                if (r_array.const_items and !l_array.const_items) {
+                    return self.reportError(SemanticError.UnsafeCoercion, op, "Cannot downgrade array of constant data");
+                }
                 // If not equal, error
                 if (!l_array.equal(r_array)) {
                     return self.reportError(SemanticError.TypeMismatch, op, "Arrays must be the same length");
@@ -613,20 +671,120 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
 // Stmt anaylsis  methods //
 // ********************** //
 
+/// Index and add a struct to the STM
+fn indexStruct(self: *TypeChecker, name: Token, index: u64) SemanticError!void {
+    // Create new struct with scope and index
+    const new_struct = KindId.newStructWithIndex(self.allocator, name.lexeme, index);
+    // Try to add to stm global scope
+    _ = self.stm.declareSymbol(name.lexeme, new_struct, ScopeKind.STRUCT, name.line, name.column, false) catch {
+        const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
+        return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
+    };
+}
+
+/// Analyze a struct defintion
+fn declareStruct(
+    self: *TypeChecker,
+    module: *Module,
+    symbol: *Symbol,
+    structStmt: *Stmt.StructStmt,
+) SemanticError!void {
+    // Get Struct kind
+    const struct_kind = &symbol.kind.STRUCT;
+    // Check if declared
+    if (struct_kind.declared) {
+        return;
+    }
+    // If not, mark as visited
+    struct_kind.*.visited = true;
+
+    // Add each field to the struct, declaring any structs encountered
+    for (structStmt.field_names, structStmt.field_kinds) |name, *kind| {
+        switch (kind.*) {
+            .STRUCT => |*struct_arg| {
+                // Get from stm
+                const field_symbol = self.stm.getSymbol(struct_arg.name) catch {
+                    return self.reportError(SemanticError.UnresolvableIdentifier, name, "Undefined struct type");
+                };
+                // If already visited, throw error
+                if (field_symbol.kind.STRUCT.visited) {
+                    struct_kind.*.visited = false;
+                    return self.reportError(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected");
+                }
+                // Visit this struct if not already declared
+                if (!field_symbol.kind.STRUCT.declared) {
+                    const field_index = field_symbol.kind.STRUCT.index;
+                    const field_structStmt = module.structSlice()[field_index].STRUCT;
+                    self.declareStruct(module, field_symbol, field_structStmt) catch {
+                        self.panic = false;
+                        return self.reportError(SemanticError.UnresolvableIdentifier, name, " |");
+                    };
+                }
+
+                // Update StructScope
+                struct_arg.fields = field_symbol.kind.STRUCT.fields;
+            },
+            .PTR => |*ptr_arg| _ = ptr_arg.updatePtr(self.stm) catch {
+                return self.reportError(
+                    SemanticError.UnresolvableIdentifier,
+                    name,
+                    "Could not resolve struct type in pointer type definition",
+                );
+            },
+            .ARRAY => |*array_arg| _ = array_arg.updateArray(self.stm) catch {
+                return self.reportError(
+                    SemanticError.UnresolvableIdentifier,
+                    name,
+                    "Could not resolve struct type in array type definition",
+                );
+            },
+            .FUNC => |*func_arg| _ = func_arg.updateArgSize(self.stm) catch {
+                return self.reportError(
+                    SemanticError.UnresolvableIdentifier,
+                    name,
+                    "Could not resolve struct type in function type definition",
+                );
+            },
+            // If array, find the root child, if struct do the same thing as above
+            // If pointer, find the root child, if struct store StructScope in type
+            .VOID => return self.reportError(SemanticError.TypeMismatch, name, "Cannot have void type struct fields"),
+            else => undefined,
+        }
+
+        // Add field to struct
+        symbol.kind.STRUCT.fields.addField(name.lexeme, name.line, name.column, kind.*) catch {
+            const old_field = symbol.kind.STRUCT.fields.getField(name.lexeme) catch unreachable;
+            return self.reportDuplicateError(name, old_field.dcl_line, old_field.dcl_column);
+        };
+    }
+
+    // Mark as not visited and declared
+    struct_kind.*.visited = false;
+    struct_kind.*.declared = true;
+}
+
 /// Declare a function, but do not check its body
 fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!void {
-    // Create new kindid
-    const new_func = self.allocator.create(KindId) catch unreachable;
     // Create new function
-    new_func.* = KindId.newFunc(self.allocator, func.arg_kinds, false, func.return_kind);
+    var new_func = KindId.newFunc(self.allocator, func.arg_kinds, false, func.return_kind);
+    // Update the function return to see if there are any user defined structs or function arguments/return types
+    _ = new_func.FUNC.ret_kind.update(self.stm) catch {
+        return self.reportError(
+            SemanticError.UnresolvableIdentifier,
+            func.op,
+            "Could not resolve struct type in function return type",
+        );
+    };
 
     // Add new scope for arguments
     self.stm.addScope();
-
     // Declare args
-    for (func.arg_names, func.arg_kinds) |name, kind| {
+    for (func.arg_names, func.arg_kinds) |name, *kind| {
+        _ = kind.update(self.stm) catch {
+            return self.reportError(SemanticError.UnresolvableIdentifier, name, "Could not resolve struct type in this argument");
+        };
         // Declare arg
-        _ = self.stm.declareSymbol(name.lexeme, kind, ScopeKind.ARG, name.line, name.column, false) catch {
+        _ = self.stm.declareSymbol(name.lexeme, kind.*, ScopeKind.ARG, name.line, name.column, false) catch {
             const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
             return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
         };
@@ -643,8 +801,8 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
     // Declare this function
     _ = self.stm.declareSymbol(
         func.name.lexeme,
-        new_func.*,
-        ScopeKind.GLOBAL,
+        new_func,
+        ScopeKind.FUNC,
         func.name.line,
         func.name.column,
         false,
@@ -676,45 +834,44 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError
     self.stm.popScope();
 }
 
-/// analyze the types of stmtnodes
-fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
-    return switch (stmt.*) {
-        .DECLARE => |declareStmt| self.visitDeclareStmt(declareStmt),
-        .EXPRESSION => |exprStmt| self.visitExprStmt(exprStmt),
-        .MUTATE => |mutStmt| self.visitMutateStmt(mutStmt),
-        .WHILE => |whileStmt| self.visitWhileStmt(whileStmt),
-        .IF => |ifStmt| self.visitIfStmt(ifStmt),
-        .BLOCK => |blockStmt| self.visitBlockStmt(blockStmt),
-        .RETURN => |returnStmt| self.visitReturnStmt(returnStmt),
-        .BREAK => |breakStmt| self.visitBreakStmt(breakStmt),
-        .CONTINUE => |continueStmt| self.visitContinueStmt(continueStmt),
-        else => unreachable,
-    };
-}
-
 /// Analze the types of an GlobalStmt
 fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticError!void {
     // Get the type of expression
-    const expr_kind = try self.analyzeExpr(&globalStmt.expr);
+    const maybe_expr_kind: ?KindId = if (globalStmt.expr != null) try self.analyzeExpr(&globalStmt.expr.?) else null;
     // Extract declaration kind
     const maybe_declared_kind = globalStmt.kind;
 
-    // Check if declared with a kind
-    if (maybe_declared_kind) |declared_kind| {
-        // Check if the expr kind and declared kind are coerceable
-        const coerce_result = try self.staticCoerceKinds(globalStmt.op, declared_kind, expr_kind);
+    // Check if both null
+    if (maybe_expr_kind == null and maybe_declared_kind == null) {
+        return self.reportError(SemanticError.UnsafeCoercion, globalStmt.id, "Expected a type in global declaration");
+    }
 
-        // Check if need to insert conversion nodes
-        if (coerce_result.upgraded_rhs) {
-            insertConvExpr(
-                self.allocator,
-                &globalStmt.expr,
-                coerce_result.final_kind,
-            );
+    // Check if declared with a kind
+    if (maybe_declared_kind != null) {
+        _ = globalStmt.kind.?.update(self.stm) catch {
+            return self.reportError(SemanticError.UnresolvableIdentifier, globalStmt.op, "Could not resolve struct type in declaration type");
+        };
+
+        // Check if rhs has kind
+        if (maybe_expr_kind) |expr_kind| {
+            // Check if the expr kind and declared kind are coerceable
+            const coerce_result = try self.staticCoerceKinds(globalStmt.op, globalStmt.kind.?, expr_kind);
+
+            // Check if need to insert conversion nodes
+            if (coerce_result.upgraded_rhs) {
+                insertConvExpr(
+                    self.allocator,
+                    &globalStmt.expr.?,
+                    coerce_result.final_kind,
+                );
+            }
+            globalStmt.kind = coerce_result.final_kind;
+        } else {
+            globalStmt.kind = globalStmt.kind.?;
         }
     } else {
         // Update kind to expr result kind
-        globalStmt.kind = expr_kind;
+        globalStmt.kind = maybe_expr_kind.?;
     }
 
     // Create new symbol in STM
@@ -731,29 +888,58 @@ fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticErr
     };
 }
 
+/// analyze the types of stmtnodes
+fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
+    return switch (stmt.*) {
+        .DECLARE => |declareStmt| self.visitDeclareStmt(declareStmt),
+        .EXPRESSION => |exprStmt| self.visitExprStmt(exprStmt),
+        .MUTATE => |mutStmt| self.visitMutateStmt(mutStmt),
+        .WHILE => |whileStmt| self.visitWhileStmt(whileStmt),
+        .IF => |ifStmt| self.visitIfStmt(ifStmt),
+        .BLOCK => |blockStmt| self.visitBlockStmt(blockStmt),
+        .RETURN => |returnStmt| self.visitReturnStmt(returnStmt),
+        .BREAK => |breakStmt| self.visitBreakStmt(breakStmt),
+        .CONTINUE => |continueStmt| self.visitContinueStmt(continueStmt),
+        else => unreachable,
+    };
+}
+
 /// Analze the types of an DeclareStmt
 fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) SemanticError!void {
     // Get the type of expression
-    const expr_kind = try self.analyzeExpr(&declareExpr.expr);
+    const maybe_expr_kind: ?KindId = if (declareExpr.expr != null) try self.analyzeExpr(&declareExpr.expr.?) else null;
     // Extract declaration kind
     const maybe_declared_kind = declareExpr.kind;
 
-    // Check if declared with a kind
-    if (maybe_declared_kind) |declared_kind| {
-        // Check if the expr kind and declared kind are coerceable
-        const coerce_result = try self.staticCoerceKinds(declareExpr.op, declared_kind, expr_kind);
+    // Check if both null
+    if (maybe_declared_kind == null and maybe_expr_kind == null) {
+        return self.reportError(SemanticError.UnsafeCoercion, declareExpr.id, "Expected a type in local declaration");
+    }
 
-        // Check if need to insert conversion nodes
-        if (coerce_result.upgraded_rhs) {
-            insertConvExpr(
-                self.allocator,
-                &declareExpr.expr,
-                coerce_result.final_kind,
-            );
+    // Check if declared with a kind
+    if (maybe_declared_kind != null) {
+        _ = declareExpr.kind.?.update(self.stm) catch {
+            return self.reportError(SemanticError.UnresolvableIdentifier, declareExpr.op, "Could not resolve struct type in declaration type");
+        };
+
+        if (maybe_expr_kind) |expr_kind| {
+            // Check if the expr kind and declared kind are coerceable
+            const coerce_result = try self.staticCoerceKinds(declareExpr.op, declareExpr.kind.?, expr_kind);
+            // Check if need to insert conversion nodes
+            if (coerce_result.upgraded_rhs) {
+                insertConvExpr(
+                    self.allocator,
+                    &declareExpr.expr.?,
+                    coerce_result.final_kind,
+                );
+            }
+            declareExpr.kind = coerce_result.final_kind;
+        } else {
+            declareExpr.kind = declareExpr.kind.?;
         }
     } else {
         // Update kind to expr result kind
-        declareExpr.kind = expr_kind;
+        declareExpr.kind = maybe_expr_kind.?;
     }
 
     // Create new symbol in STM
@@ -784,7 +970,7 @@ fn visitMutateStmt(self: *TypeChecker, mutStmt: *Stmt.MutStmt) SemanticError!voi
 
     // Make sure it is mutable
     if (!is_mutable) {
-        return self.reportError(SemanticError.TypeMismatch, mutStmt.op, "Cannot mutate constant identifiers");
+        return self.reportError(SemanticError.TypeMismatch, mutStmt.op, "Cannot mutate constant identifiers, data, or functions");
     }
 
     // Check if lhs is a float and using '%='
@@ -924,6 +1110,8 @@ fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!I
     switch (node.*.expr) {
         .IDENTIFIER => return self.visitIdentifierExprWrapped(node),
         .INDEX => return self.visitIndexExprWrapped(node),
+        .DEREFERENCE => return self.visitDereferenceExprWrapped(node),
+        .FIELD => return self.visitFieldExprWrapped(node),
         else => return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array"),
     }
 }
@@ -935,6 +1123,8 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .IDENTIFIER => self.visitIdentifierExpr(node),
         .LITERAL => self.visitLiteralExpr(node),
         .NATIVE => self.visitNativeExpr(node),
+        .DEREFERENCE => self.visitDereferenceExpr(node),
+        .FIELD => self.visitFieldExpr(node),
         .CALL => self.visitCallExpr(node),
         .CONVERSION => self.visitConvExpr(node),
         .INDEX => self.visitIndexExpr(node),
@@ -960,32 +1150,30 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
 
     // Return a KindId for the value stored in literal
     switch (literal_expr.value.kind) {
+        .NULLPTR => {
+            const new_ptr = KindId.newPtr(self.allocator, KindId.ANY, false);
+            node.result_kind = new_ptr;
+        },
         .BOOL => {
             node.result_kind = KindId.BOOL;
-            return node.result_kind;
         },
         .UINT => {
             const uintVal = literal_expr.value.as.uint;
             node.result_kind = KindId.newUInt(uintVal.bits);
-            return node.result_kind;
         },
         .INT => {
             const intVal = literal_expr.value.as.int;
             node.result_kind = KindId.newInt(intVal.bits);
-            return node.result_kind;
         },
         .FLOAT32 => {
             node.result_kind = KindId.FLOAT32;
-            return node.result_kind;
         },
         .FLOAT64 => {
             node.result_kind = KindId.FLOAT64;
-            return node.result_kind;
         },
         .STRING => {
             const strVal = literal_expr.value.as.string;
-            node.result_kind = KindId.newArr(self.allocator, KindId.newUInt(8), strVal.data.len, true);
-            return node.result_kind;
+            node.result_kind = KindId.newArr(self.allocator, KindId.newUInt(8), strVal.data.len, true, true);
         },
         .ARRAY => {
             // Get array value
@@ -994,13 +1182,13 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
             var new_array_kind: KindId = arrVal.kind.*;
             // Loop for each dimension of arrVal
             for (arrVal.dimensions.slice()) |dim| {
-                new_array_kind = KindId.newArr(self.allocator, new_array_kind, dim, true);
+                new_array_kind = KindId.newArr(self.allocator, new_array_kind, dim, true, false);
             }
             // Update result kind
             node.result_kind = new_array_kind;
-            return node.result_kind;
         },
     }
+    return node.result_kind;
 }
 
 /// Visit an Identifier Expr wrapped with an IDResult
@@ -1021,7 +1209,8 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     switch (symbol.scope) {
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
-        .GLOBAL => undefined,
+        .GLOBAL, .FUNC => undefined,
+        .STRUCT => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct type"),
     }
 
     // Wrap in id_result with constant status of symbol
@@ -1047,7 +1236,8 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     switch (symbol.scope) {
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
-        .GLOBAL => undefined,
+        .GLOBAL, .FUNC => undefined,
+        .STRUCT => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access a struct type"),
     }
 
     // Return its stored kind and update final
@@ -1203,12 +1393,95 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     return node.result_kind;
 }
 
+//************************************//
+//   Pointers and Dereference Expr
+//************************************//
+
+/// Used for ID expression resolution, returns if the data is constant or not
+fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
+    const fieldExpr = node.expr.FIELD;
+    // Analyze operand
+    const operand_result = try self.analyzeIDExpr(&fieldExpr.operand, fieldExpr.op);
+    const operand_kind = operand_result.kind;
+    const mutable = operand_result.mutable;
+
+    // Check if operand is a struct
+    if (operand_kind != .STRUCT) {
+        return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct type for field access");
+    }
+    // Check if struct has the field
+    const field = operand_kind.STRUCT.fields.getField(fieldExpr.field_name.lexeme) catch {
+        return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name");
+    };
+    // Update offset from base of struct
+    fieldExpr.stack_offset = field.relative_loc;
+    node.result_kind = field.kind;
+    return IDResult{ .kind = field.kind, .mutable = mutable };
+}
+
+/// Visit Field Expr
+/// fieldExpr -> expression '.' identifier
+/// Used to access struct fields
+fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    const fieldExpr = node.expr.FIELD;
+    // Analyze operand
+    const operand_kind = try self.analyzeExpr(&fieldExpr.operand);
+
+    // Check if operand is a struct
+    if (operand_kind != .STRUCT) {
+        return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct type for field access");
+    }
+    // Check if struct has the field
+    const field = operand_kind.STRUCT.fields.getField(fieldExpr.field_name.lexeme) catch {
+        return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name");
+    };
+    // Update offset from base of struct
+    fieldExpr.stack_offset = field.relative_loc;
+    node.result_kind = field.kind;
+    return field.kind;
+}
+
+/// Used for ID Expression resolution, returns if data is constant or not
+fn visitDereferenceExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
+    const derefExpr = node.expr.DEREFERENCE;
+    // Find operand kind
+    const operand_kind = try self.analyzeExpr(&derefExpr.operand);
+
+    // Check if operand is a pointer
+    if (operand_kind != .PTR) {
+        return self.reportError(SemanticError.TypeMismatch, derefExpr.op, "Expected a pointer type for dereference");
+    }
+
+    const child_kind = operand_kind.PTR.child;
+    const mutable = !operand_kind.PTR.const_child;
+    node.result_kind = child_kind.*;
+    // Return dereferenced pointer type
+    return IDResult{ .kind = child_kind.*, .mutable = mutable };
+}
+
+/// Analyze a dereference expr
+/// derefExpr -> expression '.' '*'
+fn visitDereferenceExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    const derefExpr = node.expr.DEREFERENCE;
+    // Find operand kind
+    const operand_kind = try self.analyzeExpr(&derefExpr.operand);
+
+    // Check if operand is a pointer
+    if (operand_kind != .PTR) {
+        return self.reportError(SemanticError.TypeMismatch, derefExpr.op, "Expected a pointer type for dereference");
+    }
+
+    const child_kind = operand_kind.PTR.child;
+    node.result_kind = child_kind.*;
+    return child_kind.*;
+}
+
 /// Used for ID Expression resolution, returns if data is constant or not
 fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
     // Extract index expression
     const indexExpr = node.expr.INDEX;
     // Find lhs kind
-    const lhs_kind = try self.analyzeExpr(&indexExpr.lhs);
+    const lhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.rhs) else try self.analyzeExpr(&indexExpr.lhs);
     // Used to return child kind
     var dereferenced_kind: KindId = undefined;
     var mutable: bool = undefined;
@@ -1225,7 +1498,7 @@ fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     }
 
     // Find rhs kind
-    const rhs_kind = try self.analyzeExpr(&indexExpr.rhs);
+    const rhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.lhs) else try self.analyzeExpr(&indexExpr.rhs);
     // Checl if rhs is a U(INT)
     if (rhs_kind != .UINT and rhs_kind != .INT) {
         return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only access int or uint indexes");
@@ -1241,7 +1514,7 @@ fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract index expression
     const indexExpr = node.expr.INDEX;
     // Find lhs kind
-    const lhs_kind = try self.analyzeExpr(&indexExpr.lhs);
+    const lhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.rhs) else try self.analyzeExpr(&indexExpr.lhs);
     // Used to return child kind
     var dereferenced_kind: KindId = undefined;
 
@@ -1255,7 +1528,7 @@ fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     }
 
     // Find rhs kind
-    const rhs_kind = try self.analyzeExpr(&indexExpr.rhs);
+    const rhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.lhs) else try self.analyzeExpr(&indexExpr.rhs);
     // Checl if rhs is a U(INT)
     if (rhs_kind != .UINT and rhs_kind != .INT) {
         return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only access int or uint indexes");
@@ -1327,6 +1600,14 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
                     "Expected an uint, int, or float",
                 ),
             }
+        },
+        .AMPERSAND => {
+            // Visit as id expr
+            const id_result = try self.analyzeIDExpr(&unaryExpr.operand, unaryExpr.op);
+            // Make new pointer
+            const new_ptr = KindId.newPtr(self.allocator, id_result.kind, !id_result.mutable);
+            node.result_kind = new_ptr;
+            return node.result_kind;
         },
         else => unreachable,
     }

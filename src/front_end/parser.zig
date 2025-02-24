@@ -161,11 +161,80 @@ fn consume(self: *Parser, kind: TokenKind, msg: []const u8) SyntaxError!void {
     return self.errorAtCurrent(msg);
 }
 
+/// Helper function to parse kind, Parses a pointer type
+/// pointer kind -> '*' "const"?
+fn parsePtrKind(self: *Parser) SyntaxError!KindId {
+    const const_child = self.match(.{TokenKind.CONST});
+    // Parse child kind
+    const child_kind = try self.parseKind();
+
+    const new_kind = KindId.newPtr(self.allocator, child_kind, const_child);
+    return new_kind;
+}
+
+/// Helper function to parse a function kind
+/// fn kind -> fn (arg_kinds) return_kind
+/// arg_kinds -> ((kind) (',' (kind))*)?
+fn parseFuncKind(self: *Parser) SyntaxError!KindId {
+    try self.consume(TokenKind.LEFT_PAREN, "Expected '(' after \"fn\" in function type definition");
+
+    // Make call args list
+    var arg_list = std.ArrayList(KindId).init(self.allocator);
+    // Check if next token is ')'
+    if (!self.match(.{TokenKind.RIGHT_PAREN})) {
+        // Parse first arg
+        const first_arg_kind = try self.parseKind();
+        // Add to list
+        arg_list.append(first_arg_kind) catch unreachable;
+
+        // Until ')' or end of file
+        while (!self.match(.{TokenKind.RIGHT_PAREN}) or self.isAtEnd()) {
+            // Consume ','
+            try self.consume(TokenKind.COMMA, "Expected ',' after function type definition argument");
+            // Parse first arg
+            const arg_kind = try self.parseKind();
+            // Add to list
+            arg_list.append(arg_kind) catch unreachable;
+        }
+
+        // Check if at end
+        if (self.isAtEnd()) {
+            return self.errorAt("Unclosed function type definition argument list");
+        }
+    }
+    // Parse return kind
+    const return_kind = try self.parseKind();
+    // Make new func kindid
+    const new_func = KindId.newFunc(self.allocator, arg_list.items, false, return_kind);
+    return new_func;
+}
+
+/// Parse an array kind definition
+/// ArrayKind -> '[' integer ']' Kind
+fn parseArrayKind(self: *Parser) SyntaxError!KindId {
+    // Consume integer
+    try self.consume(TokenKind.INTEGER, "Expected a positive integer for array length");
+    const length_token = self.previous;
+    // Parse into usize
+    const length = std.fmt.parseInt(usize, length_token.lexeme, 10) catch {
+        return self.errorAt("Expected a positive integer for array length");
+    };
+    try self.consume(TokenKind.RIGHT_SQUARE, "Expected ']' after array length");
+
+    const const_child = self.match(.{TokenKind.CONST});
+    // Parse child kind
+    const child_kind = try self.parseKind();
+
+    const new_kind = KindId.newArr(self.allocator, child_kind, length, const_child, false);
+    return new_kind;
+}
+
 /// Parse a kind into a KindId
 fn parseKind(self: *Parser) SyntaxError!KindId {
     // Advance to next token
     const token = self.advance();
     return switch (token.kind) {
+        .VOID_TYPE => KindId.VOID,
         .BOOL_TYPE => KindId.BOOL,
         .U8_TYPE => KindId.newUInt(8),
         .U16_TYPE => KindId.newUInt(16),
@@ -177,8 +246,10 @@ fn parseKind(self: *Parser) SyntaxError!KindId {
         .I64_TYPE => KindId.newInt(64),
         .F32_TYPE => KindId.FLOAT32,
         .F64_TYPE => KindId.FLOAT64,
-        //.ARRAY_TYPE => try self.parseArrayKind(),
-        //.STAR => try self.parsePtrKind(),
+        .LEFT_SQUARE => try self.parseArrayKind(),
+        .STAR => try self.parsePtrKind(),
+        .IDENTIFIER => KindId.newStruct(token.lexeme),
+        .FN => try self.parseFuncKind(),
         else => self.errorAt("Expected type"),
     };
 }
@@ -294,9 +365,11 @@ fn global(self: *Parser) SyntaxError!StmtNode {
         return self.globalStmt();
     } else if (self.match(.{TokenKind.FN})) {
         return self.functionStmt();
+    } else if (self.match(.{TokenKind.STRUCT})) {
+        return self.structStmt();
     }
     _ = self.advance();
-    return self.errorAt("Expected global variable or function declaration");
+    return self.errorAt("Expected global variable, function declaration, or struct definition");
 }
 
 /// Parse a global declaration stmt
@@ -319,9 +392,14 @@ fn globalStmt(self: *Parser) SyntaxError!StmtNode {
     // Get operator
     const op = self.previous;
 
-    // Parse expression
-    const assign_expr_result = try self.expression();
-    const assign_expr = assign_expr_result.expr;
+    // Check if undefined
+    var assign_expr: ?ExprNode = null;
+    if (!self.match(.{TokenKind.UNDEFINED})) {
+        // Parse expression
+        const assign_expr_result = try self.expression();
+        assign_expr = assign_expr_result.expr;
+    }
+
     // Consume ';'
     try self.consume(TokenKind.SEMICOLON, "Expected ';' after declaration statement");
 
@@ -380,8 +458,8 @@ fn functionStmt(self: *Parser) SyntaxError!StmtNode {
             arg_name_list.append(arg_name) catch unreachable;
             arg_kind_list.append(arg_kind) catch unreachable;
         }
-        // Check if at end
-        if (self.isAtEnd()) {
+        // Check previous was paren
+        if (self.previous.kind != .RIGHT_PAREN) {
             return self.errorAt("Expected ')' after function argument list");
         }
     }
@@ -405,6 +483,55 @@ fn functionStmt(self: *Parser) SyntaxError!StmtNode {
     );
     return StmtNode{ .FUNCTION = new_stmt };
 }
+
+/// StructStmt -> "struct" identifier '{' fieldlist '}'
+/// FieldList -> Field (Field ',')*
+/// Field -> identifier ':' KindId
+fn structStmt(self: *Parser) SyntaxError!StmtNode {
+    try self.consume(TokenKind.IDENTIFIER, "Expected identifier after 'struct' keyword");
+    const id = self.previous;
+    try self.consume(TokenKind.LEFT_BRACE, "Expected '{' before struct field list");
+
+    // Parse fields
+    var field_name_list = std.ArrayList(Token).init(self.allocator);
+    var field_kind_list = std.ArrayList(KindId).init(self.allocator);
+    // First field, must have atleast one
+    try self.consume(TokenKind.IDENTIFIER, "Expected field identifier name");
+    const first_field_name = self.previous;
+    try self.consume(TokenKind.COLON, "Expected ':' after field identifier name");
+    const first_field_kind = try self.parseKind();
+    // Append it
+    field_name_list.append(first_field_name) catch unreachable;
+    field_kind_list.append(first_field_kind) catch unreachable;
+    // Consume ';'
+    try self.consume(TokenKind.SEMICOLON, "Expected ';' after field definition");
+
+    // Do the rest if there are any
+    while (!self.match(.{TokenKind.RIGHT_BRACE}) and !self.isAtEnd()) {
+        try self.consume(TokenKind.IDENTIFIER, "Expected field identifier name");
+        const field_name = self.previous;
+        try self.consume(TokenKind.COLON, "Expected ':' after field identifier name");
+        const field_kind = try self.parseKind();
+        // Append it
+        field_name_list.append(field_name) catch unreachable;
+        field_kind_list.append(field_kind) catch unreachable;
+        // Consume ';'
+        try self.consume(TokenKind.SEMICOLON, "Expected ';' after field definition");
+    }
+    // Check if previous was brace
+    if (self.previous.kind != .RIGHT_BRACE) {
+        return self.errorAt("Expected '}' after struct field list");
+    }
+
+    // Create new stmt
+    const new_stmt = self.allocator.create(Stmt.StructStmt) catch unreachable;
+    new_stmt.* = Stmt.StructStmt.init(id, field_name_list.items, field_kind_list.items);
+    return StmtNode{ .STRUCT = new_stmt };
+}
+
+// ************************** //
+//      In function stuff     //
+// ************************** //
 
 /// Parse a declaration
 /// Declaration -> DeclareStmt | statement
@@ -436,9 +563,13 @@ fn declareStmt(self: *Parser) SyntaxError!StmtNode {
     // Get operator
     const op = self.previous;
 
-    // Parse expression
-    const assign_expr_result = try self.expression();
-    const assign_expr = assign_expr_result.expr;
+    // Check if undefined
+    var assign_expr: ?ExprNode = null;
+    if (!self.match(.{TokenKind.UNDEFINED})) {
+        // Parse expression
+        const assign_expr_result = try self.expression();
+        assign_expr = assign_expr_result.expr;
+    }
     // Consume ';'
     try self.consume(TokenKind.SEMICOLON, "Expected ';' after declaration statement");
 
@@ -887,7 +1018,7 @@ fn factor(self: *Parser) SyntaxError!ExprResult {
 /// unary -> ("-"|"!") (unary | literal)
 fn unary(self: *Parser) SyntaxError!ExprResult {
     // Recurse until no more '+' or '!'
-    if (self.match(.{ TokenKind.MINUS, TokenKind.EXCLAMATION })) {
+    if (self.match(.{ TokenKind.MINUS, TokenKind.EXCLAMATION, TokenKind.AMPERSAND })) {
         // Get operator
         const operator = self.previous;
         // Parse rhs
@@ -902,6 +1033,26 @@ fn unary(self: *Parser) SyntaxError!ExprResult {
     }
     // Fall through to Access/call/index
     return self.access();
+}
+
+/// Parse a dereference or struct access expression
+/// dotExpr -> idExpr '.' (identifier | '*')
+fn address(self: *Parser, expr: ExprNode, operator: Token) SyntaxError!ExprNode {
+    // Check if Field or Dereference
+    if (self.match(.{TokenKind.STAR})) {
+        const new_expr = self.allocator.create(Expr.DereferenceExpr) catch unreachable;
+        new_expr.* = Expr.DereferenceExpr.init(expr, operator);
+        const node = ExprNode.init(ExprUnion{ .DEREFERENCE = new_expr });
+        return node;
+    }
+    // Field access
+    try self.consume(TokenKind.IDENTIFIER, "Expected a struct field name");
+    const field_name = self.previous;
+
+    const new_expr = self.allocator.create(Expr.FieldExpr) catch unreachable;
+    new_expr.* = Expr.FieldExpr.init(expr, field_name, operator);
+    const node = ExprNode.init(ExprUnion{ .FIELD = new_expr });
+    return node;
 }
 
 /// Helper function to "access"
@@ -984,7 +1135,7 @@ fn access(self: *Parser) SyntaxError!ExprResult {
     var precedence = lhs.precedence;
 
     // While there are "(" or "["
-    while (self.match(.{ TokenKind.LEFT_PAREN, TokenKind.LEFT_SQUARE })) {
+    while (self.match(.{ TokenKind.LEFT_PAREN, TokenKind.LEFT_SQUARE, TokenKind.DOT })) {
         // Get "operator"
         const operator = self.previous;
 
@@ -993,6 +1144,7 @@ fn access(self: *Parser) SyntaxError!ExprResult {
         expr = switch (operator.kind) {
             .LEFT_PAREN => try self.call(expr, operator, &precedence),
             .LEFT_SQUARE => try self.index(expr, operator, &precedence),
+            .DOT => try self.address(expr, operator),
             else => unreachable,
         };
     }
@@ -1015,6 +1167,16 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
     // Store current token and advance
     const token = self.advance();
     switch (token.kind) {
+        .NULLPTR => {
+            // Make new constant expression
+            const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;
+            // Make new value
+            const value = Value.newNullPtr();
+            constant_expr.* = .{ .value = value, .literal = token };
+            const expr = ExprNode.init(ExprUnion{ .LITERAL = constant_expr });
+            // Wrap in ExprResult
+            return ExprResult.init(expr, 0);
+        },
         .FALSE => {
             // Make new constant expression
             const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;
@@ -1080,7 +1242,7 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             // Make a new value without quotes
 
             // Make new value without quotes
-            const value = Value.newStr(token.lexeme);
+            const value = Value.newStr(token.lexeme[1 .. token.lexeme.len - 1]);
             constant_expr.* = .{ .value = value, .literal = token };
             const node = ExprNode.init(ExprUnion{ .LITERAL = constant_expr });
             // Wrap in ExprResult

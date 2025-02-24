@@ -86,6 +86,11 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
         \\global main
         \\section .text
         \\main:
+        \\    ; Setup main args
+        \\    sub rsp, 16
+        \\    mov [rsp], rcx
+        \\    mov [rsp+8], rdx
+        \\
         \\    ; Setup clock
         \\    push rax
         \\    mov rcx, rsp
@@ -176,8 +181,7 @@ pub fn close(self: Generator) GenerationError!void {
                 },
                 .STRING => {
                     const string = real_value.as.string.data.slice();
-                    const extracted_str = string[1 .. string.len - 1];
-                    try self.print("    {s}: db `{s}`, 0\n", .{ name, extracted_str });
+                    try self.print("    {s}: db `{s}`, 0\n", .{ name, string });
                 },
                 else => unreachable,
             }
@@ -194,7 +198,7 @@ pub fn close(self: Generator) GenerationError!void {
         // Extract global
         const global = global_entry.value_ptr;
         // Write to file if not function and used
-        if (global.kind != .FUNC and global.used) {
+        if (global.scope == .GLOBAL and global.used) {
             try self.print("    _{s}: resb {d}\n", .{ global.name, global.size });
         }
     }
@@ -218,7 +222,7 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
     // Call main
     try self.write("\n    call _main ; Execute main\n");
     // Write exit
-    try self.write("    mov rcx, rax\n    ret\n\n");
+    try self.write("    add rsp, 16\n    mov rcx, rax\n    ret\n\n");
 
     // Generate all functions in the module
     for (module.functionSlice()) |function| {
@@ -233,7 +237,7 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
 /// Returns the realigned next address for the stack
 fn realignStack(next_address: u64, size: u64) u64 {
     // Get allignment of data size
-    const alignment: u64 = @min(size, 8);
+    const alignment: u64 = if (size > 4) 8 else if (size > 2) 4 else if (size > 1) 2 else 1;
     const offset = next_address & (alignment - 1);
 
     // Check if needs to be realigned
@@ -390,27 +394,30 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
     if (!identifier.used) {
         return;
     }
-    // Generate expression
-    try self.genExpr(globalStmt.expr);
 
-    // Pop register based on result type
-    const result_kind = globalStmt.expr.result_kind;
-    if (result_kind == .FLOAT32) {
-        const reg = self.popSSEReg();
-        try self.print("    movss [_{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
-    } else if (result_kind == .FLOAT64) {
-        const reg = self.popSSEReg();
-        try self.print("    movsd [_{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
-    } else {
-        // Get size and size keyword
-        const size = globalStmt.kind.?.size_runtime();
-        // Get register
-        const reg = self.popCPUReg();
-        // Get properly sized register
-        const sized_reg = getSizedCPUReg(reg.index, size);
+    if (globalStmt.expr) |define_expr| {
+        // Generate expression
+        try self.genExpr(define_expr);
 
-        // Write assignment
-        try self.print("    mov [_{s}], {s} ; Declare identifier\n", .{ identifier.name, sized_reg });
+        // Pop register based on result type
+        const result_kind = define_expr.result_kind;
+        if (result_kind == .FLOAT32) {
+            const reg = self.popSSEReg();
+            try self.print("    movss [_{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
+        } else if (result_kind == .FLOAT64) {
+            const reg = self.popSSEReg();
+            try self.print("    movsd [_{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
+        } else {
+            // Get size and size keyword
+            const size = globalStmt.kind.?.size_runtime();
+            // Get register
+            const reg = self.popCPUReg();
+            // Get properly sized register
+            const sized_reg = getSizedCPUReg(reg.index, size);
+
+            // Write assignment
+            try self.print("    mov [_{s}], {s} ; Declare identifier\n", .{ identifier.name, sized_reg });
+        }
     }
 }
 
@@ -448,6 +455,10 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt) Generati
 
     // Generate return stmt
     try self.print(".L{d}:\n", .{self.return_label});
+    // If void return, zero out rax
+    if (functionStmt.return_kind == .VOID) {
+        try self.write("    xor eax, eax\n");
+    }
     // Pop rbp
     try self.write("    pop rbp\n");
     // Free locals and return
@@ -462,29 +473,32 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt) Generati
 
 /// Generate the asm for a declare stmt
 fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationError!void {
-    // Generate expression
-    try self.genExpr(declareStmt.expr);
-    // Get stack offset
-    const offset = declareStmt.stack_offset - self.current_func_args_size;
+    // If defined, generate
+    if (declareStmt.expr) |define_expr| {
+        // Generate expression
+        try self.genExpr(define_expr);
+        // Get stack offset
+        const offset = declareStmt.stack_offset - self.current_func_args_size;
 
-    // Pop register based on result type
-    const result_kind = declareStmt.expr.result_kind;
-    if (result_kind == .FLOAT32) {
-        const reg = self.popSSEReg();
-        try self.print("    movss [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
-    } else if (result_kind == .FLOAT64) {
-        const reg = self.popSSEReg();
-        try self.print("    movsd [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
-    } else {
-        // Get size and size keyword
-        const size = declareStmt.kind.?.size_runtime();
-        // Get register
-        const reg = self.popCPUReg();
-        // Get properly sized register
-        const sized_reg = getSizedCPUReg(reg.index, size);
+        // Pop register based on result type
+        const result_kind = define_expr.result_kind;
+        if (result_kind == .FLOAT32) {
+            const reg = self.popSSEReg();
+            try self.print("    movss [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
+        } else if (result_kind == .FLOAT64) {
+            const reg = self.popSSEReg();
+            try self.print("    movsd [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
+        } else {
+            // Get size and size keyword
+            const size = declareStmt.kind.?.size_runtime();
+            // Get register
+            const reg = self.popCPUReg();
+            // Get properly sized register
+            const sized_reg = getSizedCPUReg(reg.index, size);
 
-        // Write assignment
-        try self.print("    mov [rbp + {d}], {s} ; Declare identifier\n", .{ offset, sized_reg });
+            // Write assignment
+            try self.print("    mov [rbp + {d}], {s} ; Declare identifier\n", .{ offset, sized_reg });
+        }
     }
 }
 
@@ -505,7 +519,8 @@ fn visitExprStmt(self: *Generator, exprStmt: Stmt.ExprStmt) GenerationError!void
     // Generate the stored exprnode
     try self.genExpr(exprStmt.expr);
     // Pop last register, based on if float or not
-    if (exprStmt.expr.result_kind == .FLOAT32 or exprStmt.expr.result_kind == .FLOAT64) {
+    const result_kind = exprStmt.expr.result_kind;
+    if (result_kind == .FLOAT32 or result_kind == .FLOAT64) {
         _ = self.popSSEReg();
     } else {
         _ = self.popCPUReg();
@@ -528,7 +543,7 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
         // Check if '='
         if (mutStmt.op.kind == .EQUAL) {
             // Write to memory
-            try self.print("    mov [{s}], {s} ; Mutate\n", .{ id_reg.name, expr_reg.name });
+            try self.print("    movd [{s}], {s} ; Mutate\n", .{ id_reg.name, expr_reg.name });
         } else {
             // Check op type
             switch (mutStmt.op.kind) {
@@ -563,7 +578,7 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
         // Check if '='
         if (mutStmt.op.kind == .EQUAL) {
             // Write to memory
-            try self.print("    mov [{s}], {s} ; Mutate\n", .{ id_reg.name, expr_reg.name });
+            try self.print("    movq [{s}], {s} ; Mutate\n", .{ id_reg.name, expr_reg.name });
         } else {
             // Check op type
             switch (mutStmt.op.kind) {
@@ -603,9 +618,24 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
             .EQUAL => try self.print("    mov [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
             .PLUS_EQUAL => try self.print("    add [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
             .MINUS_EQUAL => try self.print("    sub [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
-            .STAR_EQUAL => try self.print("    imul [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
+            .STAR_EQUAL => {
+                const size_keyword = getSizeKeyword(size);
+                const sized_rax = switch (size) {
+                    1 => "al",
+                    2 => "ax",
+                    4 => "eax",
+                    else => "rax", ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                };
+                try self.print(
+                    \\    xor rax, rax ; Mutate    
+                    \\    mov {s}, {s} [{s}]
+                    \\    imul {s}, {s}
+                    \\    mov [{s}], {s}
+                    \\
+                , .{ sized_rax, size_keyword, id_reg.name, sized_reg, sized_rax, id_reg.name, sized_reg });
+            },
             .SLASH_EQUAL => {
-                const size_keyword = getSizeKeyword(mutStmt.id_kind.size());
+                const size_keyword = getSizeKeyword(size);
                 try self.print(
                     \\    xor rax, rax ; Mutate
                     \\    mov rax, {s} [{s}]
@@ -613,10 +643,10 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                     \\    idiv {s}
                     \\    mov [{s}], rax
                     \\
-                , .{ id_reg.name, size_keyword, expr_reg.name, id_reg.name });
+                , .{ size_keyword, id_reg.name, expr_reg.name, id_reg.name });
             },
             .PERCENT_EQUAL => {
-                const size_keyword = getSizeKeyword(mutStmt.id_kind.size());
+                const size_keyword = getSizeKeyword(size);
                 try self.print(
                     \\    xor rax, rax ; Mutate
                     \\    mov rax, {s} [{s}]
@@ -624,7 +654,7 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                     \\    idiv {s}
                     \\    mov [{s}], rdx
                     \\
-                , .{ id_reg.name, size_keyword, expr_reg.name, id_reg.name });
+                , .{ size_keyword, id_reg.name, expr_reg.name, id_reg.name });
             },
             else => unreachable,
         }
@@ -748,15 +778,12 @@ fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationErro
                 const reg = self.popSSEReg();
                 try self.print("    movq rax, {s}\n", .{reg.name});
             },
-            .VOID => undefined,
             else => {
                 // Get cpu register
                 const reg = self.popCPUReg();
                 try self.print("    mov rax, {s}\n", .{reg.name});
             },
         }
-    } else {
-        try self.write("    xor eax, eax\n");
     }
     // Jump to return label
     try self.print("    jmp .L{d}\n", .{self.return_label});
@@ -786,6 +813,8 @@ fn genIDExpr(self: *Generator, node: ExprNode) GenerationError!void {
     switch (node.expr) {
         .IDENTIFIER => |idExpr| try self.visitIdentifierExprID(idExpr),
         .INDEX => |indexExpr| try self.visitIndexExprID(indexExpr),
+        .DEREFERENCE => |derefExpr| try self.visitDereferenceExprID(derefExpr),
+        .FIELD => |fieldExpr| try self.visitFieldExprID(fieldExpr),
         else => unreachable,
     }
 }
@@ -801,6 +830,8 @@ fn genExpr(self: *Generator, node: ExprNode) GenerationError!void {
         .NATIVE => |nativeExpr| try self.visitNativeExpr(nativeExpr, result_kind),
         .CALL => |callExpr| try self.visitCallExpr(callExpr, result_kind),
         .CONVERSION => |convExpr| try self.visitConvExpr(convExpr, result_kind),
+        .FIELD => |fieldExpr| try self.visitFieldExpr(fieldExpr, result_kind),
+        .DEREFERENCE => |derefExpr| try self.visitDereferenceExpr(derefExpr, result_kind),
         .INDEX => |indexExpr| try self.visitIndexExpr(indexExpr, result_kind),
         .UNARY => |unaryExpr| try self.visitUnaryExpr(unaryExpr),
         .ARITH => |arithExpr| try self.visitArithExpr(arithExpr),
@@ -822,8 +853,9 @@ fn visitIdentifierExprID(self: *Generator, idExpr: *Expr.IdentifierExpr) Generat
     // Access based on scope kind
     switch (idExpr.scope_kind) {
         .ARG => try self.print("    lea {s}, [rbp+{d}] ; Get Arg\n", .{ reg.name, idExpr.stack_offset + self.current_func_locals_size }),
-        .LOCAL => try self.print("    lea {s}, [rbp+{d}] ; Get Arg\n", .{ reg.name, idExpr.stack_offset - self.current_func_args_size }),
-        .GLOBAL => try self.print("    lea {s}, [_{s}] ; Get Global\n", .{ reg.name, id_name }),
+        .LOCAL => try self.print("    lea {s}, [rbp+{d}] ; Get Local\n", .{ reg.name, idExpr.stack_offset - self.current_func_args_size }),
+        .GLOBAL, .FUNC => try self.print("    lea {s}, [_{s}] ; Get Global\n", .{ reg.name, id_name }),
+        else => unreachable,
     }
 }
 
@@ -838,7 +870,8 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
     const stack_offset: ?u64 = switch (idExpr.scope_kind) {
         .ARG => idExpr.stack_offset + self.current_func_locals_size,
         .LOCAL => idExpr.stack_offset - self.current_func_args_size,
-        .GLOBAL => null,
+        .GLOBAL, .FUNC => null,
+        else => unreachable,
     };
 
     // If there is an offset, use it
@@ -857,6 +890,13 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
             // Mov normally
             try self.print(
                 "    movsd {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
+                .{ reg.name, size_keyword, offset },
+            );
+        } else if (result_kind == .ARRAY) {
+            const reg = try self.getNextCPUReg();
+            // Mov normally
+            try self.print(
+                "    lea {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
                 .{ reg.name, size_keyword, offset },
             );
         } else {
@@ -878,10 +918,19 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
                     );
                 } else {
                     // Move and zero top
-                    try self.print(
-                        "    movzx {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
-                        .{ reg.name, size_keyword, offset },
-                    );
+                    if (kind_size == 4) {
+                        // Get resized register
+                        const sized_reg = getSizedCPUReg(reg.index, 4);
+                        try self.print(
+                            "    mov {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
+                            .{ sized_reg, size_keyword, offset },
+                        );
+                    } else {
+                        try self.print(
+                            "    movzx {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
+                            .{ reg.name, size_keyword, offset },
+                        );
+                    }
                 }
             }
         }
@@ -937,6 +986,11 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
 fn visitLiteralExpr(self: *Generator, litExpr: *Expr.LiteralExpr) GenerationError!void {
     // Determine Value kind
     switch (litExpr.value.kind) {
+        .NULLPTR => {
+            // Get a new register
+            const reg = try self.getNextCPUReg();
+            try self.print("    mov {s}, 0 ; Load NULLPTR\n", .{reg.name});
+        },
         .BOOL => {
             // Get a new register
             const reg = try self.getNextCPUReg();
@@ -1023,7 +1077,7 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
                 const reg = self.popCPUReg();
                 // Insert arg based on size
                 try self.print(
-                    "    movzx {s}, {s}\n    mov [rsp + {d}], {s}\n",
+                    "    movzx {s}, {s}\n    mov [rsp+{d}], {s}\n",
                     .{ reg.name, cpu_reg_names_8bit[reg.index], stack_pos, reg.name },
                 );
             },
@@ -1033,18 +1087,18 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
                 // Insert arg based on size
                 switch (uint.size()) {
                     1 => try self.print(
-                        "    movzx {s}, {s}\n    mov [rsp + {d}], {s}\n",
+                        "    movzx {s}, {s}\n    mov [rsp+{d}], {s}\n",
                         .{ reg.name, cpu_reg_names_8bit[reg.index], stack_pos, reg.name },
                     ),
                     2 => try self.print(
-                        "    movzx {s}, {s}\n    mov [rsp + {d}], {s}\n",
+                        "    movzx {s}, {s}\n    mov [rsp+{d}], {s}\n",
                         .{ reg.name, cpu_reg_names_16bit[reg.index], stack_pos, reg.name },
                     ),
                     4 => try self.print(
-                        "    mov {s}, {s}\n    mov [rsp + {d}], {s}\n",
+                        "    mov {s}, {s}\n    mov [rsp+{d}], {s}\n",
                         .{ cpu_reg_names_32bit[reg.index], cpu_reg_names_32bit[reg.index], stack_pos, reg.name },
                     ),
-                    else => try self.print("    mov [rsp + {d}], {s}\n", .{ stack_pos, reg.name }),
+                    else => try self.print("    mov [rsp+{d}], {s}\n", .{ stack_pos, reg.name }),
                 }
             },
             .INT => |int| {
@@ -1053,37 +1107,42 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
                 // Insert arg based on size
                 switch (int.size()) {
                     1 => try self.print(
-                        "    movsx {s}, {s}\n    mov [rsp + {d}], {s}\n",
+                        "    movsx {s}, {s}\n    mov [rsp+{d}], {s}\n",
                         .{ reg.name, cpu_reg_names_8bit[reg.index], stack_pos, reg.name },
                     ),
                     2 => try self.print(
-                        "    movsx {s}, {s}\n    mov [rsp + {d}], {s}\n",
+                        "    movsx {s}, {s}\n    mov [rsp+{d}], {s}\n",
                         .{ reg.name, cpu_reg_names_16bit[reg.index], stack_pos, reg.name },
                     ),
                     4 => try self.print(
-                        "    movsx {s}, {s}\n    mov [rsp + {d}], {s}\n",
+                        "    movsx {s}, {s}\n    mov [rsp+{d}], {s}\n",
                         .{ reg.name, cpu_reg_names_32bit[reg.index], stack_pos, reg.name },
                     ),
-                    else => try self.print("    mov [rsp + {d}], {s}\n", .{ stack_pos, reg.name }),
+                    else => try self.print("    mov [rsp+{d}], {s}\n", .{ stack_pos, reg.name }),
                 }
             },
-            .PTR => {
+            .PTR, .FUNC => {
                 // Get register and pop
                 const reg = self.popCPUReg();
-                try self.print("    mov [rsp + {d}], {s}\n", .{ stack_pos, reg.name });
+                try self.print("    mov [rsp+{d}], {s}\n", .{ stack_pos, reg.name });
             },
             .FLOAT32 => {
                 // Get register and pop
                 const reg = self.popSSEReg();
                 try self.print(
-                    "    xor eax, eax\n    movss rax, {s}\n    mov [rsp + {d}], rax\n",
+                    "    xor eax, eax\n    movss rax, {s}\n    mov [rsp+{d}], rax\n",
                     .{ reg.name, stack_pos },
                 );
             },
             .FLOAT64 => {
                 // Get register and pop
                 const reg = self.popSSEReg();
-                try self.print("    movsd [rsp + {d}], {s}\n", .{ stack_pos, reg.name });
+                try self.print("    movsd [rsp+{d}], {s}\n", .{ stack_pos, reg.name });
+            },
+            .VOID => {
+                // Get register and pop
+                const reg = self.popCPUReg();
+                try self.print("    mov [rsp+{d}], {s}\n", .{ stack_pos, reg.name });
             },
             else => unreachable,
         }
@@ -1282,7 +1341,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     try self.restoreCPUReg(cpu_reg_count);
     // Move result
     switch (result_kind) {
-        .BOOL, .UINT, .INT, .PTR, .FUNC => {
+        .BOOL, .UINT, .INT, .PTR, .FUNC, .VOID => {
             // Get a new register
             const reg = try self.getNextCPUReg();
             try self.print("    mov {s}, rax\n", .{reg.name});
@@ -1297,7 +1356,6 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
             const reg = try self.getNextSSEReg();
             try self.print("    movq {s}, rax\n", .{reg.name});
         },
-        .VOID => undefined,
         else => unreachable,
     }
 }
@@ -1359,6 +1417,75 @@ fn visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: 
     }
 }
 
+/// Generate asm for a FieldExpr
+fn visitFieldExprID(self: *Generator, fieldExpr: *Expr.FieldExpr) GenerationError!void {
+    // Generate the lhs
+    try self.genIDExpr(fieldExpr.operand);
+    const source_reg = self.getCurrCPUReg();
+    const offset = fieldExpr.stack_offset;
+    // Generate the field offset access
+    if (offset > 0) {
+        try self.print("    lea {s}, [{s}+{d}] ; Field access\n", .{ source_reg.name, source_reg.name, offset });
+    }
+}
+
+/// Generate asm for a FieldExpr
+fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: KindId) GenerationError!void {
+    // Generate the lhs
+    try self.genIDExpr(fieldExpr.operand);
+    const source_reg = self.popCPUReg();
+    const offset = fieldExpr.stack_offset;
+
+    // Generate the field offset access
+    switch (result_kind) {
+        .FLOAT32 => {
+            const dest_reg = try self.getNextSSEReg();
+            try self.print("    movss {s}, [{s}+{d}] ; Field access\n", .{ dest_reg.name, source_reg.name, offset });
+        },
+        .FLOAT64 => {
+            const dest_reg = try self.getNextSSEReg();
+            try self.print("    movsd {s}, [{s}+{d}] ; Field access\n", .{ dest_reg.name, source_reg.name, offset });
+        },
+        else => {
+            const reg = try self.getNextCPUReg();
+            const kind_size = result_kind.size_runtime();
+            const size_keyword = getSizeKeyword(kind_size);
+            // Check if size is 64 bit
+            if (kind_size == 8) {
+                // Mov normally
+                try self.print(
+                    "    mov {s}, {s} [{s}+{d}] ; Field access\n",
+                    .{ reg.name, size_keyword, source_reg.name, offset },
+                );
+            } else {
+                // Check if unsigned
+                if (result_kind == .INT) {
+                    // Move and extend sign bit
+                    try self.print(
+                        "    movsx {s}, {s} [{s}+{d}] ; Field access\n",
+                        .{ reg.name, size_keyword, source_reg.name, offset },
+                    );
+                } else {
+                    // Move and zero top
+                    if (kind_size == 4) {
+                        // Get resized register
+                        const sized_reg = getSizedCPUReg(reg.index, 4);
+                        try self.print(
+                            "    mov {s}, {s} [{s}+{d}] ; Field access\n",
+                            .{ sized_reg, size_keyword, source_reg.name, offset },
+                        );
+                    } else {
+                        try self.print(
+                            "    movzx {s}, {s} [{s}+{d}] ; Field access\n",
+                            .{ reg.name, size_keyword, source_reg.name, offset },
+                        );
+                    }
+                }
+            }
+        },
+    }
+}
+
 /// Generate asm for an indexExpr
 fn visitIndexExprID(self: *Generator, indexExpr: *Expr.IndexExpr) GenerationError!void {
     // Generate lhs
@@ -1378,18 +1505,52 @@ fn visitIndexExprID(self: *Generator, indexExpr: *Expr.IndexExpr) GenerationErro
         lhs_reg = self.popCPUReg();
     }
 
+    // Get correct size kind for child
+    const access_kind = if (indexExpr.reversed) indexExpr.rhs.result_kind else indexExpr.lhs.result_kind;
     // Check if array
-    if (indexExpr.lhs.result_kind == .ARRAY) {
+    if (access_kind == .ARRAY) {
         // Write array offset * child size
-        const child_size = indexExpr.lhs.result_kind.ARRAY.child.size_runtime();
-        try self.print("    lea {s}, [{s}+{s}*{d}] ; Array Index\n", .{ lhs_reg.name, lhs_reg.name, rhs_reg.name, child_size });
+        const child_size = access_kind.ARRAY.child.size();
+        try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
+        try self.print("    lea {s}, [{s}+{s}] ; Array Index\n", .{ lhs_reg.name, lhs_reg.name, rhs_reg.name });
     } else {
+        const child_size = access_kind.PTR.child.size();
+        try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         // LEA the address
         try self.print("    lea {s}, [{s}+{s}] ; Ptr Index\n", .{ lhs_reg.name, lhs_reg.name, rhs_reg.name });
     }
 
     // Push lhs_reg back onto stack
     self.pushCPUReg(lhs_reg);
+}
+
+/// Generate asm for a dereference expr, in ID expression
+fn visitDereferenceExprID(self: *Generator, derefExpr: *Expr.DereferenceExpr) GenerationError!void {
+    // Generate the operand
+    try self.genExpr(derefExpr.operand);
+}
+
+/// Generate asm for a dereference expr
+fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr, result_kind: KindId) GenerationError!void {
+    // Generate the operand
+    try self.genExpr(derefExpr.operand);
+    // Dereference the pointer
+    const source_reg = self.popCPUReg();
+
+    switch (result_kind) {
+        .FLOAT32 => {
+            const dest_reg = try self.getNextSSEReg();
+            try self.print("    movss {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
+        },
+        .FLOAT64 => {
+            const dest_reg = try self.getNextSSEReg();
+            try self.print("    movsd {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
+        },
+        else => {
+            const dest_reg = try self.getNextCPUReg();
+            try self.print("    mov {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
+        },
+    }
 }
 
 /// Generate asm for an indexExpr
@@ -1411,30 +1572,34 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
         lhs_reg = self.popCPUReg();
     }
 
+    // Get correct size kind for child
+    const access_kind = if (indexExpr.reversed) indexExpr.rhs.result_kind else indexExpr.lhs.result_kind;
     // Check if array
-    if (indexExpr.lhs.result_kind == .ARRAY) {
+    if (access_kind == .ARRAY) {
         // Write array offset * child size
-        const child_size = indexExpr.lhs.result_kind.ARRAY.child.size_runtime();
+        const child_size = access_kind.ARRAY.child.size();
+        // Multiply address by child_size
+        try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         // Check if float 32
         if (result_kind == .FLOAT32) {
             // Get floating register
             const result_reg = try self.getNextSSEReg();
             // Write index access
             try self.print(
-                "    movss {s}, [{s}+{s}*{d}]\n ; Array Index",
-                .{ result_reg.name, lhs_reg.name, rhs_reg.name, child_size },
+                "    movss {s}, [{s}+{s}]\n ; Array Index",
+                .{ result_reg.name, lhs_reg.name, rhs_reg.name },
             );
         } else if (result_kind == .FLOAT64) {
             // Get floating register
             const result_reg = try self.getNextSSEReg();
             // Write index access
             try self.print(
-                "    movsd {s}, [{s}+{s}*{d}] ; Array Index\n",
-                .{ result_reg.name, lhs_reg.name, rhs_reg.name, child_size },
+                "    movsd {s}, [{s}+{s}] ; Array Index\n",
+                .{ result_reg.name, lhs_reg.name, rhs_reg.name },
             );
         } else {
             // Get the size of the result
-            const size = result_kind.size_runtime();
+            const size = result_kind.size();
             const size_keyword = getSizeKeyword(size);
             // Push lhs_reg back on the stack
             const result_reg = try self.getNextCPUReg();
@@ -1443,20 +1608,23 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
             if (size == 8) {
                 // Write index access
                 try self.print(
-                    "    mov {s}, [{s}+{s}*{d}] ; Array Index\n",
-                    .{ result_reg.name, lhs_reg.name, rhs_reg.name, child_size },
+                    "    mov {s}, [{s}+{s}] ; Array Index\n",
+                    .{ result_reg.name, lhs_reg.name, rhs_reg.name },
                 );
             } else {
                 // Get operation kind
                 const op_char: u8 = if (result_kind == .UINT) 'z' else 's';
                 // Write index access
                 try self.print(
-                    "    mov{c}x {s}, {s} [{s}+{s}*{d}] ; Array Index\n",
-                    .{ op_char, result_reg.name, size_keyword, lhs_reg.name, rhs_reg.name, child_size },
+                    "    mov{c}x {s}, {s} [{s}+{s}] ; Array Index\n",
+                    .{ op_char, result_reg.name, size_keyword, lhs_reg.name, rhs_reg.name },
                 );
             }
         }
     } else {
+        const child_size = access_kind.PTR.child.size_runtime();
+        // Multiply index by child_size
+        try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         // Check if float 32
         if (result_kind == .FLOAT32) {
             // Get floating register
@@ -1483,7 +1651,10 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
                 // Get operation kind
                 const op_char: u8 = if (result_kind == .UINT) 'z' else 's';
                 // Write index access
-                try self.print("    mov{c}x {s}, {s} [{s}+{s}] ; Ptr Index\n", .{ op_char, result_reg.name, size_keyword, lhs_reg.name, rhs_reg.name });
+                try self.print(
+                    "    mov{c}x {s}, {s} [{s}+{s}] ; Ptr Index\n",
+                    .{ op_char, result_reg.name, size_keyword, lhs_reg.name, rhs_reg.name },
+                );
             }
         }
     }
@@ -1491,6 +1662,12 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
 
 /// Generate asm for a UnaryExpr
 fn visitUnaryExpr(self: *Generator, unaryExpr: *Expr.UnaryExpr) GenerationError!void {
+    // Check if operand is '&'
+    if (unaryExpr.op.kind == .AMPERSAND) {
+        try self.genIDExpr(unaryExpr.operand);
+        return;
+    }
+
     // Generate operand
     try self.genExpr(unaryExpr.operand);
     // Extract result_kind
@@ -1666,7 +1843,7 @@ fn visitCompareExpr(self: *Generator, compareExpr: *Expr.CompareExpr) Generation
             if (lhs_size != 8) {
                 const sized_reg = getSizedCPUReg(lhs_reg.index, lhs_size);
                 if (lhs_size == 4) {
-                    try self.print("    mov {s}, {s}\n", .{ lhs_reg.name, sized_reg });
+                    try self.print("    mov {s}, {s}\n", .{ sized_reg, sized_reg });
                 } else {
                     try self.print("    movzx {s}, {s}\n", .{ lhs_reg.name, sized_reg });
                 }
@@ -1676,7 +1853,7 @@ fn visitCompareExpr(self: *Generator, compareExpr: *Expr.CompareExpr) Generation
             if (rhs_size != 8) {
                 const sized_reg = getSizedCPUReg(rhs_reg.index, rhs_size);
                 if (lhs_size == 4) {
-                    try self.print("    mov {s}, {s}\n", .{ rhs_reg.name, sized_reg });
+                    try self.print("    mov {s}, {s}\n", .{ sized_reg, sized_reg });
                 } else {
                     try self.print("    movzx {s}, {s}\n", .{ rhs_reg.name, sized_reg });
                 }

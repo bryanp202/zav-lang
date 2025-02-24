@@ -70,6 +70,10 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     // Bool conversion
     new_table.natives_table.put(allocator, "bool", cvt2bool_native(allocator)) catch unreachable;
 
+    // Math natives
+    new_table.natives_table.put(allocator, "sqrtf32", sqrtf32_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "sqrtf64", sqrtf64_native(allocator)) catch unreachable;
+
     // return it
     return new_table;
 }
@@ -339,6 +343,56 @@ fn cvt2bool_native(allocator: std.mem.Allocator) Native {
 
             // Test and see if not zero
             try generator.write("    test rcx, rcx\n    setnz al\n");
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Square root of a float
+fn sqrtf32_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT32;
+    // Make return kind
+    const ret_kind = KindId.FLOAT32;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = null;
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write("    sqrtss xmm0, xmm0\n    movd rax, xmm0\n");
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Square root of a float
+fn sqrtf64_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = null;
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write("    sqrtsd xmm0, xmm0\n    movq rax, xmm0\n");
         }
     }.gen;
 

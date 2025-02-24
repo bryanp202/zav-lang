@@ -159,6 +159,7 @@ pub const SymbolTableManager = struct {
         if (!getOrPut.found_existing) {
             // Pre-calculate the size of this value
             const size = switch (constant.kind) {
+                .NULLPTR => 8,
                 .UINT => constant.as.uint.size(),
                 .INT => constant.as.int.size(),
                 .FLOAT32 => 4,
@@ -239,11 +240,11 @@ pub const Scope = struct {
         // Calculate address location
         var mem_loc: u64 = undefined;
         // Get allignment of data size
-        const alignment: u64 = @min(size, 8);
+        const alignment: u64 = if (size > 4) 8 else if (size > 2) 4 else if (size > 1) 2 else 1;
         const offset = self.next_address & (alignment - 1);
 
-        // If not global add to next_address
-        if (scope != ScopeKind.GLOBAL) {
+        // If arg or local
+        if (scope == ScopeKind.LOCAL or scope == ScopeKind.ARG) {
             // Check if address is aligned
             if (offset != 0) {
                 // Increment next address
@@ -253,7 +254,7 @@ pub const Scope = struct {
             mem_loc = self.next_address;
             // Increment next addres
             self.next_address += size;
-        } else {
+        } else if (scope == ScopeKind.GLOBAL) {
             // Add to global address
             // Check if global address is aligned
             if (offset != 0) {
@@ -315,9 +316,68 @@ pub const Scope = struct {
     }
 };
 
-// *********************** //
-//***   Symbol Struct   ***//
-// *********************** //
+pub const StructScope = struct {
+    fields: std.StringHashMap(Field),
+    next_address: u64,
+
+    /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
+    pub fn init(allocator: std.mem.Allocator) StructScope {
+        return StructScope{
+            .fields = std.StringHashMap(Field).init(allocator),
+            .next_address = 0,
+        };
+    }
+
+    /// Add a new field to this scope
+    pub fn addField(self: *StructScope, name: []const u8, dcl_line: u64, dcl_column: u64, kind: KindId) ScopeError!void {
+        // Check if already in scope
+        const getOrPut = self.fields.getOrPut(name) catch unreachable;
+        if (getOrPut.found_existing) {
+            return ScopeError.DuplicateDeclaration;
+        }
+
+        // Calculate address location
+        var mem_loc: u64 = undefined;
+        // Get size of field
+        const kind_size = kind.size();
+        // Get allignment of data size
+        const alignment: u64 = if (kind_size > 4) 8 else if (kind_size > 2) 4 else if (kind_size > 1) 2 else 1;
+        const offset = self.next_address & (alignment - 1);
+
+        // Check if address is aligned
+        if (offset != 0) {
+            // Increment next address
+            self.next_address += alignment - offset;
+        }
+        // Set location
+        mem_loc = self.next_address;
+        // Increment next addres
+        self.next_address += kind_size;
+        const field = Field.init(name, kind, dcl_line, dcl_column, mem_loc);
+        getOrPut.value_ptr.* = field;
+    }
+
+    /// Get a field by name from this scope
+    pub fn getField(self: *StructScope, name: []const u8) ScopeError!Field {
+        const field = self.fields.get(name) orelse {
+            return ScopeError.UndeclaredSymbol;
+        };
+        return field;
+    }
+
+    /// Calculate the size of this scope
+    pub fn size(self: StructScope) u64 {
+        const alignment = 8 - self.next_address % 8;
+        if (alignment == 8) {
+            return self.next_address;
+        }
+        return self.next_address + alignment;
+    }
+};
+
+// ******************************* //
+//***   Symbol / Field Struct   ***//
+// ******************************* //
 
 /// Used to store information about a variable/symbol
 pub const Symbol = struct {
@@ -349,23 +409,32 @@ pub const Symbol = struct {
     }
 };
 
+/// Used to store information about a structs field
+pub const Field = struct {
+    name: []const u8,
+    kind: KindId,
+    dcl_line: u64,
+    dcl_column: u64,
+    relative_loc: u64,
+
+    /// Init a new field, used to store information about a structs field
+    pub fn init(name: []const u8, kind: KindId, dcl_line: u64, dcl_column: u64, relative_loc: u64) Field {
+        return Field{
+            .name = name,
+            .kind = kind,
+            .dcl_line = dcl_line,
+            .dcl_column = dcl_column,
+            .relative_loc = relative_loc,
+        };
+    }
+};
+
 // *********************** //
 //***  Data type Stuff  ***//
 // *********************** //
 
 // Enum for the types available in Zav
-pub const Kinds = enum {
-    ANY,
-    VOID,
-    BOOL,
-    UINT,
-    INT,
-    FLOAT32,
-    FLOAT64,
-    PTR,
-    ARRAY,
-    FUNC,
-};
+pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT };
 
 /// Used to mark what type a variable is
 pub const KindId = union(Kinds) {
@@ -379,6 +448,7 @@ pub const KindId = union(Kinds) {
     PTR: Pointer,
     ARRAY: Array,
     FUNC: Function,
+    STRUCT: Struct,
 
     /// Init a new unsigned integer
     pub fn newUInt(bits: u16) KindId {
@@ -417,7 +487,7 @@ pub const KindId = union(Kinds) {
         return KindId{ .PTR = ptr };
     }
     /// Init a new array kindid
-    pub fn newArr(allocator: std.mem.Allocator, child_kind: KindId, length: u64, const_items: bool) KindId {
+    pub fn newArr(allocator: std.mem.Allocator, child_kind: KindId, length: u64, const_items: bool, static: bool) KindId {
         // Dynamically allocate the child KindId tag
         const child_ptr = allocator.create(KindId) catch unreachable;
         child_ptr.* = child_kind;
@@ -426,6 +496,7 @@ pub const KindId = union(Kinds) {
             .child = child_ptr,
             .length = length,
             .const_items = const_items,
+            .static = static,
         };
         return KindId{ .ARRAY = arr };
     }
@@ -442,6 +513,18 @@ pub const KindId = union(Kinds) {
             .args_size = undefined,
         };
         return KindId{ .FUNC = func };
+    }
+    /// Init a new Struct kindid with a defined scope
+    pub fn newStructWithIndex(allocator: std.mem.Allocator, name: []const u8, index: u64) KindId {
+        const new_scope = allocator.create(StructScope) catch unreachable;
+        new_scope.* = StructScope.init(allocator);
+        const new_struct = Struct{ .name = name, .fields = new_scope, .index = index };
+        return KindId{ .STRUCT = new_struct };
+    }
+    /// Init a new Struct kindid with no scope
+    pub fn newStruct(name: []const u8) KindId {
+        const new_struct = Struct{ .name = name, .fields = undefined };
+        return KindId{ .STRUCT = new_struct };
     }
 
     /// Return if this kindid is the same as another
@@ -462,6 +545,7 @@ pub const KindId = union(Kinds) {
             .PTR => |ptr| return other == .PTR and ptr.equal(other.PTR),
             .ARRAY => |arr| return other == .ARRAY and arr.equal(other.ARRAY),
             .FUNC => |func| return other == .FUNC and func.equal(other.FUNC),
+            .STRUCT => |srct| return other == .STRUCT and srct.equal(other.STRUCT),
         };
     }
 
@@ -475,6 +559,7 @@ pub const KindId = union(Kinds) {
             .FLOAT32 => 4,
             .ANY, .FLOAT64, .PTR, .FUNC => 8,
             .ARRAY => |arr| arr.size(),
+            .STRUCT => |stct| stct.fields.size(),
         };
     }
 
@@ -486,7 +571,24 @@ pub const KindId = union(Kinds) {
             .UINT => |uint| uint.size(),
             .INT => |int| int.size(),
             .FLOAT32 => 4,
-            .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC => 8,
+            .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC, .STRUCT => 8,
+        };
+    }
+
+    /// Update a user defined type
+    pub fn update(self: *KindId, stm: *SymbolTableManager) ScopeError!usize {
+        return switch (self.*) {
+            .VOID => 0,
+            .BOOL => 1,
+            .UINT => |uint| uint.size(),
+            .INT => |int| int.size(),
+            .FLOAT32 => 4,
+            .FLOAT64 => 8,
+            .PTR => |*ptr| ptr.updatePtr(stm),
+            .ARRAY => |*arr| arr.updateArray(stm),
+            .FUNC => |*func| func.updateArgSize(stm),
+            .STRUCT => |*strct| strct.updateFields(stm),
+            else => unreachable,
         };
     }
 };
@@ -496,6 +598,8 @@ pub const ScopeKind = enum {
     ARG,
     LOCAL,
     GLOBAL,
+    FUNC,
+    STRUCT,
 };
 
 // *********************** //
@@ -533,6 +637,12 @@ const Pointer = struct {
     pub fn equal(self: Pointer, other: Pointer) bool {
         return self.child.equal(other.child.*);
     }
+
+    /// Update a userdefined pointer type
+    pub fn updatePtr(self: *Pointer, stm: *SymbolTableManager) ScopeError!usize {
+        _ = try self.child.update(stm);
+        return 8;
+    }
 };
 
 /// Array Type data
@@ -540,6 +650,7 @@ const Array = struct {
     child: *KindId,
     length: u64,
     const_items: bool,
+    static: bool,
 
     /// Returns true if this array is the same as another array
     pub fn equal(self: Array, other: Array) bool {
@@ -548,9 +659,16 @@ const Array = struct {
 
     /// Calculate the size of this type in bytes
     pub fn size(self: Array) u64 {
+        if (self.static) return 8;
         const element_size = self.child.size();
         const bytes = element_size * self.length;
         return bytes;
+    }
+
+    /// Update a userdefined pointer type
+    pub fn updateArray(self: *Array, stm: *SymbolTableManager) ScopeError!usize {
+        const child_size = try self.child.update(stm);
+        return self.length * child_size;
     }
 };
 
@@ -587,6 +705,44 @@ const Function = struct {
         // Everything matches
         return true;
     }
+
+    /// Resolve the arg size of a user defined fn kind
+    pub fn updateArgSize(self: *Function, stm: *SymbolTableManager) ScopeError!usize {
+        var size: usize = 0;
+        for (self.arg_kinds) |*kind| {
+            const child_size = try kind.update(stm);
+            const alignment: u64 = if (child_size > 4) 8 else if (child_size > 2) 4 else if (child_size > 1) 2 else 1;
+            const offset = size & (alignment - 1);
+            if (offset != 0) {
+                size += alignment - offset;
+            }
+        }
+        self.args_size = size;
+        _ = try self.ret_kind.update(stm);
+        return 8;
+    }
+};
+
+/// Structure data type
+const Struct = struct {
+    name: []const u8,
+    fields: *StructScope,
+    index: u64 = undefined,
+    visited: bool = false,
+    declared: bool = false,
+
+    /// Returns true if two structs are the same
+    pub fn equal(self: Struct, other: Struct) bool {
+        return self.name.ptr == other.name.ptr and self.name.len == other.name.len and self.fields == other.fields;
+    }
+
+    /// Resolve the struct size of a user defined struct kind
+    pub fn updateFields(self: *Struct, stm: *SymbolTableManager) ScopeError!usize {
+        const symbol = try stm.getSymbol(self.name);
+        if (symbol.kind != .STRUCT) return ScopeError.UndeclaredSymbol;
+        self.fields = symbol.kind.STRUCT.fields;
+        return self.fields.next_address + 8 - (self.fields.next_address % 8);
+    }
 };
 
 // *********************** //
@@ -610,6 +766,7 @@ const ConstantData = struct {
 
 /// Used to determine the type of a literal value
 pub const ValueKind = enum(u8) {
+    NULLPTR,
     BOOL,
     UINT,
     INT,
@@ -709,6 +866,11 @@ pub const Value = extern struct {
         array: ArrayLiteral,
     },
 
+    /// Init a new null value
+    pub fn newNullPtr() Value {
+        const val = Value{ .kind = ValueKind.NULLPTR, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
+        return val;
+    }
     ///Init a new unsigned integer value
     pub fn newUInt(value: u64, bits: u16) Value {
         var val = Value{ .kind = ValueKind.UINT, .as = .{ .EMPTY = [_]u64{0} ** 6 } };

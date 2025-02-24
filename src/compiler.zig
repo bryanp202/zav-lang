@@ -102,7 +102,7 @@ pub fn compile(self: *Compiler, source: []const u8) void {
         var cwd = std.fs.cwd();
         // Link
         std.debug.print("Linking...\n", .{});
-        const link_args = [_][]const u8{ "gcc", "zav_temp.obj", "-o", self.output_name }; // "-nostdlib", "-static" };
+        const link_args = [_][]const u8{ "gcc", "-static", "zav_temp.obj", "-o", self.output_name }; // "-nostdlib", "-static" };
         const link_result = std.process.Child.run(.{ .allocator = self.allocator, .argv = &link_args }) catch {
             std.debug.print("Failed to link file\n", .{});
 
@@ -148,9 +148,9 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     // Output
     if (!parser.hadError()) {
         // Print program
-        if (self.show_ast) {
-            root_module.display();
-        }
+        //if (self.show_ast) {
+        //    root_module.display();
+        //}
 
         std.debug.print("Checking types...\n", .{});
         // Check types

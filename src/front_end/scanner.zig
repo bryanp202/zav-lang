@@ -463,6 +463,10 @@ pub const Scanner = struct {
                     _ = self.advance();
                     return self.checkKeyword("oop", TokenKind.LOOP);
                 },
+                'n' => {
+                    _ = self.advance();
+                    return self.checkKeyword("ullptr", TokenKind.NULLPTR);
+                },
                 'o' => {
                     _ = self.advance();
                     return self.checkKeyword("r", TokenKind.OR);
@@ -518,12 +522,26 @@ pub const Scanner = struct {
                             _ = self.advance();
                             return self.checkKeyword("", TokenKind.U8_TYPE);
                         },
+                        'n' => {
+                            _ = self.advance();
+                            return self.checkKeyword("defined", TokenKind.UNDEFINED);
+                        },
                         else => break :identifier_loop,
                     }
                 },
                 'v' => {
                     _ = self.advance();
-                    return self.checkKeyword("ar", TokenKind.VAR);
+                    switch (self.peek()) {
+                        'a' => {
+                            _ = self.advance();
+                            return self.checkKeyword("r", TokenKind.VAR);
+                        },
+                        'o' => {
+                            _ = self.advance();
+                            return self.checkKeyword("id", TokenKind.VOID_TYPE);
+                        },
+                        else => break :identifier_loop,
+                    }
                 },
                 'w' => {
                     _ = self.advance();
@@ -608,6 +626,7 @@ pub const TokenKind = enum {
     F128_TYPE,
     // Boolean
     BOOL_TYPE,
+    VOID_TYPE,
 
     //// Keywords ////
     AND,
@@ -629,6 +648,8 @@ pub const TokenKind = enum {
     RETURN,
     LOOP,
     FN,
+    UNDEFINED,
+    NULLPTR,
 
     //// Parser Tokens ////
     ERROR,

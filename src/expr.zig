@@ -16,6 +16,8 @@ pub const ExprUnion = union(enum) {
     LITERAL: *LiteralExpr,
     NATIVE: *NativeExpr,
     CONVERSION: *ConversionExpr,
+    DEREFERENCE: *DereferenceExpr,
+    FIELD: *FieldExpr,
     CALL: *CallExpr,
     INDEX: *IndexExpr,
     UNARY: *UnaryExpr,
@@ -50,7 +52,7 @@ pub const ExprNode = struct {
         switch (self.expr) {
             .IDENTIFIER => |idExpr| {
                 std.debug.print("{s}", .{idExpr.id.lexeme});
-                if (idExpr.scope_kind != .GLOBAL) {
+                if (idExpr.scope_kind == .ARG or idExpr.scope_kind == .LOCAL) {
                     std.debug.print("(at [rbp+{d}])", .{idExpr.stack_offset});
                 }
             },
@@ -70,6 +72,14 @@ pub const ExprNode = struct {
                 }
                 std.debug.print(")", .{});
                 //std.debug.print(")->{any}", .{self.result_kind});
+            },
+            .DEREFERENCE => |derefExpr| {
+                derefExpr.operand.display();
+                std.debug.print(".*", .{});
+            },
+            .FIELD => |fieldExpr| {
+                fieldExpr.operand.display();
+                std.debug.print(".{s}(at [base+{d}])", .{ fieldExpr.field_name.lexeme, fieldExpr.stack_offset });
             },
             .CALL => |callExpr| {
                 // Print caller expr
@@ -205,6 +215,38 @@ pub const CallExpr = struct {
 //**********************************************//
 //          Access nodes
 //**********************************************//
+
+/// Operation for accessing a struct field
+pub const FieldExpr = struct {
+    operand: ExprNode,
+    field_name: Token,
+    op: Token,
+    stack_offset: u64 = undefined,
+
+    /// Make a new FieldExpr
+    pub fn init(operand: ExprNode, field_name: Token, op: Token) FieldExpr {
+        return FieldExpr{
+            .operand = operand,
+            .field_name = field_name,
+            .op = op,
+        };
+    }
+};
+
+/// Operation for dereferencing a pointer
+pub const DereferenceExpr = struct {
+    operand: ExprNode,
+    op: Token,
+
+    /// Make a new Dereference Expr
+    pub fn init(operand: ExprNode, op: Token) DereferenceExpr {
+        return DereferenceExpr{
+            .operand = operand,
+            .op = op,
+        };
+    }
+};
+
 /// Operation for accessing an index
 pub const IndexExpr = struct {
     lhs: ExprNode,
@@ -213,7 +255,7 @@ pub const IndexExpr = struct {
     // Marked true if evaluation order was swapped
     reversed: bool,
 
-    /// Make a new Arithmatic Expr with a void return type
+    /// Make a new Index Expression
     pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token, reversed: bool) IndexExpr {
         return IndexExpr{
             .lhs = lhs,

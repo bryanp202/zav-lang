@@ -12,6 +12,7 @@ name: []const u8,
 /// Stores all global variables and functions in this module
 globals: std.ArrayList(StmtNode),
 functions: std.ArrayList(StmtNode),
+structs: std.ArrayList(StmtNode),
 
 /// Init a new program stmt
 pub fn init(name: []const u8, allocator: std.mem.Allocator) Module {
@@ -19,12 +20,16 @@ pub fn init(name: []const u8, allocator: std.mem.Allocator) Module {
         .name = name,
         .globals = std.ArrayList(StmtNode).init(allocator),
         .functions = std.ArrayList(StmtNode).init(allocator),
+        .structs = std.ArrayList(StmtNode).init(allocator),
     };
 }
 
 /// Print out this module
 pub fn display(self: Module) void {
     std.debug.print("\n--- Module <{s}> ---\n", .{self.name});
+    for (self.structSlice()) |strct| {
+        strct.display();
+    }
     for (self.globalSlice()) |global| {
         global.display();
     }
@@ -44,11 +49,17 @@ pub fn functionSlice(self: Module) []StmtNode {
     return self.functions.items;
 }
 
+/// Retern a slice of all struct definitions in this module
+pub fn structSlice(self: Module) []StmtNode {
+    return self.structs.items;
+}
+
 /// Add a new stmt node to the program
 pub fn addStmt(self: *Module, stmt_node: StmtNode) !void {
     switch (stmt_node) {
         .GLOBAL => try self.globals.append(stmt_node),
         .FUNCTION => try self.functions.append(stmt_node),
+        .STRUCT => try self.structs.append(stmt_node),
         else => unreachable,
     }
 }

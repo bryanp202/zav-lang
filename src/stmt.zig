@@ -22,6 +22,7 @@ pub const StmtNode = union(enum) {
     CONTINUE: *ContinueStmt,
     FUNCTION: *FunctionStmt,
     RETURN: *ReturnStmt,
+    STRUCT: *StructStmt,
 
     /// Display a stmt
     pub fn display(self: StmtNode) void {
@@ -38,7 +39,11 @@ pub const StmtNode = union(enum) {
                     std.debug.print(": {any}", .{kind});
                 }
                 std.debug.print(" = ", .{});
-                globalStmt.expr.display();
+                if (globalStmt.expr) |expr| {
+                    expr.display();
+                } else {
+                    std.debug.print("undefined", .{});
+                }
                 std.debug.print(";\n", .{});
             },
             .MUTATE => |mutStmt| {
@@ -58,7 +63,11 @@ pub const StmtNode = union(enum) {
                     std.debug.print(": {any}", .{kind});
                 }
                 std.debug.print(" = ", .{});
-                declareStmt.expr.display();
+                if (declareStmt.expr) |expr| {
+                    expr.display();
+                } else {
+                    std.debug.print("undefined", .{});
+                }
                 std.debug.print(";\n", .{});
             },
             .EXPRESSION => |exprStmt| {
@@ -115,6 +124,14 @@ pub const StmtNode = union(enum) {
                 }
                 std.debug.print(";\n", .{});
             },
+            .STRUCT => |structStmt| {
+                std.debug.print("struct {s} {{\n", .{structStmt.id.lexeme});
+                // Print Fields
+                for (structStmt.field_names, structStmt.field_kinds) |name, kind| {
+                    std.debug.print("    {s}: {any},\n", .{ name.lexeme, kind });
+                }
+                std.debug.print("}}\n", .{});
+            },
         }
     }
 };
@@ -148,10 +165,10 @@ pub const GlobalStmt = struct {
     id: Token,
     kind: ?KindId,
     op: Token,
-    expr: ExprNode,
+    expr: ?ExprNode,
 
     /// Initialize a GlobalStmt with an mutablity, identifier token, optional kind, and expr
-    pub fn init(mutable: bool, id: Token, kind: ?KindId, op: Token, expr: ExprNode) GlobalStmt {
+    pub fn init(mutable: bool, id: Token, kind: ?KindId, op: Token, expr: ?ExprNode) GlobalStmt {
         return GlobalStmt{
             .mutable = mutable,
             .id = id,
@@ -195,6 +212,25 @@ pub const FunctionStmt = struct {
     }
 };
 
+/// Used to create a new KindId for a struct
+/// StructStmt -> "struct" identifier '{' fieldlist '}'
+/// FieldList -> (Field ';')+
+/// Field -> identifier ':' KindId
+pub const StructStmt = struct {
+    id: Token,
+    field_names: []Token,
+    field_kinds: []KindId,
+
+    /// Initialize a structstmt
+    pub fn init(id: Token, field_names: []Token, field_kinds: []KindId) StructStmt {
+        return StructStmt{
+            .id = id,
+            .field_names = field_names,
+            .field_kinds = field_kinds,
+        };
+    }
+};
+
 /// Used to store an DeclareStmt
 /// DeclareStmt -> ("const"|"var") identifier (":" type)? "=" expression ";"
 pub const DeclareStmt = struct {
@@ -202,11 +238,11 @@ pub const DeclareStmt = struct {
     id: Token,
     kind: ?KindId,
     op: Token,
-    expr: ExprNode,
+    expr: ?ExprNode,
     stack_offset: u64,
 
     /// Initialize a DeclareStmt with an mutablity, identifier token, optional kind, and expr
-    pub fn init(mutable: bool, id: Token, kind: ?KindId, op: Token, expr: ExprNode) DeclareStmt {
+    pub fn init(mutable: bool, id: Token, kind: ?KindId, op: Token, expr: ?ExprNode) DeclareStmt {
         return DeclareStmt{
             .mutable = mutable,
             .id = id,
