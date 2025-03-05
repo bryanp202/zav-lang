@@ -82,6 +82,9 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
     const header =
         \\default rel
         \\extern printf
+        \\extern malloc
+        \\extern realloc
+        \\extern free
         \\extern QueryPerformanceCounter
         \\global main
         \\section .text
@@ -1193,7 +1196,7 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
     try self.restoreCPUReg(cpu_reg_count);
     // Put result into next register
     switch (result_kind) {
-        .BOOL, .UINT, .INT, .PTR, .FUNC => {
+        .VOID, .BOOL, .UINT, .INT, .PTR, .FUNC => {
             // Get a new register
             const reg = try self.getNextCPUReg();
             try self.print("    mov {s}, rax\n", .{reg.name});
@@ -1208,7 +1211,6 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
             const reg = try self.getNextSSEReg();
             try self.print("    movq {s}, rax\n", .{reg.name});
         },
-        .VOID => undefined,
         else => unreachable,
     }
 }

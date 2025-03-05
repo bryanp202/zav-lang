@@ -45,6 +45,35 @@ const nonFloatingNumbersNames = .{ "u8", "u16", "u32", "u64", "i8", "i16", "i32"
 const nonFloatingNumbersKind = .{
     KindId.newUInt(8), KindId.newUInt(16), KindId.newUInt(32), KindId.newUInt(64), KindId.newInt(8), KindId.newInt(16), KindId.newInt(32), KindId.newInt(64),
 };
+// Used to store all primative types
+const primativeTypePtrNames = .{
+    "u8ptr",
+    "u16ptr",
+    "u32ptr",
+    "u64ptr",
+    "i8ptr",
+    "i16ptr",
+    "i32ptr",
+    "i64ptr",
+    "f32ptr",
+    "f64ptr",
+    "boolptr",
+    "voidptr",
+};
+const primativeTypes = .{
+    KindId.newUInt(8),
+    KindId.newUInt(16),
+    KindId.newUInt(32),
+    KindId.newUInt(64),
+    KindId.newInt(8),
+    KindId.newInt(16),
+    KindId.newInt(32),
+    KindId.newInt(64),
+    KindId.FLOAT32,
+    KindId.FLOAT64,
+    KindId.BOOL,
+    KindId.VOID,
+};
 
 /// Init a natives table
 pub fn init(allocator: std.mem.Allocator) NativesTable {
@@ -56,12 +85,21 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "printf", printf_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sizeof", sizeof_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "nanoTimestamp", nanoTimestamp_native(allocator)) catch unreachable;
-    // All non floating point conversions
+
+    // All primative pointer conversions
     inline for (nonFloatingNumbersKind, nonFloatingNumbersNames) |kind, name| {
         new_table.natives_table.put(
             allocator,
             name,
             cvt2Nonfloating_native(allocator, kind),
+        ) catch unreachable;
+    }
+    // All non floating point conversions
+    inline for (primativeTypes, primativeTypePtrNames) |kind, name| {
+        new_table.natives_table.put(
+            allocator,
+            name,
+            cvt2pointer_native(allocator, kind),
         ) catch unreachable;
     }
     // Floating point conversions
@@ -73,6 +111,11 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     // Math natives
     new_table.natives_table.put(allocator, "sqrtf32", sqrtf32_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sqrtf64", sqrtf64_native(allocator)) catch unreachable;
+
+    // Allocation natives
+    new_table.natives_table.put(allocator, "malloc", malloc_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "realloc", realloc_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "free", free_native(allocator)) catch unreachable;
 
     // return it
     return new_table;
@@ -207,6 +250,31 @@ fn nanoTimestamp_native(allocator: std.mem.Allocator) Native {
 // ******************** //
 //     TYPE CASTING     //
 // ******************** //
+/// Convert any pointer into a primative pointer type
+/// Ex => @i8ptr(100) -> *i8
+fn cvt2pointer_native(allocator: std.mem.Allocator, convert_kind: KindId) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.ANY;
+    // Make return kind
+    const ret_kind = KindId.newPtr(allocator, convert_kind, false);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = null;
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write("    mov rax, rcx\n");
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
 /// Convert to non-floating point data type inline
 /// Ex => @i8(100) -> i8
 fn cvt2Nonfloating_native(allocator: std.mem.Allocator, convert_kind: KindId) Native {
@@ -393,6 +461,94 @@ fn sqrtf64_native(allocator: std.mem.Allocator) Native {
             _ = args;
             // Test and see if not zero
             try generator.write("    sqrtsd xmm0, xmm0\n    movq rax, xmm0\n");
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Square root of a float
+fn malloc_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newInt(64);
+    // Make return kind
+    const ret_kind = KindId.newPtr(allocator, KindId.VOID, false);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = null;
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32 ; Inline malloc call
+                \\    call malloc
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Square root of a float
+fn realloc_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.ANY, false);
+    arg_kinds[1] = KindId.newInt(64);
+    // Make return kind
+    const ret_kind = KindId.newPtr(allocator, KindId.VOID, false);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = null;
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32 ; Inline realloc call
+                \\    call realloc
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Square root of a float
+fn free_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.ANY, false);
+    // Make return kind
+    const ret_kind = KindId.VOID;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = null;
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32 ; Inline free call
+                \\    call free
+                \\    add rsp, 32
+                \\
+            );
         }
     }.gen;
 

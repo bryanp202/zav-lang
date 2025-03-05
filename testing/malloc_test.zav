@@ -1,0 +1,72 @@
+struct IntegerList {
+    data: *i64;
+    capacity: i64;
+    count: i64;
+}
+
+fn appendIntegerList(list: *IntegerList, int: i64) bool {
+    const count = list.*.count;
+    const capacity = list.*.capacity;
+
+    if (count >= capacity) {
+        const new_data = @realloc(list.*.data, capacity * 16);
+        // Check if realloc failed
+        if (new_data == nullptr) {
+            return false;
+        }
+
+        list.*.data = @i64ptr(new_data);
+        list.*.capacity *= 2;
+    }
+
+    list.*.data[count] = int;
+    list.*.count += 1;
+
+    return true;
+}
+
+fn popIntegerList(list: *IntegerList) i64 {
+    list.*.count -= 1;
+    return list.*.data[list.*.count];
+}
+
+fn initIntegerList(list: *IntegerList) void {
+    list.*.data = @i64ptr(@malloc(64));
+    list.*.count = 0;
+    list.*.capacity = 8;
+}
+
+fn printIntegerList(list: *IntegerList) void {
+    var index = 0;
+    const count = list.*.count;
+
+    while (index < count) {
+        @printf("Index %i: %i\n", index, list.*.data[index]);
+    } loop: index += 1;
+}
+
+fn main(argc: i64, argv: **u8) i64 {
+    var list1: IntegerList = undefined;
+    initIntegerList(&list1);
+
+    var num = 0;
+    var failed = false;
+    while (num < 5000) {
+        const result = appendIntegerList(&list1, num);
+        if (!result) {
+            failed = true;
+            break;
+        }
+    } loop: num += 1;
+
+    if (failed) {
+        @printf("Failed!\n");
+    } else {
+        printIntegerList(&list1);
+    }
+
+    const int = popIntegerList(&list1);
+    @printf("Popped int: %d\n", int);
+
+    @free(list1.data);
+}

@@ -1,0 +1,125 @@
+struct IntegerDict {
+    data: *i64;
+    count: i64;
+    capacity: i64;
+}
+
+fn initDict(dict: *IntegerDict) void {
+    dict.*.data = @i64ptr(@malloc(64));
+    dict.*.count = 0;
+    dict.*.capacity = 8;
+
+    var index = 0;
+    while (index < 8) {
+        dict.*.data[index] = -1;
+    } loop: index += 1;
+}
+
+fn resizeDict(dict: *IntegerDict) void {
+    const old_capacity = dict.*.capacity;
+    const old_data = dict.*.data;
+
+    const new_capacity = old_capacity * 2;
+    dict.*.data = @i64ptr(@malloc(new_capacity * 8));
+    dict.*.capacity = new_capacity;
+
+    var index = 0;
+    while (index < new_capacity) {
+        dict.*.data[index] = -1;
+    } loop: index += 1;
+
+    index = 0;
+    while (index < old_capacity) {
+        const maybe_value = old_data[index];
+        if (maybe_value >= 0) {
+            addDict(dict, maybe_value);
+        }
+    } loop: index += 1;
+
+    @free(old_data);
+}
+
+fn addDict(dict: *IntegerDict, value: i64) void {
+    var capacity = dict.*.capacity;
+    const count = dict.*.count;
+
+    // If too dense
+    if (@f64(count) / capacity > 0.7) {
+        @printf("Resizing from %d to %d\n", capacity, capacity * 2);
+        resizeDict(dict);
+    }
+
+    capacity = dict.*.capacity;
+
+    // Add the value
+    var index = value % capacity;
+    var curr_value = dict.*.data[index];
+    while (curr_value != -1 and curr_value != value) {
+        index = (index + 1) % capacity;
+        curr_value = dict.*.data[index];
+    }
+
+    dict.*.data[index] = value;
+    dict.*.count += 1;
+}
+
+fn inDict(dict: *IntegerDict, value: i64) bool {
+    const capacity = dict.*.capacity;
+
+    var index = value;
+    var curr_value = dict.*.data[index];
+    while (curr_value != -1) {
+        if (curr_value == value) {
+            return true;
+        }
+        index = (index + 1) % capacity;
+        curr_value = dict.*.data[index];
+    }
+
+    return false;
+}
+
+fn printDict(dict: *IntegerDict) void {
+    const capacity = dict.*.capacity;
+    @printf("Dictionary values:\n");
+
+    var index = 0;
+    while (index < capacity) { {
+        const entry = dict.*.data[index];
+        if (entry != -1) {
+            @printf("    %i\n", entry);
+        }
+    } } loop: index += 1;
+
+    @printf("Capacity: %d\nCount: %d\n", dict.*.capacity, dict.*.count);
+}
+
+fn main(argc: i64, argv: **u8) i64 {
+    var dict1: IntegerDict = undefined;
+    initDict(&dict1);
+
+    const large_num = 2487598347876956384;
+    var mod_size = 9;
+    var count = 0;
+
+    while (count < 10000) {
+        const entry = large_num % mod_size + 1;
+        addDict(&dict1, entry);
+        mod_size += 1;
+    } loop: count += 1;
+
+    @printf("Checking dict for numbers 0-100!\n");
+
+    var index = 0;
+    const max_index = 1000;
+    while (index <= max_index) {
+        const is_in_dict = inDict(&dict1, index);
+
+        is_in_dict ? @printf("%d is in the dictionary!\n", index) : @printf("%d is NOT in the dictionary...\n", index);
+    } loop: index += 1;
+
+    // printDict(&dict1);
+
+    const time = @nanoTimestamp() / 1000000000.0;
+    @printf("Total time to run: %f s\n", time);
+}
