@@ -83,6 +83,7 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
         \\default rel
         \\extern printf
         \\extern malloc
+        \\extern calloc
         \\extern realloc
         \\extern free
         \\extern QueryPerformanceCounter
@@ -430,6 +431,7 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt) Generati
     const function_sym = self.stm.peakSymbol(functionStmt.name.lexeme) catch unreachable;
     // Do not generate if not used
     if (!function_sym.used) {
+        self.stm.next_scope += functionStmt.scope_count;
         return;
     }
 
@@ -513,6 +515,7 @@ fn visitBlockStmt(self: *Generator, blockStmt: Stmt.BlockStmt) GenerationError!v
     for (blockStmt.statements) |stmt| {
         try self.genStmt(stmt);
     }
+
     // Pop scope
     self.stm.popScope();
 }
@@ -572,6 +575,36 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                     try self.print("    divss {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
                     try self.print("    movd [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
                 },
+                .CARET_EQUAL => {
+                    // Get temp register after expr_reg
+                    _ = try self.getNextSSEReg();
+                    _ = try self.getNextSSEReg();
+                    const temp_reg = self.popSSEReg();
+                    _ = self.popSSEReg();
+                    try self.print("    movsd {s}, [{s}] ; Mutate\n", .{ temp_reg.name, id_reg.name });
+                    try self.print("    xorps {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
+                    try self.print("    movd [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
+                },
+                .AMPERSAND_EQUAL => {
+                    // Get temp register after expr_reg
+                    _ = try self.getNextSSEReg();
+                    _ = try self.getNextSSEReg();
+                    const temp_reg = self.popSSEReg();
+                    _ = self.popSSEReg();
+                    try self.print("    movsd {s}, [{s}] ; Mutate\n", .{ temp_reg.name, id_reg.name });
+                    try self.print("    andps {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
+                    try self.print("    movd [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
+                },
+                .PIPE_EQUAL => {
+                    // Get temp register after expr_reg
+                    _ = try self.getNextSSEReg();
+                    _ = try self.getNextSSEReg();
+                    const temp_reg = self.popSSEReg();
+                    _ = self.popSSEReg();
+                    try self.print("    movsd {s}, [{s}] ; Mutate\n", .{ temp_reg.name, id_reg.name });
+                    try self.print("    orps {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
+                    try self.print("    movd [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
+                },
                 else => unreachable,
             }
         }
@@ -605,6 +638,36 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                     _ = self.popSSEReg();
                     try self.print("    movsd {s}, [{s}] ; Mutate\n", .{ temp_reg.name, id_reg.name });
                     try self.print("    divsd {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
+                    try self.print("    movq [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
+                },
+                .CARET_EQUAL => {
+                    // Get temp register after expr_reg
+                    _ = try self.getNextSSEReg();
+                    _ = try self.getNextSSEReg();
+                    const temp_reg = self.popSSEReg();
+                    _ = self.popSSEReg();
+                    try self.print("    movsd {s}, [{s}] ; Mutate\n", .{ temp_reg.name, id_reg.name });
+                    try self.print("    xorps {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
+                    try self.print("    movq [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
+                },
+                .AMPERSAND_EQUAL => {
+                    // Get temp register after expr_reg
+                    _ = try self.getNextSSEReg();
+                    _ = try self.getNextSSEReg();
+                    const temp_reg = self.popSSEReg();
+                    _ = self.popSSEReg();
+                    try self.print("    movsd {s}, [{s}] ; Mutate\n", .{ temp_reg.name, id_reg.name });
+                    try self.print("    andps {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
+                    try self.print("    movq [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
+                },
+                .PIPE_EQUAL => {
+                    // Get temp register after expr_reg
+                    _ = try self.getNextSSEReg();
+                    _ = try self.getNextSSEReg();
+                    const temp_reg = self.popSSEReg();
+                    _ = self.popSSEReg();
+                    try self.print("    movsd {s}, [{s}] ; Mutate\n", .{ temp_reg.name, id_reg.name });
+                    try self.print("    orps {s}, {s}\n", .{ temp_reg.name, expr_reg.name });
                     try self.print("    movq [{s}], {s}\n", .{ id_reg.name, temp_reg.name });
                 },
                 else => unreachable,
@@ -659,6 +722,9 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                     \\
                 , .{ size_keyword, id_reg.name, expr_reg.name, id_reg.name });
             },
+            .CARET_EQUAL => try self.print("    xor [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
+            .AMPERSAND_EQUAL => try self.print("    and [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
+            .PIPE_EQUAL => try self.print("    or [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
             else => unreachable,
         }
     }
@@ -1372,50 +1438,51 @@ fn visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: 
     switch (operand_type) {
         // Converting FROM FLOAT32
         .FLOAT32 => {
-            // Get register name
-            const src_reg = self.getCurrSSEReg();
-
             switch (result_kind) {
                 // Converting to FLOAT64
                 .FLOAT64 => {
+                    // Get register name
+                    const src_reg = self.getCurrSSEReg();
                     try self.print("    cvtss2sd {s}, {s} ; F32 to F64\n", .{ src_reg.name, src_reg.name });
                 },
-                else => unreachable,
+                else => undefined,
             }
         },
         // Converting FROM FLOAT64
         .FLOAT64 => {
-            // Get register name
-            const src_reg = self.getCurrSSEReg();
             switch (result_kind) {
                 // Converting to FLOAT32 from FLOAT64
                 .FLOAT32 => {
+                    // Get register name
+                    const src_reg = self.getCurrSSEReg();
                     try self.print("    cvtsd2ss {s}, {s} ; F64 to F32\n", .{ src_reg.name, src_reg.name });
                 },
-                else => unreachable,
+                else => undefined,
             }
         },
         // Non floating point source
         .BOOL, .UINT, .INT => {
-            // Get register name
-            const src_reg = self.popCPUReg();
             switch (result_kind) {
                 // Converting to FLOAT64
                 .FLOAT32 => {
+                    // Get register name
+                    const src_reg = self.popCPUReg();
                     // Get new F64 register
                     const target_reg = try self.getNextSSEReg();
                     try self.print("    cvtsi2ss {s}, {s} ; Non-floating point to F32\n", .{ target_reg.name, src_reg.name });
                 },
                 // Converting to FLOAT64
                 .FLOAT64 => {
+                    // Get register name
+                    const src_reg = self.popCPUReg();
                     // Get new F64 register
                     const target_reg = try self.getNextSSEReg();
                     try self.print("    cvtsi2sd {s}, {s} ; Non-floating point to F64\n", .{ target_reg.name, src_reg.name });
                 },
-                else => unreachable,
+                else => undefined,
             }
         },
-        else => unreachable,
+        else => undefined,
     }
 }
 

@@ -603,6 +603,9 @@ fn statement(self: *Parser) SyntaxError!StmtNode {
             TokenKind.STAR_EQUAL,
             TokenKind.SLASH_EQUAL,
             TokenKind.PERCENT_EQUAL,
+            TokenKind.AMPERSAND_EQUAL,
+            TokenKind.PIPE_EQUAL,
+            TokenKind.CARET_EQUAL,
         })) {
             return self.mutStmt(expr);
         }
@@ -1014,10 +1017,31 @@ fn factor(self: *Parser) SyntaxError!ExprResult {
     return ExprResult.init(expr, precedence);
 }
 
+/// Parse a type conversion
+/// Sub type of unary
+/// conversion -> ('<' type '>')* unary
+fn conversion(self: *Parser) SyntaxError!ExprResult {
+    const op = self.previous;
+    const kind = try self.parseKind();
+    try self.consume(TokenKind.GREATER, "Expected '>' after type conversion");
+    // Parse operand
+    const operand = try self.unary();
+
+    // Make new inner expression, with operator
+    const new_expr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
+    new_expr.* = Expr.ConversionExpr.init(op, operand.expr);
+    const node = ExprNode{
+        .expr = ExprUnion{ .CONVERSION = new_expr },
+        .result_kind = kind,
+    };
+    // Wrap in ExprResult
+    return ExprResult.init(node, operand.precedence);
+}
+
 /// Parse a unary expression
 /// unary -> ("-"|"!") (unary | literal)
 fn unary(self: *Parser) SyntaxError!ExprResult {
-    // Recurse until no more '+' or '!'
+    // Recurse until no more '-' or '!' or '&'
     if (self.match(.{ TokenKind.MINUS, TokenKind.EXCLAMATION, TokenKind.AMPERSAND })) {
         // Get operator
         const operator = self.previous;
@@ -1030,6 +1054,10 @@ fn unary(self: *Parser) SyntaxError!ExprResult {
         const node = ExprNode.init(ExprUnion{ .UNARY = new_expr });
         // Wrap in ExprResult
         return ExprResult.init(node, operand.precedence);
+    }
+    // Check if type conversion
+    if (self.match(.{TokenKind.LESS})) {
+        return self.conversion();
     }
     // Fall through to Access/call/index
     return self.access();

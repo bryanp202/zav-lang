@@ -36,6 +36,7 @@ had_error: bool,
 panic: bool,
 // Current functions return type
 current_return_kind: KindId,
+current_scope_count: u16,
 
 /// Initialize a new TypeChecker
 pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
@@ -47,6 +48,7 @@ pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
         .had_error = false,
         .panic = false,
         .current_return_kind = KindId.VOID,
+        .current_scope_count = undefined,
     };
 }
 
@@ -246,7 +248,7 @@ fn insertConvExpr(allocator: std.mem.Allocator, node: *ExprNode, kind: KindId) v
     // Make new expression
     const convExpr = allocator.create(Expr.ConversionExpr) catch unreachable;
     // Put old node into new expr
-    convExpr.* = Expr.ConversionExpr.init(node.*);
+    convExpr.* = Expr.ConversionExpr.init(undefined, node.*);
     // Make new node
     const new_node = ExprNode.initWithKind(
         Expr.ExprUnion{ .CONVERSION = convExpr },
@@ -819,8 +821,12 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError
     // Update current return kind
     self.current_return_kind = func.return_kind;
 
+    // Reset current function scope count
+    self.current_scope_count = 1;
     // Analyze body
     try self.analyzeStmt(&func.body);
+    // Update scope count
+    func.scope_count = self.current_scope_count;
 
     // Get arg_size
     const func_symbol = self.stm.peakSymbol(func.name.lexeme) catch unreachable;
@@ -1044,6 +1050,7 @@ fn visitIfStmt(self: *TypeChecker, ifStmt: *Stmt.IfStmt) SemanticError!void {
 fn visitBlockStmt(self: *TypeChecker, blockStmt: *Stmt.BlockStmt) SemanticError!void {
     // Enter new scope
     self.stm.addScope();
+    self.current_scope_count += 1;
     // Loop through each statement in the block, checking its types
     for (blockStmt.statements) |*stmt| {
         self.analyzeStmt(stmt) catch {
@@ -1053,6 +1060,7 @@ fn visitBlockStmt(self: *TypeChecker, blockStmt: *Stmt.BlockStmt) SemanticError!
     }
     // Check var in scope
     self.checkVarInScope();
+
     // Pop scope
     self.stm.popScope();
 }
@@ -1546,6 +1554,9 @@ fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 /// Visit a conversion expr
 fn visitConvExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const convExpr = node.expr.CONVERSION;
+    _ = node.result_kind.update(self.stm) catch {
+        return self.reportError(SemanticError.UnresolvableIdentifier, convExpr.op, "Could not resolve struct type in this argument");
+    };
     const convKind = node.result_kind;
     const operandKind = try self.analyzeExpr(&convExpr.operand);
     _ = operandKind;

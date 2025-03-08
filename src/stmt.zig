@@ -197,6 +197,7 @@ pub const FunctionStmt = struct {
     locals_size: u64,
     return_kind: KindId,
     body: StmtNode,
+    scope_count: u16 = 0,
 
     /// Iniitalize a Function Statement
     pub fn init(op: Token, name: Token, arg_names: []Token, arg_kinds: []KindId, return_kind: KindId, body: StmtNode) FunctionStmt {

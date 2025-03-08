@@ -114,6 +114,7 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
 
     // Allocation natives
     new_table.natives_table.put(allocator, "malloc", malloc_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "calloc", calloc_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "realloc", realloc_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "free", free_native(allocator)) catch unreachable;
 
@@ -468,7 +469,7 @@ fn sqrtf64_native(allocator: std.mem.Allocator) Native {
     return native;
 }
 
-/// Square root of a float
+/// C malloc
 fn malloc_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
@@ -497,7 +498,37 @@ fn malloc_native(allocator: std.mem.Allocator) Native {
     return native;
 }
 
-/// Square root of a float
+/// C calloc
+fn calloc_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.newInt(64);
+    arg_kinds[1] = KindId.newInt(64);
+    // Make return kind
+    const ret_kind = KindId.newPtr(allocator, KindId.VOID, false);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = null;
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32 ; Inline calloc call
+                \\    call calloc
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// C realloc
 fn realloc_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
@@ -527,7 +558,7 @@ fn realloc_native(allocator: std.mem.Allocator) Native {
     return native;
 }
 
-/// Square root of a float
+/// C free
 fn free_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;

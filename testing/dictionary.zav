@@ -1,0 +1,251 @@
+/*
+    Main Function
+*/
+fn main(argc: i64, argv: **u8) i64 {
+    @printf("Making dictionary!\n");
+    var dict1: Dictionary = undefined;
+    initDict(&dict1);
+
+    @printf("Inputting args!\n");
+
+    var current_arg = 1;
+    while (current_arg < argc) {
+        const str = initStringNoLen(argv[current_arg]);
+        addEntry(&dict1, str);
+    } loop: current_arg += 1;
+
+    @printf("Printing count of each unique command line argument!\n");
+    printDict(&dict1);
+
+    freeDict(&dict1);
+
+    // Print time to run
+    const time = @nanoTimestamp() / 1000000000.0;
+    @printf("Time to run: %f s\n", time);
+}
+
+/*
+    String struct
+*/
+const sizeof_String = 16;
+struct String {
+    text: *const u8;
+    len: i64;
+}
+
+fn initStringNoLen(text: *const u8) *String {
+    const new_str = <*String>@malloc(sizeof_String);
+    new_str.*.text = text;
+
+    var len = 0;
+    while (text[len] != 0) {
+        len += 1;
+    }
+
+    new_str.*.len = len;
+    return new_str;
+}
+
+// Returns true if two strings are the same
+fn stringEqual(str1: *String, str2: *String) bool {
+    const len1 = str1.*.len;
+    const len2 = str2.*.len;
+
+    // Check if the same length
+    if (len1 != len2) return false;
+
+    const text1 = str1.*.text;
+    const text2 = str2.*.text;
+    // Check all text
+    var index = 0;
+    while (index < len1) {
+        if (text1[index] != text2[index]) return false;
+    } loop: index += 1;
+
+    return true;
+}
+
+fn hashString(str: *String) u32 {
+    var hash = <u32>2166126261;
+    
+    const len = str.*.len;
+    const text = str.*.text;
+
+    var index = 0;
+    while (index < len) {
+        hash ^= text[index];
+        hash *= <u32>1677619;
+    } loop: index += 1;
+
+    return hash;
+}
+
+/*
+    Entry struct
+*/
+const sizeof_Entry = sizeof_String + 8;
+struct Entry {
+    key: *String;
+    data: i64;
+}
+
+fn initEntry(key: *String, data: i64) *Entry {
+    const new_entry = <*Entry>@malloc(sizeof_Entry);
+    new_entry.*.key = key;
+    new_entry.*.data = data;
+    return new_entry;
+}
+
+fn freeEntry(self: *Entry) void {
+    @free(self.*.key);
+    @free(self);
+}
+
+/*
+    Dictionary struct
+*/
+const sizeof_Dictionary = sizeof_Entry + 16;
+struct Dictionary {
+    data: *Entry;
+    count: i64;
+    capacity: i64;
+}
+const MAX_DENSITY = 0.7;
+
+fn initDict(self: *Dictionary) void {
+    self.*.data = <*Entry>@calloc(8, sizeof_Entry);
+    self.*.count = 0;
+    self.*.capacity = 8;
+}
+
+fn resizeDict(self: *Dictionary) void {
+    const old_data = self.*.data;
+    const old_capacity = self.*.capacity;
+
+    // Allocate new space
+    const new_data = <*Entry>@calloc(old_capacity * 2, sizeof_Entry);
+    self.*.data = new_data;
+    self.*.capacity = old_capacity * 2;
+    self.*.count = 0;
+
+    // Re-enter all old entries
+    var index = 0;
+    while (index < old_capacity) {
+        const curr_entry = &old_data[index];
+        if (curr_entry.*.key == nullptr) continue;
+
+        // Add the entry
+        moveOverEntry(self, curr_entry.*.key, curr_entry.*.data);
+    } loop: index += 1;
+
+    @free(old_data);
+}
+
+// Move over a new entry when resizing
+fn moveOverEntry(self: *Dictionary, key: *String, data: i64) void {
+    // Extract self capacity
+    const capacity = self.*.capacity;
+
+    // hash the key string
+    const hash = hashString(key);
+
+    var index = hash % capacity;
+    var curr_entry = &self.*.data[index];
+
+    while (curr_entry.*.key != nullptr) {
+        index = (index + 1) % capacity;
+        curr_entry = &self.*.data[index];
+    }
+
+    self.*.data[index].key = key;
+    self.*.data[index].data = data;
+    self.*.count += 1;
+}
+
+// Add a new entry to the dictionary
+// Returns true if it replaced an old value
+fn addEntry(self: *Dictionary, key: *String) bool {
+    // Check if density is okay
+    if (<f64>(1 + self.*.count) / self.*.capacity > MAX_DENSITY) {
+        @printf("Resizing dictionary!\n");
+        resizeDict(self);
+    }
+
+    // Extract self capacity
+    const capacity = self.*.capacity;
+
+    // hash the key string
+    const hash = hashString(key);
+
+    var index = hash % capacity;
+    var curr_entry = &self.*.data[index];
+
+    while (curr_entry.*.key != nullptr and !stringEqual(curr_entry.*.key, key)) {
+        index = (index + 1) % capacity;
+        curr_entry = &self.*.data[index];
+    }
+
+    if (curr_entry.*.key == nullptr) {
+        self.*.data[index].key = key;
+        self.*.data[index].data = 1;
+        self.*.count += 1;
+        return false;
+    } else {
+        self.*.data[index].data += 1;
+        return true;
+    }
+}
+
+fn getEntry(self: *Dictionary, key: *String, value_ptr: *i64) bool {
+    // Extract self capacity
+    const capacity = self.*.capacity;
+
+    // hash the key string
+    const hash = hashString(key);
+
+    var index = hash % capacity;
+    var curr_entry = &self.*.data[index];
+
+    while (curr_entry.*.key != nullptr and !stringEqual(curr_entry.*.key, key)) {
+        index = (index + 1) % capacity;
+        curr_entry = &self.*.data[index];
+    }
+
+    value_ptr.* = curr_entry.*.data;
+
+    return curr_entry.*.key != nullptr;
+}
+
+fn printDict(self: *Dictionary) void {
+    var index = 0;
+    const capacity = self.*.capacity;
+
+    while (index < capacity) {
+        const curr_entry = &self.*.data[index];
+        const curr_key = curr_entry.*.key;
+        const curr_value = curr_entry.*.data;
+
+        if (curr_key != nullptr) {
+            @printf("Key: '%.*s', Count: %i\n", curr_key.*.len, curr_key.*.text, curr_value);
+        } else {
+            @printf("<EMPTY>\n");
+        }
+    } loop: index += 1;
+}
+
+fn freeDict(self: *Dictionary) void {
+    var index = 0;
+    const capacity = self.*.capacity;
+
+    while (index < capacity) {
+        const curr_entry = &self.*.data[index];
+        const curr_key = curr_entry.*.key;
+        const curr_value = curr_entry.*.data;
+
+        if (curr_key != nullptr) {
+            @free(curr_key);
+        }
+    } loop: index += 1;
+
+    @free(self.*.data);
+}

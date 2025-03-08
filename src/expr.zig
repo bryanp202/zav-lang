@@ -170,10 +170,12 @@ pub const LiteralExpr = struct {
 //**********************************************//
 /// Used to convert between types
 pub const ConversionExpr = struct {
+    op: Token,
     operand: ExprNode,
 
-    pub fn init(operand: ExprNode) ConversionExpr {
+    pub fn init(op: Token, operand: ExprNode) ConversionExpr {
         return ConversionExpr{
+            .op = op,
             .operand = operand,
         };
     }
