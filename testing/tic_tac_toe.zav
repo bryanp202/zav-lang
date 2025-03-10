@@ -1,0 +1,215 @@
+const BUFFER_SIZE = <u64>1001;
+
+fn main(argc: i64, argv: **u8) i64 {
+    const buffer = <*u8>@malloc(BUFFER_SIZE);
+
+    var board1: TicTacToeBoard = undefined;
+
+    var quit = false;
+    while (!quit) {
+        const player1 = getPlayerMark(buffer, "Player1");
+        var player2 = getPlayerMark(buffer, "Player2");
+        while (player2 == player1) {
+            @printf("Player2 cannot match Player1\n");
+            player2 = getPlayerMark(buffer, "Player2");
+        }
+        
+        initBoard(&board1, player1, player2);
+        printBoard(&board1);
+
+        var winning_mark = -1;
+        while (board1.count != 9 and winning_mark < 0) {
+            winning_mark = playTurn(&board1, buffer);
+            printBoard(&board1);
+        }
+
+        if (board1.count == 9) {
+            @printf("It was a tie!\n");
+        } else {
+            if (winning_mark == board1.player1_mark) {
+                @printf("Player1 won!\n");
+            } else {
+                @printf("Player2 won!\n");
+            }
+        }
+
+        @printf("Play again (y/n)? ");
+        while (true) {
+            const yn_response_len = @input(buffer, BUFFER_SIZE) - 1;
+            if (yn_response_len == 1) {
+                if (buffer[0] == 'y') {
+                    break;
+                } else {
+                    quit = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Clean up
+    @free(buffer);
+    freeBoard(&board1);
+}
+
+const EMPTY_MARK = '*';
+struct TicTacToeBoard{
+    data: *u8;
+    player1_mark: u8;
+    player2_mark: u8;
+    count: i64;
+}
+
+fn initBoard(board: *TicTacToeBoard, player1: u8, player2: u8) void {
+    board.*.player1_mark = player1;
+    board.*.player2_mark = player2;
+    board.*.data = <*u8>@malloc(9);
+    resetBoard(board);
+}
+
+fn freeBoard(board: *TicTacToeBoard) void {
+    @free(board.*.data);
+}
+
+fn resetBoard(board: *TicTacToeBoard) void {
+    var index = 0;
+    while (index < 9) {
+        board.*.data[index] = EMPTY_MARK;
+    } loop: index += 1;
+
+    board.*.count = 0;
+}
+
+fn printBoard(board: *TicTacToeBoard) void {
+    @printf("%c | %c | %c\n", board.*.data[0], board.*.data[1], board.*.data[2]);
+    @printf("%c | %c | %c\n", board.*.data[3], board.*.data[4], board.*.data[5]);
+    @printf("%c | %c | %c\n", board.*.data[6], board.*.data[7], board.*.data[8]);
+}
+
+fn markBoard(board: *TicTacToeBoard, index: i64, mark: u8) bool {
+    if (board.*.data[index] != EMPTY_MARK) {
+        @printf("This spot is taken!\n");
+        return false;
+    }
+
+    board.*.data[index] = mark;
+    board.*.count += 1;
+    return true;
+}
+
+// Returns negative number if no win
+// Returns integer value for char of winning player if win
+fn checkWin(board: *TicTacToeBoard) i64 {
+    // Check Diagonals
+    if (board.*.data[0] != EMPTY_MARK and board.*.data[0] == board.*.data[4] and board.*.data[4] == board.*.data[8]) {
+        return board.*.data[0];
+    }
+    if (board.*.data[6] != EMPTY_MARK and board.*.data[6] == board.*.data[4] and board.*.data[4] == board.*.data[2]) {
+        return board.*.data[6];
+    }
+
+    // Check rows
+    if (board.*.data[0] != EMPTY_MARK and board.*.data[0] == board.*.data[1] and board.*.data[1] == board.*.data[2]) {
+        return board.*.data[0];
+    }
+    if (board.*.data[3] != EMPTY_MARK and board.*.data[3] == board.*.data[4] and board.*.data[4] == board.*.data[5]) {
+        return board.*.data[3];
+    }
+    if (board.*.data[6] != EMPTY_MARK and board.*.data[6] == board.*.data[7] and board.*.data[7] == board.*.data[8]) {
+        return board.*.data[6];
+    }
+
+    // Check columns
+    if (board.*.data[0] != EMPTY_MARK and board.*.data[0] == board.*.data[3] and board.*.data[3] == board.*.data[6]) {
+        return board.*.data[0];
+    }
+    if (board.*.data[1] != EMPTY_MARK and board.*.data[1] == board.*.data[4] and board.*.data[4] == board.*.data[7]) {
+        return board.*.data[6];
+    }
+    if (board.*.data[2] != EMPTY_MARK and board.*.data[2] == board.*.data[5] and board.*.data[5] == board.*.data[8]) {
+        return board.*.data[2];
+    }
+
+    // No one won yet
+    return -1;
+}
+
+// Returns true if game over
+fn playTurn(board: *TicTacToeBoard, buffer: *u8) i64 {
+    // Get player 1
+    while (true) {
+        const index1 = getPlayerMove(buffer, "Player1");
+        if (markBoard(board, index1, board.*.player1_mark)) break;
+    }
+
+    // Check for win
+    const maybe_player1_win = checkWin(board);
+    if (maybe_player1_win >= 0) {
+        return maybe_player1_win;
+    }
+    // Check for tie
+    if (board.*.count == 9) return -1;
+
+    printBoard(board);
+
+    // Get player 2
+    while (true) {
+        const index1 = getPlayerMove(buffer, "Player2");
+        if (markBoard(board, index1, board.*.player2_mark)) break;
+    }
+
+    // Check for win
+    const maybe_player2_win = checkWin(board);
+    if (maybe_player2_win >= 0) {
+        return maybe_player2_win;
+    }
+
+
+    return -1;
+}
+
+fn getPlayerMove(buffer: *u8, player_name: *const u8) i64 {
+    while (true) {
+        @printf("%s! Please type xy for your move: ", player_name);
+        const input_len = @input(buffer, BUFFER_SIZE) - 1;
+
+        if (input_len == 2) {
+            // Parse x input
+            const x = parseNumber("Invalid x\n", buffer[0]);
+            if (x == -1) continue;
+
+            // Parse x input
+            const y = parseNumber("Invalid y\n", buffer[1]);
+            if (y == -1) continue;
+
+            // Return index
+            return y * 3 + x;
+        }
+    }
+}
+
+fn parseNumber(msg: *const u8, char: u8) i64 {
+    if (char >= '0' and char <= '2') {
+        return char - '0';
+    }
+    @printf(msg);
+    return -1;
+}
+
+fn getPlayerMark(buffer: *u8, player_name: *const u8) u8 {
+    // Ask for player
+    while (true) {
+        @printf("%s mark: ", player_name);
+        const input_len = @input(buffer, BUFFER_SIZE) - 1;
+
+        if (input_len == 1) {
+            if (buffer[0] != EMPTY_MARK) {
+                return buffer[0];
+                break;
+            }
+            @printf("Player mark cannot be the same as an empty space\n");
+        } else {
+            @printf("Please enter one character to represent %s\n", player_name);
+        }
+    }
+}

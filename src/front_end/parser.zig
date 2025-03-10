@@ -1264,6 +1264,18 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             // Wrap in ExprResult
             return ExprResult.init(node, 0);
         },
+        .CHARACTER => {
+            // Make new constant expression
+            const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;
+            // Parse lexeme
+            const char = token.lexeme[1];
+            // Make new value
+            const value = Value.newUInt(char, 8);
+            constant_expr.* = .{ .value = value, .literal = token };
+            const node = ExprNode.init(ExprUnion{ .LITERAL = constant_expr });
+            // Wrap in ExprResult
+            return ExprResult.init(node, 0);
+        },
         .STRING => {
             // Make new constant expression
             const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;

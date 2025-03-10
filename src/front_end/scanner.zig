@@ -63,6 +63,8 @@ pub const Scanner = struct {
             '?' => return self.emitToken(TokenKind.QUESTION_MARK),
             // Native Func literal
             '@' => return self.native(),
+            // Char literal
+            '\'' => return self.character(),
             // String literal
             '\"' => return self.string(),
 
@@ -275,6 +277,18 @@ pub const Scanner = struct {
         }
         // Else return integer
         return self.emitToken(TokenKind.INTEGER);
+    }
+
+    /// Scan a char literal
+    fn character(self: *Scanner) Token {
+        _ = self.advance();
+        // Check for closing \'
+        if (self.peek() != '\'') {
+            return self.emitError("Expected closing single quote after character");
+        }
+        _ = self.advance();
+
+        return self.emitToken(TokenKind.CHARACTER);
     }
 
     /// Scan a string literal
@@ -603,6 +617,7 @@ pub const TokenKind = enum {
     //// Literals ////
     INTEGER,
     FLOAT,
+    CHARACTER,
     STRING,
     IDENTIFIER,
     NATIVE,

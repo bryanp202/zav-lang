@@ -1,0 +1,11 @@
+fn main(argc: i64, argv: **u8) i64 {
+    const buf_size = <u64>32;
+    const buffer = <*u8> @malloc(33);
+
+    @printf("Insert: ");
+    const read_bytes = @input(buffer, buf_size) - 1;
+
+    @printf("Read %d bytes\n", read_bytes);
+    @printf("%.*s\n", read_bytes, buffer);
+    @free(buffer);
+}

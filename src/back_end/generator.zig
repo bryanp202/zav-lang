@@ -81,11 +81,6 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
     // Set up file header
     const header =
         \\default rel
-        \\extern printf
-        \\extern malloc
-        \\extern calloc
-        \\extern realloc
-        \\extern free
         \\extern QueryPerformanceCounter
         \\global main
         \\section .text
@@ -145,7 +140,7 @@ pub fn close(self: Generator) GenerationError!void {
     try self.write(
         \\
         \\section .data
-        \\    ; Native Constants ;
+        \\    ; Native Constants and Dependencies;
         \\    @SS_SIGN_BIT: dq 0x80000000, 0, 0, 0
         \\    @SD_SIGN_BIT: dq 0x8000000000000000, 0, 0, 0
         \\
@@ -157,7 +152,7 @@ pub fn close(self: Generator) GenerationError!void {
     while (native_func.next()) |native| {
         if (native.value_ptr.used) {
             if (native.value_ptr.data) |data| {
-                try self.print("{s}", .{data});
+                try self.print("{s}\n", .{data});
             }
         }
     }

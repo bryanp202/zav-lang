@@ -118,6 +118,11 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "realloc", realloc_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "free", free_native(allocator)) catch unreachable;
 
+    // I/O
+    new_table.natives_table.put(allocator, "input", input_native(allocator)) catch unreachable;
+    //new_table.natives_table.put(allocator, "open", open_native(allocator)) catch unreachable;
+    //new_table.natives_table.put(allocator, "read", read_native(allocator)) catch unreachable;
+
     // return it
     return new_table;
 }
@@ -173,7 +178,7 @@ fn printf_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, true, ret_kind);
     const source = undefined;
-    const data = null;
+    const data = "    extern printf";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
@@ -479,7 +484,7 @@ fn malloc_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = null;
+    const data = "    extern malloc";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
@@ -509,7 +514,7 @@ fn calloc_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = null;
+    const data = "    extern calloc";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
@@ -539,7 +544,7 @@ fn realloc_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = null;
+    const data = "    extern realloc";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
@@ -568,7 +573,7 @@ fn free_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = null;
+    const data = "    extern free";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
@@ -577,6 +582,101 @@ fn free_native(allocator: std.mem.Allocator) Native {
             try generator.write(
                 \\    sub rsp, 32 ; Inline free call
                 \\    call free
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Get user input
+fn input_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), false);
+    arg_kinds[1] = KindId.newUInt(64);
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern _read";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    mov r8, rdx
+                \\    mov rdx, rcx
+                \\    mov rcx, 0
+                \\    sub rsp, 32 ; Input call
+                \\    call _read
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Open file
+fn open_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern _sopen";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    mov rdx, 2
+                \\    mov r8, 384
+                \\    sub rsp, 32 ; Open call
+                \\    call _sopen
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Read file
+fn read_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 3) catch unreachable;
+    arg_kinds[0] = KindId.newInt(64);
+    arg_kinds[1] = KindId.newPtr(allocator, KindId.newUInt(8), false);
+    arg_kinds[2] = KindId.newUInt(64);
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern _read";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32 ; Input call
+                \\    call _read
                 \\    add rsp, 32
                 \\
             );
