@@ -1,0 +1,74 @@
+fn main(argc: i64, argv: **const u8) i64 {
+    // Make a new file
+    const new_file_path = "test123.txt";
+    const new_handle = @open(new_file_path);
+
+    // Write "hello"
+    var index = 0;
+    var bytesWrote = 0;
+    var total_bytes = 0;
+    const number_buffer_len = <u32>20;
+    const number_buffer = <*u8>@malloc(number_buffer_len);
+    while (index < 10000) {
+        numberToString(number_buffer, number_buffer_len, index);
+        @printf("Writing: %.*s\n", number_buffer_len, number_buffer);
+        @write(new_handle, number_buffer, number_buffer_len, &bytesWrote);
+        total_bytes += bytesWrote;
+
+        @write(new_handle, "\n", <u64>1, &bytesWrote);
+        nullptr;
+        total_bytes += bytesWrote;
+    } loop: index += 1;
+    @free(number_buffer);
+
+    @printf("Total bytes wrote: %d\n", total_bytes);
+
+    @close(new_handle);
+
+    // Open for reading
+    const read_handle = @open(new_file_path);
+    const buffer = <*u8>@malloc(total_bytes + 1);
+    buffer[total_bytes] = <u8>0;
+    var bytesRead = 0;
+
+    @read(read_handle, buffer, <u64>total_bytes, &bytesRead);
+    @printf("Bytes read: %d\n%.*s\n", bytesRead, bytesRead, buffer);
+
+    const time = @nanoTimestamp() / 1000000000.0;
+    @printf("Time to run: %f\n", time);
+
+    @close(new_handle);
+
+    // Random constants and stuff
+    const cool: bool = undefined;
+    const nice: bool = undefined;
+    const a: i64 = undefined;
+    const f: f32 = undefined;
+
+    const final_handle = @open(new_file_path);
+
+    const buffer_again = <*u8>@malloc(2000);
+    var read_amount = 0;
+    @read(final_handle, buffer_again, <u64>2000, &read_amount);
+
+    @close(final_handle);
+
+    @printf("Read %.*s\nTotalling as %d bytes\n", read_amount, buffer_again, read_amount);
+    @printf("DONE\n");
+}
+
+fn numberToString(buffer: *u8, buffer_len: i64, num: i64) void {
+    var num_copy = num >= 0 ? num : -num;
+    var index = buffer_len - 1;
+
+    while (index >= 0 and num_copy > 0) {
+        const remainder = num_copy % 10;
+        num_copy /= 10;
+        buffer[index] = '0' + <u8>remainder;
+    } loop: index -= 1;
+
+    // Fill rest with zeros
+    while (index >= 0) {
+        buffer[index] = '0';
+    } loop: index -= 1;
+}

@@ -50,4 +50,27 @@ fn main(argc: i64, argv: **u8) i64 {
     complex2.display();
 
     product.display();
+
+    const complex_ptr = <*Complex>@malloc(16);
+    
+    complex_ptr.*.real = 100;
+    complex_ptr.*.imag = 1;
+    complex_ptr.*.display();
+
+    const int = first_func()()().*;
+    @printf("int is %d\n", int);
+}
+
+fn first_func() fn()fn()*i64  {
+    return second_func;
+}
+
+fn second_func() fn()*i64 {
+    return third_func;
+}
+
+fn third_func() *i64 {
+    const new_int = <*i64>@malloc(8);
+    new_int.* = 100;
+    return new_int;
 }

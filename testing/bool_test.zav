@@ -1,0 +1,10 @@
+fn main(argc: i64, argv: **u8) i64 {
+    const maybe_true = isTrue(true);
+    @printf("Bool value: %d\n", maybe_true);
+}
+
+fn isTrue(flag: bool) bool {
+    const copy1 = flag;
+    const copy2 = flag;
+    return flag;
+}

@@ -65,6 +65,8 @@ return_label: usize,
 // Access helpers
 current_func_locals_size: usize,
 current_func_args_size: usize,
+// Current stack alignment for current function
+func_stack_alignment: usize,
 
 // Register count
 cpu_reg_stack: RegisterStack(cpu_reg_names),
@@ -86,14 +88,16 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
         \\section .text
         \\main:
         \\    ; Setup main args
-        \\    sub rsp, 16
+        \\    sub rsp, 24
         \\    mov [rsp], rcx
         \\    mov [rsp+8], rdx
         \\
         \\    ; Setup clock
         \\    push rax
         \\    mov rcx, rsp
+        \\    sub rsp, 40
         \\    call QueryPerformanceCounter
+        \\    add rsp, 40
         \\    pop qword [@CLOCK_START]
         \\
         \\    ; Global Declarations
@@ -112,6 +116,7 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
         .return_label = undefined,
         .current_func_locals_size = undefined,
         .current_func_args_size = undefined,
+        .func_stack_alignment = 0,
         .cpu_reg_stack = RegisterStack(cpu_reg_names).init(),
         .sse_reg_stack = RegisterStack(sse_reg_names).init(),
     };
@@ -221,7 +226,7 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
     // Call main
     try self.write("\n    call _main ; Execute main\n");
     // Write exit
-    try self.write("    add rsp, 16\n    mov rcx, rax\n    ret\n\n");
+    try self.write("    add rsp, 24\n    mov rcx, rax\n    ret\n\n");
 
     // Generate all methods for each struct in the module
     for (module.structSlice()) |strct| {
@@ -339,6 +344,8 @@ fn storeCPUReg(self: *Generator) GenerationError!usize {
         const reg = self.popCPUReg();
         try self.print("    push {s}\n", .{reg.name});
     }
+    // Update stack alignment
+    self.func_stack_alignment += 8 * reg_count;
     // Return count
     return reg_count;
 }
@@ -353,6 +360,8 @@ fn storeSSEReg(self: *Generator) GenerationError!usize {
         const reg = self.popSSEReg();
         try self.print("    sub rsp, 8\n movq [rsp], {s}\n", .{reg.name});
     }
+    // Update stack alignment
+    self.func_stack_alignment += 8 * reg_count;
     // Return count
     return reg_count;
 }
@@ -364,6 +373,8 @@ fn restoreCPUReg(self: *Generator, reg_count: usize) GenerationError!void {
         const reg = try self.getNextCPUReg();
         try self.print("    pop {s}\n", .{reg.name});
     }
+    // Update stack alignment
+    self.func_stack_alignment -= 8 * reg_count;
 }
 
 /// Pop all stored sse registers from the stack.
@@ -373,6 +384,8 @@ fn restoreSSEReg(self: *Generator, reg_count: usize) GenerationError!void {
         const reg = try self.getNextSSEReg();
         try self.print("    movq {s}, [rsp]\n    add rsp, 8\n", .{reg.name});
     }
+    // Update stack alignment
+    self.func_stack_alignment -= 8 * reg_count;
 }
 
 // ********************** //
@@ -445,6 +458,8 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
     // Get locals stack size
     const locals_size = functionStmt.locals_size;
 
+    self.func_stack_alignment = if (locals_size % 16 == 8) 8 else 0;
+
     // Write the functions label
     if (maybe_struct_name) |name| {
         try self.print("\n_{s}_{s}:\n", .{ name, functionStmt.name.lexeme });
@@ -454,6 +469,7 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
     // Allocate stack space for locals
     if (locals_size > 0) {
         try self.print("    sub rsp, {d} ; Reserve locals space\n", .{locals_size});
+        self.func_stack_alignment += locals_size;
     }
     // Generate label for return
     self.return_label = self.label_count;
@@ -461,6 +477,7 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
 
     // Push rbp and move rsp to rbp
     try self.write("    push rbp\n    mov rbp, rsp\n");
+    self.func_stack_alignment += 8;
 
     // Generate body
     try self.genStmt(functionStmt.body);
@@ -473,9 +490,11 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
     }
     // Pop rbp
     try self.write("    pop rbp\n");
+    self.func_stack_alignment -= 8;
     // Free locals and return
     if (locals_size > 0) {
         try self.print("    add rsp, {d}\n", .{locals_size});
+        self.func_stack_alignment -= locals_size;
     }
     try self.write("    ret\n");
 
@@ -1133,9 +1152,16 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
     args = total_args[ct_arg_count..total_args.len];
 
     // Make space for all args
+    std.debug.print("alignment a: {d}\n", .{self.func_stack_alignment});
+    self.func_stack_alignment += if (args.len > 4) (args.len - 4) * 8 else 0;
+    std.debug.print("alignment b: {d}\n", .{self.func_stack_alignment});
+    const call_align = (16 - ((self.func_stack_alignment) % 16)) & 15;
+    self.func_stack_alignment += call_align;
+    std.debug.print("alignment c: {d}\n", .{self.func_stack_alignment});
     const args_size = args.len * 8;
-    if (args_size > 0) {
-        try self.print("    sub rsp, {d} ; Make space for native args\n", .{args_size});
+    const arg_space = args_size + call_align;
+    if (arg_space > 0) {
+        try self.print("    sub rsp, {d} ; Make space for native args\n", .{arg_space});
     }
 
     // Generate each arg
@@ -1249,21 +1275,15 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
     if (!wrote_inline) {
         // Generate the call
         try self.print("    call {s}\n", .{nativeExpr.name.lexeme});
-
-        // Get pop size
-        const pop_size = if (args.len >= 4) (args.len - 4) * 8 else 0;
-        // Check if pop size is greater than 0
-        if (pop_size > 0) {
-            try self.print("    add rsp, {d}\n", .{pop_size});
-        }
-    } else {
-        // Get pop size
-        const pop_size = if (args.len >= 4) (args.len - 4) * 8 else 0;
-        // Check if pop size is greater than 0
-        if (pop_size > 0) {
-            try self.print("    add rsp, {d}\n", .{pop_size});
-        }
     }
+    // Get pop size
+    const pop_size = (if (args.len >= 4) (args.len - 4) * 8 else 0) + call_align;
+    // Check if pop size is greater than 0
+    if (pop_size > 0) {
+        try self.print("    add rsp, {d}\n", .{pop_size});
+        self.func_stack_alignment -= pop_size;
+    }
+
     // Pop registers back
     try self.restoreSSEReg(sse_reg_count);
     try self.restoreCPUReg(cpu_reg_count);
@@ -1295,7 +1315,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     // Get arguments size
     const args_size = callExpr.caller_expr.result_kind.FUNC.args_size;
     // Align it
-    const args_size_aligned = (args_size % 8) + args_size;
+    const args_size_aligned = args_size;
 
     // Pop function pointer register
     const func_ptr_reg = self.popCPUReg();
@@ -1303,12 +1323,18 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     const cpu_reg_count = try self.storeCPUReg();
     const sse_reg_count = try self.storeSSEReg();
 
+    self.func_stack_alignment += args_size_aligned;
+    const call_align = (16 - ((self.func_stack_alignment) % 16)) & 15;
+    self.func_stack_alignment += call_align;
+    const arg_space = args_size_aligned + call_align;
     // Reserve stack space
-    if (args_size_aligned > 0) {
-        try self.print("    sub rsp, {d} ; Reserve call arg space\n", .{args_size_aligned});
+    if (arg_space > 0) {
+        try self.print("    sub rsp, {d} ; Reserve call arg space\n", .{arg_space});
     }
     // Move function ptr to top of stack
     try self.print("    push {s}\n", .{func_ptr_reg.name});
+    // Update stack alignment
+    self.func_stack_alignment += 8;
 
     // Store next address on the stack
     var next_address: u64 = 8;
@@ -1406,9 +1432,11 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
 
     // Generate call
     try self.write("    pop rcx\n    call rcx\n");
+    self.func_stack_alignment -= 8;
     // Remove locals from stack
-    if (args_size_aligned > 0) {
-        try self.print("    add rsp, {d}\n", .{args_size_aligned});
+    if (arg_space > 0) {
+        try self.print("    add rsp, {d}\n", .{arg_space});
+        self.func_stack_alignment -= arg_space;
     }
 
     // Restore registers

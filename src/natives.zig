@@ -84,6 +84,7 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     // Add all natives to the table
     new_table.natives_table.put(allocator, "printf", printf_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sizeof", sizeof_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "len", len_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "nanoTimestamp", nanoTimestamp_native(allocator)) catch unreachable;
 
     // All primative pointer conversions
@@ -120,8 +121,10 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
 
     // I/O
     new_table.natives_table.put(allocator, "input", input_native(allocator)) catch unreachable;
-    //new_table.natives_table.put(allocator, "open", open_native(allocator)) catch unreachable;
-    //new_table.natives_table.put(allocator, "read", read_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "open", open_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "write", write_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "read", read_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "close", close_native(allocator)) catch unreachable;
 
     // return it
     return new_table;
@@ -198,8 +201,35 @@ fn printf_native(allocator: std.mem.Allocator) Native {
 }
 
 /// Size of data type inline
-/// Ex => @sizeof(100) -> u32 (8 because it is i64)
+/// Ex => @sizeof(100) -> u64 (8 because it is i64)
 fn sizeof_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.ANY;
+    // Make return kind
+    const ret_kind = KindId.newUInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = null;
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            // Get size
+            const size = args[0].size();
+            // Extract first args size
+            try generator.print("    mov rax, {d} ; Inline sizeof\n", .{size});
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 1);
+    return native;
+}
+
+/// Size of data type inline
+/// Ex => @len("cool") -> u64 (4)
+fn len_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
     arg_kinds[0] = KindId.ANY;
@@ -213,10 +243,10 @@ fn sizeof_native(allocator: std.mem.Allocator) Native {
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
-            // Get size
-            const size = args[0].size();
-            // Extract first args size
-            try generator.print("    mov rax, {d} ; Inline sizeof\n", .{size});
+            // Get length if array
+            const len = if (args[0] == .ARRAY) args[0].ARRAY.length else 0;
+            // Extract first args length
+            try generator.print("    mov rax, {d} ; Inline len\n", .{len});
         }
     }.gen;
 
@@ -240,7 +270,9 @@ fn nanoTimestamp_native(allocator: std.mem.Allocator) Native {
         \\    mov rbp, rsp
         \\    push rax
         \\    mov rcx, rsp
+        \\    sub rsp, 32
         \\    call QueryPerformanceCounter
+        \\    add rsp, 32
         \\    pop rax
         \\    sub rax, [@CLOCK_START]
         \\    imul rax, 100
@@ -635,18 +667,22 @@ fn open_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = "    extern _sopen";
+    const data = "    extern CreateFileA";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    mov rdx, 2
-                \\    mov r8, 384
-                \\    sub rsp, 32 ; Open call
-                \\    call _sopen
-                \\    add rsp, 32
+                \\    mov rdx, 0xC0000000
+                \\    mov r8, 3
+                \\    mov r9, 0
+                \\    push 0
+                \\    push 0x80
+                \\    push 4
+                \\    sub rsp, 32 ; Open file call
+                \\    call CreateFileA
+                \\    add rsp, 56
                 \\
             );
         }
@@ -659,24 +695,88 @@ fn open_native(allocator: std.mem.Allocator) Native {
 /// Read file
 fn read_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
-    const arg_kinds = allocator.alloc(KindId, 3) catch unreachable;
+    const arg_kinds = allocator.alloc(KindId, 4) catch unreachable;
     arg_kinds[0] = KindId.newInt(64);
     arg_kinds[1] = KindId.newPtr(allocator, KindId.newUInt(8), false);
     arg_kinds[2] = KindId.newUInt(64);
+    arg_kinds[3] = KindId.newPtr(allocator, KindId.newInt(64), false);
     // Make return kind
-    const ret_kind = KindId.newInt(64);
+    const ret_kind = KindId.BOOL;
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = "    extern _read";
+    const data = "    extern ReadFile";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Input call
-                \\    call _read
+                \\    push 0
+                \\    sub rsp, 32 ; Read call
+                \\    call ReadFile
+                \\    add rsp, 40
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Write file
+fn write_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 4) catch unreachable;
+    arg_kinds[0] = KindId.newInt(64);
+    arg_kinds[1] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    arg_kinds[2] = KindId.newUInt(64);
+    arg_kinds[3] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    // Make return kind
+    const ret_kind = KindId.BOOL;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern WriteFile";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    push 0
+                \\    sub rsp, 32 ; Write call
+                \\    call WriteFile
+                \\    add rsp, 40
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Close file
+fn close_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newInt(64);
+    // Make return kind
+    const ret_kind = KindId.BOOL;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern CloseHandle";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32 ; Close handle call
+                \\    call CloseHandle
                 \\    add rsp, 32
                 \\
             );
