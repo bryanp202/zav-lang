@@ -223,9 +223,19 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
     // Write exit
     try self.write("    add rsp, 16\n    mov rcx, rax\n    ret\n\n");
 
+    // Generate all methods for each struct in the module
+    for (module.structSlice()) |strct| {
+        const struct_sym = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
+        for (strct.STRUCT.methods) |method| {
+            const method_field = struct_sym.kind.STRUCT.fields.getField(method.name.lexeme) catch unreachable;
+            try self.visitFunctionStmt(method, method_field.kind.FUNC.args_size, method_field.used, strct.STRUCT.id.lexeme);
+        }
+    }
+
     // Generate all functions in the module
     for (module.functionSlice()) |function| {
-        try self.visitFunctionStmt(function.FUNCTION.*);
+        const function_sym = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
+        try self.visitFunctionStmt(function.FUNCTION.*, function_sym.kind.FUNC.args_size, function_sym.used, null);
     }
 }
 
@@ -421,16 +431,14 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
 }
 
 /// Generate the asm for a function declaration
-fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt) GenerationError!void {
-    // Set current function stack size
-    const function_sym = self.stm.peakSymbol(functionStmt.name.lexeme) catch unreachable;
+fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_size: usize, used: bool, maybe_struct_name: ?[]const u8) GenerationError!void {
     // Do not generate if not used
-    if (!function_sym.used) {
+    if (!used) {
         self.stm.next_scope += functionStmt.scope_count;
         return;
     }
 
-    self.current_func_args_size = function_sym.kind.FUNC.args_size;
+    self.current_func_args_size = args_size;
     self.current_func_locals_size = functionStmt.locals_size;
     // Enter scope
     self.stm.pushScope();
@@ -438,7 +446,11 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt) Generati
     const locals_size = functionStmt.locals_size;
 
     // Write the functions label
-    try self.print("\n_{s}:\n", .{functionStmt.name.lexeme});
+    if (maybe_struct_name) |name| {
+        try self.print("\n_{s}_{s}:\n", .{ name, functionStmt.name.lexeme });
+    } else {
+        try self.print("\n_{s}:\n", .{functionStmt.name.lexeme});
+    }
     // Allocate stack space for locals
     if (locals_size > 0) {
         try self.print("    sub rsp, {d} ; Reserve locals space\n", .{locals_size});
@@ -1495,6 +1507,13 @@ fn visitFieldExprID(self: *Generator, fieldExpr: *Expr.FieldExpr) GenerationErro
 
 /// Generate asm for a FieldExpr
 fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: KindId) GenerationError!void {
+    // Check if method
+    if (fieldExpr.method_parent) |parent_struct| {
+        const dest_reg = try self.getNextCPUReg();
+        try self.print("    lea {s}, [_{s}_{s}] ; Method access\n", .{ dest_reg.name, parent_struct.STRUCT.name, fieldExpr.field_name.lexeme });
+        return;
+    }
+
     // Generate the lhs
     try self.genIDExpr(fieldExpr.operand);
     const source_reg = self.popCPUReg();

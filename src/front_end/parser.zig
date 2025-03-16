@@ -485,38 +485,31 @@ fn functionStmt(self: *Parser) SyntaxError!StmtNode {
 }
 
 /// StructStmt -> "struct" identifier '{' fieldlist '}'
-/// FieldList -> Field (Field ',')*
-/// Field -> identifier ':' KindId
+/// FieldList -> (Field | Method)+
+/// Field -> identifier ':' KindId ';'
+/// Method -> fn identifier '(' arglist ')' block
 fn structStmt(self: *Parser) SyntaxError!StmtNode {
     try self.consume(TokenKind.IDENTIFIER, "Expected identifier after 'struct' keyword");
     const id = self.previous;
     try self.consume(TokenKind.LEFT_BRACE, "Expected '{' before struct field list");
 
-    // Parse fields
     var field_name_list = std.ArrayList(Token).init(self.allocator);
     var field_kind_list = std.ArrayList(KindId).init(self.allocator);
-    // First field, must have atleast one
-    try self.consume(TokenKind.IDENTIFIER, "Expected field identifier name");
-    const first_field_name = self.previous;
-    try self.consume(TokenKind.COLON, "Expected ':' after field identifier name");
-    const first_field_kind = try self.parseKind();
-    // Append it
-    field_name_list.append(first_field_name) catch unreachable;
-    field_kind_list.append(first_field_kind) catch unreachable;
-    // Consume ';'
-    try self.consume(TokenKind.SEMICOLON, "Expected ';' after field definition");
-
+    var method_list = std.ArrayList(Stmt.FunctionStmt).init(self.allocator);
+    // Parse fields and methods
+    if (self.match(.{TokenKind.FN})) {
+        try self.struct_method(&method_list);
+    } else { // Field
+        try self.struct_field(&field_name_list, &field_kind_list);
+    }
     // Do the rest if there are any
     while (!self.match(.{TokenKind.RIGHT_BRACE}) and !self.isAtEnd()) {
-        try self.consume(TokenKind.IDENTIFIER, "Expected field identifier name");
-        const field_name = self.previous;
-        try self.consume(TokenKind.COLON, "Expected ':' after field identifier name");
-        const field_kind = try self.parseKind();
-        // Append it
-        field_name_list.append(field_name) catch unreachable;
-        field_kind_list.append(field_kind) catch unreachable;
-        // Consume ';'
-        try self.consume(TokenKind.SEMICOLON, "Expected ';' after field definition");
+        // Check for method
+        if (self.match(.{TokenKind.FN})) {
+            try self.struct_method(&method_list);
+        } else { // Field
+            try self.struct_field(&field_name_list, &field_kind_list);
+        }
     }
     // Check if previous was brace
     if (self.previous.kind != .RIGHT_BRACE) {
@@ -525,8 +518,30 @@ fn structStmt(self: *Parser) SyntaxError!StmtNode {
 
     // Create new stmt
     const new_stmt = self.allocator.create(Stmt.StructStmt) catch unreachable;
-    new_stmt.* = Stmt.StructStmt.init(id, field_name_list.items, field_kind_list.items);
+    new_stmt.* = Stmt.StructStmt.init(id, field_name_list.items, field_kind_list.items, method_list.items);
     return StmtNode{ .STRUCT = new_stmt };
+}
+
+/// Parse a struct field
+/// Field -> identifier ':' kind ';'
+fn struct_field(self: *Parser, field_name_list: *std.ArrayList(Token), field_kind_list: *std.ArrayList(KindId)) SyntaxError!void {
+    // First field, must have atleast one
+    try self.consume(TokenKind.IDENTIFIER, "Expected field identifier name");
+    const field_name = self.previous;
+    try self.consume(TokenKind.COLON, "Expected ':' after field identifier name");
+    const field_kind = try self.parseKind();
+    // Append it
+    field_name_list.append(field_name) catch unreachable;
+    field_kind_list.append(field_kind) catch unreachable;
+    // Consume ';'
+    try self.consume(TokenKind.SEMICOLON, "Expected ';' after field definition");
+}
+
+/// Parse a struct method
+/// Method -> function (but it can use "this" and has the "this" parameter added)
+fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) SyntaxError!void {
+    const new_method = try self.functionStmt();
+    method_list.append(new_method.FUNCTION.*) catch unreachable;
 }
 
 // ************************** //

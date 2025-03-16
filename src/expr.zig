@@ -79,7 +79,10 @@ pub const ExprNode = struct {
             },
             .FIELD => |fieldExpr| {
                 fieldExpr.operand.display();
-                std.debug.print(".{s}(at [base+{d}])", .{ fieldExpr.field_name.lexeme, fieldExpr.stack_offset });
+                std.debug.print(".{s}", .{fieldExpr.field_name.lexeme});
+                if (fieldExpr.method_parent == null) {
+                    std.debug.print("(at [base+{d}])", .{fieldExpr.stack_offset});
+                }
             },
             .CALL => |callExpr| {
                 // Print caller expr
@@ -224,6 +227,7 @@ pub const FieldExpr = struct {
     field_name: Token,
     op: Token,
     stack_offset: u64 = undefined,
+    method_parent: ?KindId = null,
 
     /// Make a new FieldExpr
     pub fn init(operand: ExprNode, field_name: Token, op: Token) FieldExpr {

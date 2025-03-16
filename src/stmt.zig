@@ -221,13 +221,15 @@ pub const StructStmt = struct {
     id: Token,
     field_names: []Token,
     field_kinds: []KindId,
+    methods: []FunctionStmt,
 
     /// Initialize a structstmt
-    pub fn init(id: Token, field_names: []Token, field_kinds: []KindId) StructStmt {
+    pub fn init(id: Token, field_names: []Token, field_kinds: []KindId, methods: []FunctionStmt) StructStmt {
         return StructStmt{
             .id = id,
             .field_names = field_names,
             .field_kinds = field_kinds,
+            .methods = methods,
         };
     }
 };

@@ -117,15 +117,37 @@ pub fn check(self: *TypeChecker, module: *Module) void {
 
     // Reset the symbol table managers stack for function evaluation
     self.stm.resetStack();
+
+    // Check all method bodies in each struct
+    for (module.structSlice()) |*strct| {
+        // Get struct symbol
+        const struct_symbol = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
+        for (strct.STRUCT.methods) |*method| {
+            // Get args size
+            const method_field = struct_symbol.kind.STRUCT.fields.getField(method.name.lexeme) catch unreachable;
+            const args_size = method_field.kind.FUNC.args_size;
+            // analyze all function bodies, continue if there was an error
+            self.visitFunctionStmt(method, args_size) catch {
+                self.panic = false;
+                self.had_error = true;
+                continue;
+            };
+        }
+    }
+
     // Check all function bodies in the module
     for (module.functionSlice()) |*function| {
+        // Get arg_size
+        const func_symbol = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
+        const args_size = func_symbol.kind.FUNC.args_size;
         // analyze all function bodies, continue if there was an error
-        self.visitFunctionStmt(function.FUNCTION) catch {
+        self.visitFunctionStmt(function.FUNCTION, args_size) catch {
             self.panic = false;
             self.had_error = true;
             continue;
         };
     }
+
     // Check for unmutated var in global scope
     self.checkVarInScope();
 }
@@ -754,9 +776,72 @@ fn declareStruct(
         }
 
         // Add field to struct
-        symbol.kind.STRUCT.fields.addField(name.lexeme, name.line, name.column, kind.*) catch {
+        symbol.kind.STRUCT.fields.addField(ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*) catch {
             const old_field = symbol.kind.STRUCT.fields.getField(name.lexeme) catch unreachable;
             return self.reportDuplicateError(name, old_field.dcl_line, old_field.dcl_column);
+        };
+    }
+
+    // Add each method to the struct, but do not analyze body yet
+    for (structStmt.methods) |*method| {
+        // Make KindId
+        var new_func = KindId.newFunc(self.allocator, method.arg_kinds, false, method.return_kind);
+
+        // Add new scope for arguments
+        self.stm.addScope();
+
+        // Check if first argument is pointer to self
+        if (method.arg_kinds.len < 1 or method.arg_kinds[0] != .PTR) {
+            return self.reportError(
+                SemanticError.UnresolvableIdentifier,
+                method.arg_names[0],
+                "Expect a pointer to struct type as first parameter of struct method",
+            );
+        }
+
+        const ptr_child_kind = method.arg_kinds[0].PTR.child;
+        _ = ptr_child_kind.update(self.stm) catch {
+            return self.reportError(SemanticError.UnresolvableIdentifier, method.name, "Could not resolve struct type in this argument");
+        };
+
+        if (!symbol.kind.equal(ptr_child_kind.*)) {
+            return self.reportError(
+                SemanticError.UnresolvableIdentifier,
+                method.arg_names[0],
+                "Expect a pointer to struct type as first parameter of struct method",
+            );
+        }
+
+        // Declare args
+        for (method.arg_names, method.arg_kinds) |name, *kind| {
+            _ = kind.update(self.stm) catch {
+                return self.reportError(SemanticError.UnresolvableIdentifier, name, "Could not resolve struct type in this argument");
+            };
+            // Declare arg
+            _ = self.stm.declareSymbol(name.lexeme, kind.*, ScopeKind.ARG, name.line, name.column, false) catch {
+                const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
+                return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
+            };
+        }
+
+        // Get size of arguments
+        const args_size = self.stm.active_scope.next_address;
+        // Update stack offset for arguments
+        new_func.FUNC.args_size = args_size;
+
+        // Pop scope
+        self.stm.popScope();
+
+        // Add field to struct
+        symbol.kind.STRUCT.fields.addField(
+            ScopeKind.FUNC,
+            method.name.lexeme,
+            method.name.line,
+            method.name.column,
+            new_func,
+        ) catch {
+            const old_field = symbol.kind.STRUCT.fields.getField(method.name.lexeme) catch unreachable;
+            return self.reportDuplicateError(method.name, old_field.dcl_line, old_field.dcl_column);
         };
     }
 
@@ -815,7 +900,7 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
 }
 
 /// Analyze a function body
-fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!void {
+fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, args_size: usize) SemanticError!void {
     // Enter new scope
     self.stm.pushScope();
     // Update current return kind
@@ -828,9 +913,6 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError
     // Update scope count
     func.scope_count = self.current_scope_count;
 
-    // Get arg_size
-    const func_symbol = self.stm.peakSymbol(func.name.lexeme) catch unreachable;
-    const args_size = func_symbol.kind.FUNC.args_size;
     // Get scope size
     const stack_size = self.stm.active_scope.next_address;
     // Update FunctionStmts local variable stack size
@@ -1120,7 +1202,7 @@ fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!I
         .INDEX => return self.visitIndexExprWrapped(node),
         .DEREFERENCE => return self.visitDereferenceExprWrapped(node),
         .FIELD => return self.visitFieldExprWrapped(node),
-        else => return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array"),
+        else => return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array for assignment"),
     }
 }
 
@@ -1359,6 +1441,20 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract function
     const callee = callee_kind.FUNC;
 
+    // Check if a method
+    if (callExpr.caller_expr.expr == .FIELD) {
+        const new_method_args = self.allocator.alloc(ExprNode, callExpr.args.len + 1) catch unreachable;
+        // Make new dereference node for first argument
+        const new_address = self.allocator.create(Expr.UnaryExpr) catch unreachable;
+        var ampersand_token = callExpr.caller_expr.expr.FIELD.op;
+        ampersand_token.kind = TokenKind.AMPERSAND;
+        new_address.* = Expr.UnaryExpr.init(callExpr.caller_expr.expr.FIELD.operand, ampersand_token);
+        const first_arg_node = ExprNode.init(Expr.ExprUnion{ .UNARY = new_address });
+        new_method_args[0] = first_arg_node;
+        std.mem.copyForwards(ExprNode, new_method_args[1..], callExpr.args);
+        callExpr.args = new_method_args;
+    }
+
     // Check arg count
     if (callExpr.args.len != callee.arg_kinds.len) {
         return self.reportError(
@@ -1411,7 +1507,6 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     // Analyze operand
     const operand_result = try self.analyzeIDExpr(&fieldExpr.operand, fieldExpr.op);
     const operand_kind = operand_result.kind;
-    const mutable = operand_result.mutable;
 
     // Check if operand is a struct
     if (operand_kind != .STRUCT) {
@@ -1424,6 +1519,8 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     // Update offset from base of struct
     fieldExpr.stack_offset = field.relative_loc;
     node.result_kind = field.kind;
+    // Check if mutable
+    const mutable = operand_result.mutable and field.scope != .FUNC;
     return IDResult{ .kind = field.kind, .mutable = mutable };
 }
 
@@ -1446,6 +1543,10 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Update offset from base of struct
     fieldExpr.stack_offset = field.relative_loc;
     node.result_kind = field.kind;
+    // Check if method
+    if (field.scope == .FUNC) {
+        fieldExpr.method_parent = operand_kind;
+    }
     return field.kind;
 }
 

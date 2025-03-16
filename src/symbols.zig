@@ -329,40 +329,47 @@ pub const StructScope = struct {
     }
 
     /// Add a new field to this scope
-    pub fn addField(self: *StructScope, name: []const u8, dcl_line: u64, dcl_column: u64, kind: KindId) ScopeError!void {
+    pub fn addField(self: *StructScope, scope: ScopeKind, name: []const u8, dcl_line: u64, dcl_column: u64, kind: KindId) ScopeError!void {
         // Check if already in scope
         const getOrPut = self.fields.getOrPut(name) catch unreachable;
         if (getOrPut.found_existing) {
             return ScopeError.DuplicateDeclaration;
         }
 
-        // Calculate address location
-        var mem_loc: u64 = undefined;
-        // Get size of field
-        const kind_size = kind.size();
-        // Get allignment of data size
-        const alignment: u64 = if (kind_size > 4) 8 else if (kind_size > 2) 4 else if (kind_size > 1) 2 else 1;
-        const offset = self.next_address & (alignment - 1);
+        // Check if adding a "local"
+        if (scope == .LOCAL) {
+            // Calculate address location
+            var mem_loc: u64 = undefined;
+            // Get size of field
+            const kind_size = kind.size();
+            // Get allignment of data size
+            const alignment: u64 = if (kind_size > 4) 8 else if (kind_size > 2) 4 else if (kind_size > 1) 2 else 1;
+            const offset = self.next_address & (alignment - 1);
 
-        // Check if address is aligned
-        if (offset != 0) {
-            // Increment next address
-            self.next_address += alignment - offset;
+            // Check if address is aligned
+            if (offset != 0) {
+                // Increment next address
+                self.next_address += alignment - offset;
+            }
+            // Set location
+            mem_loc = self.next_address;
+            // Increment next addres
+            self.next_address += kind_size;
+            const field = Field.init(scope, name, kind, dcl_line, dcl_column, mem_loc);
+            getOrPut.value_ptr.* = field;
+        } else {
+            const field = Field.init(scope, name, kind, dcl_line, dcl_column, undefined);
+            getOrPut.value_ptr.* = field;
         }
-        // Set location
-        mem_loc = self.next_address;
-        // Increment next addres
-        self.next_address += kind_size;
-        const field = Field.init(name, kind, dcl_line, dcl_column, mem_loc);
-        getOrPut.value_ptr.* = field;
     }
 
     /// Get a field by name from this scope
     pub fn getField(self: *StructScope, name: []const u8) ScopeError!Field {
-        const field = self.fields.get(name) orelse {
+        const field = self.fields.getPtr(name) orelse {
             return ScopeError.UndeclaredSymbol;
         };
-        return field;
+        field.used = true;
+        return field.*;
     }
 
     /// Calculate the size of this scope
@@ -411,20 +418,24 @@ pub const Symbol = struct {
 
 /// Used to store information about a structs field
 pub const Field = struct {
+    scope: ScopeKind,
     name: []const u8,
     kind: KindId,
     dcl_line: u64,
     dcl_column: u64,
     relative_loc: u64,
+    used: bool,
 
     /// Init a new field, used to store information about a structs field
-    pub fn init(name: []const u8, kind: KindId, dcl_line: u64, dcl_column: u64, relative_loc: u64) Field {
+    pub fn init(scope: ScopeKind, name: []const u8, kind: KindId, dcl_line: u64, dcl_column: u64, relative_loc: u64) Field {
         return Field{
+            .scope = scope,
             .name = name,
             .kind = kind,
             .dcl_line = dcl_line,
             .dcl_column = dcl_column,
             .relative_loc = relative_loc,
+            .used = false,
         };
     }
 };

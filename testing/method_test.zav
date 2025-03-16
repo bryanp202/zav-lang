@@ -1,0 +1,53 @@
+struct Complex {
+    real: f64;
+    imag: f64;
+
+    fn init(self: *Complex, real: f64, imag: f64) void {
+        self.*.real = real;
+        self.*.imag = imag;
+    }
+
+    fn invert(self: *Complex) void {
+        const temp = self.*.real;
+        self.*.real = self.*.imag;
+        self.*.imag = temp;
+    }
+
+    fn display(self: *const Complex) u64 {
+        if (self.*.imag >= 0) {
+            return @printf("%f + %fi\n", self.*.real, self.*.imag);
+        } else {
+            return @printf("%f - %fi\n", self.*.real, -self.*.imag);
+        }
+    }
+
+    fn magnitude(this_can_be_anything: *const Complex) f64 {
+        const real = this_can_be_anything.*.real;
+        const imag = this_can_be_anything.*.imag;
+        return @sqrtf64(real * real + imag * imag);
+    }
+
+    fn setToProduct(self: *Complex, lhs: *const Complex, rhs: *Complex) void {
+        self.*.real = lhs.*.real * rhs.*.real - lhs.*.imag * rhs.*.imag;
+        self.*.imag = lhs.*.real * rhs.*.imag + lhs.*.imag * rhs.*.real;
+    }
+}
+
+fn main(argc: i64, argv: **u8) i64 {
+    var complex1: Complex = undefined;
+    complex1.init(110, -123.4);
+
+    var complex2: Complex = undefined;
+    complex2.init(444, 333);
+
+    var product: Complex = undefined;
+    product.setToProduct(&complex1, &complex2);
+
+
+    @printf("LHS: ");
+    complex1.display();
+    @printf("RHS: ");
+    complex2.display();
+
+    product.display();
+}
