@@ -9,14 +9,18 @@ fn main(argc: i64, argv: **const u8) i64 {
     var total_bytes = 0;
     const number_buffer_len = <u32>20;
     const number_buffer = <*u8>@malloc(number_buffer_len);
-    while (index < 10000) {
+    while (index < 10) {
         numberToString(number_buffer, number_buffer_len, index);
         @printf("Writing: %.*s\n", number_buffer_len, number_buffer);
         @write(new_handle, number_buffer, number_buffer_len, &bytesWrote);
         total_bytes += bytesWrote;
 
-        @write(new_handle, "\n", <u64>1, &bytesWrote);
-        nullptr;
+        const wrote = @write(new_handle, "\n", <u64>1, &bytesWrote);
+        if (wrote) {
+            @printf("Write was a success\n");
+        } else {
+            @printf("Write failed\n");
+        }
         total_bytes += bytesWrote;
     } loop: index += 1;
     @free(number_buffer);
@@ -42,10 +46,14 @@ fn main(argc: i64, argv: **const u8) i64 {
     // Random constants and stuff
     const cool: bool = undefined;
     const nice: bool = undefined;
+    const afdf: bool = undefined;
     const a: i64 = undefined;
     const f: f32 = undefined;
 
     const final_handle = @open(new_file_path);
+    var file_size = <u64>0;
+    @getFileSize(final_handle, &file_size);
+    @printf("File is of length: %d bytes\n", file_size);
 
     const buffer_again = <*u8>@malloc(2000);
     var read_amount = 0;
@@ -55,6 +63,8 @@ fn main(argc: i64, argv: **const u8) i64 {
 
     @printf("Read %.*s\nTotalling as %d bytes\n", read_amount, buffer_again, read_amount);
     @printf("DONE\n");
+
+    //const wrotted_kana = false;
 }
 
 fn numberToString(buffer: *u8, buffer_len: i64, num: i64) void {

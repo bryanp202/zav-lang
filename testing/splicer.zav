@@ -1,0 +1,340 @@
+const DEFAULT_DELIMINATOR = ' ';
+const MAX_DENSITY = 0.75;
+
+fn main(argc: i64, argv: **u8) i64 {
+    if (argc != 2 and argc != 3) {
+        @printf("Usage: splicer.exe path/to/file [deliminator]\n");
+        return 1;
+    }
+
+    const filename = argv[1];
+    const deliminator = argc == 3 ? argv[2][0] : DEFAULT_DELIMINATOR;
+
+    // Attempt to open the file
+    const handle = @fopen(filename);
+    if (handle == -1) {
+        @printf("Failed to open file: %s\n", filename);
+        return 1;
+    }
+
+    // Get size of file
+    var file_size = <u64>0;
+    const read_file_size_success = @fgetSize(handle, &file_size);
+    if (!read_file_size_success) {
+        @printf("Failed to get file size of file: %s\n", filename);
+        @fclose(handle);
+        return 1;
+    }
+
+    if (file_size == 0) {
+        @printf("File is isEmpty: %s\n", filename);
+        @fclose(handle);
+        return 0;
+    }
+
+    const buffer = <*u8>@malloc(file_size);
+    if (buffer == nullptr) {
+        @printf("Failed to allocate read buffer of size %d bytes for file: %s\n", file_size, filename);
+        @fclose(handle);
+        return 1;
+    }
+
+    // Attempt to read the file
+    var bytes_read = <u64>0;
+    const read_success = @fread(handle, buffer, file_size, &bytes_read);
+    if (!read_success or bytes_read != file_size) {
+        @printf("Failed to read file: %s\n", filename);
+        @fclose(handle);
+        return 1;
+    }
+
+    // Init dictionary for keeping track of unique counts
+    var dict: Dictionary = undefined;
+    dict.init();
+
+    var source: String = undefined;
+    source.initLen(buffer, bytes_read);
+
+    var splicer: Splicer = undefined;
+    splicer.init(&source, deliminator);
+
+    var output: String = undefined;
+    while(splicer.next(&output)) {
+        dict.addEntry(&output);
+    }
+
+    dict.display();
+    dict.free();
+    @free(buffer);
+    @fclose(handle);
+
+    const time = @nanoTimestamp() / 1000000000.0;
+    @printf("Time to run: %f s\n", time);
+}
+
+const SIZEOF_STRING = 16;
+struct String {
+    ptr: *const u8;
+    len: u64;
+
+    // Takes in a null terminated array, turns it into a string
+    fn init(self: *String, text: *const u8) void {
+        self.*.ptr = text;
+
+        var current = text;
+        while (current.* != 0) {
+            current = <*const u8>(current + 1);
+        }
+
+        self.*.len = <u64>(current - text);
+    }
+
+    // Init with a length
+    fn initLen(self: *String, text: *const u8, len: u64) void {
+        self.*.ptr = text;
+        self.*.len = len;
+    }
+
+    fn eql(self: *const String, other: *const String) bool {
+        return self.*.ptr == other.*.ptr and self.*.len == other.*.len;
+    }
+
+    fn cmp(self: *const String, other: *const String) bool {
+        if (self.*.len != other.*.len) {
+            return false;
+        }
+
+        var left_current = self.*.ptr;
+        var right_current = other.*.ptr;
+        const end = <*const u8>(left_current + self.*.len);
+        while (<u64>left_current < <u64>end) {
+            if (left_current.* != right_current.*) {
+                return false;
+            }
+            left_current = <*const u8>(left_current + 1);
+            right_current = <*const u8>(right_current + 1);
+        }
+
+        return true;
+    }
+
+    fn isEmpty(self: *const String) bool {
+        return self.*.ptr == nullptr;
+    }
+
+    fn hash(self: *const String) u64 {
+        var hash = <u32>2166126261;
+    
+        const text = self.*.ptr;
+        const len = self.*.len;
+
+        var index = 0;
+        while (index < len) {
+            hash ^= text[index];
+            hash *= <u32>1677619;
+        } loop: index += 1;
+
+        return hash;
+    }
+
+    fn display(self: *const String) void {
+        @printf("\"%.*s\"\n", self.*.len, self.*.ptr);
+    }
+}
+
+const SIZEOF_SPLICER = SIZEOF_STRING + 24;
+struct Splicer {
+    source: String;
+    deliminator: u8;
+    current: *const u8;
+    end: *const u8;
+
+    fn init(self: *Splicer, source: *String, deliminator: u8) void {
+        self.*.source.ptr = source.*.ptr;
+        self.*.source.len = source.*.len;
+        self.*.deliminator = deliminator;
+        self.*.current = <*const u8>(source.*.ptr - 1);
+        self.*.end = <*const u8>(self.*.source.ptr + self.*.source.len);
+    }
+
+    fn next(self: *Splicer, str_ptr: *String) bool {
+        // Check if no more strings
+        if (self.*.atEnd()) {
+            str_ptr.*.ptr = nullptr;
+            str_ptr.*.len = <u64>0;
+            return false;
+        }
+
+        self.*.current = <*const u8>(self.*.current + 1);
+        const deliminator = self.*.deliminator;
+        const start = self.*.current;
+
+        // Go until deliminator or end
+        while (!self.*.atEnd() and self.*.current.* != deliminator) {
+            self.*.current = <*const u8>(self.*.current + 1);
+        }
+
+
+        const len = <u64>(self.*.current - start);
+        str_ptr.*.initLen(start, len);
+
+        return true;
+    }
+
+    fn atEnd(self: *Splicer) bool {
+        return <u64>self.*.current >= <u64>self.*.end;
+    }
+}
+
+/*
+    Dictionary struct and Entries
+*/
+const SIZEOF_ENTRY = SIZEOF_STRING + 8;
+struct Entry {
+    key: String;
+    value: i64;
+}
+
+const SIZEOF_DICTIONARY = 24; 
+struct Dictionary {
+    items: *Entry;
+    count: i64;
+    capacity: i64;
+
+    fn init(self: *Dictionary) void {
+        self.*.items = <*Entry>@calloc(8, SIZEOF_ENTRY);
+        self.*.count = 0;
+        self.*.capacity = 8;
+    }
+
+    fn resize(self: *Dictionary) void {
+        const old_items = self.*.items;
+        const old_capacity = self.*.capacity;
+
+        // Allocate new space
+        const new_items = <*Entry>@calloc(old_capacity * 2, SIZEOF_ENTRY);
+        self.*.items = new_items;
+        self.*.capacity = old_capacity * 2;
+        self.*.count = 0;
+
+        // Re-enter all old entries
+        var index = 0;
+        while (index < old_capacity) {
+            const curr_entry = &old_items[index];
+            if (curr_entry.*.key.isEmpty()) continue;
+
+            // Add the entry
+            self.*.moveOverEntry(&curr_entry.*.key, curr_entry.*.value);
+        } loop: index += 1;
+
+        @free(old_items);
+    }
+
+    // Move over a new entry when resizing
+    fn moveOverEntry(self: *Dictionary, key: *String, value: i64) void {
+        // Extract self capacity
+        const capacity = self.*.capacity;
+
+        // hash the key string
+        const hash = key.*.hash();
+
+        var index = hash % capacity;
+        var curr_entry = &self.*.items[index];
+
+        while (!curr_entry.*.key.isEmpty()) {
+            index = (index + 1) % capacity;
+            curr_entry = &self.*.items[index];
+        }
+
+        curr_entry.*.key.ptr = key.*.ptr;
+        curr_entry.*.key.len = key.*.len;
+        curr_entry.*.value = value;
+        self.*.count += 1;
+    }
+
+    // Add a new entry to the dictionary
+    // Returns true if it replaced an old value
+    fn addEntry(self: *Dictionary, key: *String) bool {
+        // Check if density is okay
+        if (<f64>(1 + self.*.count) / self.*.capacity > MAX_DENSITY) {
+            //@printf("Resizing dictionary!\n");
+            self.*.resize();
+        }
+
+        // Extract self capacity
+        const capacity = self.*.capacity;
+
+        // hash the key string
+        const hash = key.*.hash();
+
+        var index = hash % capacity;
+        var curr_entry = &self.*.items[index];
+
+        while (!curr_entry.*.key.isEmpty() and !key.*.cmp(&curr_entry.*.key)) {
+            index = (index + 1) % capacity;
+            curr_entry = &self.*.items[index];
+        }
+
+        if (curr_entry.*.key.isEmpty()) {
+            curr_entry.*.key.ptr = key.*.ptr;
+            curr_entry.*.key.len = key.*.len;
+            curr_entry.*.value = 1;
+            self.*.count += 1;
+            return false;
+        } else {
+            curr_entry.*.value += 1;
+            return true;
+        }
+    }
+
+    fn getEntry(self: *Dictionary, key: *String, value_ptr: *i64) bool {
+        // Extract self capacity
+        const capacity = self.*.capacity;
+
+        // hash the key string
+        const hash = key.*.hash();
+
+        var index = hash % capacity;
+        var curr_entry = &self.*.items[index];
+
+        while (!curr_entry.*.key.isEmpty() and !key.*.cmp(&curr_entry.*.key)) {
+            index = (index + 1) % capacity;
+            curr_entry = &self.*.items[index];
+        }
+
+        value_ptr.* = curr_entry.*.value;
+
+        return !curr_entry.*.key.isEmpty();
+    }
+
+    fn display(self: *Dictionary) void {
+        var index = 0;
+        const capacity = self.*.capacity;
+
+        var most_common_entry = &self.*.items[0];
+        var total_entries = 0;
+
+        while (index < capacity) {
+            const curr_entry = &self.*.items[index];
+
+            if (curr_entry.*.key.isEmpty()) {
+                @printf("<Empty>\n");
+            } else {
+                @printf("Key: '%.*s', Value: %i\n", curr_entry.*.key.len, curr_entry.*.key.ptr, curr_entry.*.value);
+                if (curr_entry.*.value > most_common_entry.*.value) {
+                    most_common_entry = curr_entry;
+                }
+                total_entries += curr_entry.*.value;
+            }
+        } loop: index += 1;
+
+        @printf("Total entries: %d\n", total_entries);
+        @printf("Total unique entries: %d\n", self.*.count);
+        @printf("Most common entry: ");
+        @printf("Key: '%.*s', Value: %i\n", most_common_entry.*.key.len, most_common_entry.*.key.ptr, most_common_entry.*.value);
+    }
+
+    fn free(self: *Dictionary) void {
+        @free(self.*.items);
+    }
+}

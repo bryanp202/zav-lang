@@ -1152,12 +1152,9 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
     args = total_args[ct_arg_count..total_args.len];
 
     // Make space for all args
-    std.debug.print("alignment a: {d}\n", .{self.func_stack_alignment});
     self.func_stack_alignment += if (args.len > 4) (args.len - 4) * 8 else 0;
-    std.debug.print("alignment b: {d}\n", .{self.func_stack_alignment});
     const call_align = (16 - ((self.func_stack_alignment) % 16)) & 15;
     self.func_stack_alignment += call_align;
-    std.debug.print("alignment c: {d}\n", .{self.func_stack_alignment});
     const args_size = args.len * 8;
     const arg_space = args_size + call_align;
     if (arg_space > 0) {

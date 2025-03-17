@@ -121,10 +121,12 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
 
     // I/O
     new_table.natives_table.put(allocator, "input", input_native(allocator)) catch unreachable;
-    new_table.natives_table.put(allocator, "open", open_native(allocator)) catch unreachable;
-    new_table.natives_table.put(allocator, "write", write_native(allocator)) catch unreachable;
-    new_table.natives_table.put(allocator, "read", read_native(allocator)) catch unreachable;
-    new_table.natives_table.put(allocator, "close", close_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "fopen", open_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "fcreate", create_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "fgetSize", getFileSize_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "fwrite", write_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "fread", read_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "fclose", close_native(allocator)) catch unreachable;
 
     // return it
     return new_table;
@@ -679,10 +681,75 @@ fn open_native(allocator: std.mem.Allocator) Native {
                 \\    mov r9, 0
                 \\    push 0
                 \\    push 0x80
-                \\    push 4
+                \\    push 3
                 \\    sub rsp, 32 ; Open file call
                 \\    call CreateFileA
                 \\    add rsp, 56
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Create a file
+fn create_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern CreateFileA";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    mov rdx, 0xC0000000
+                \\    mov r8, 3
+                \\    mov r9, 0
+                \\    push 0
+                \\    push 0x80
+                \\    push 1
+                \\    sub rsp, 32 ; Open file call
+                \\    call CreateFileA
+                \\    add rsp, 56
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Get length of file
+fn getFileSize_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.newInt(64);
+    arg_kinds[1] = KindId.newPtr(allocator, KindId.newUInt(64), false);
+    // Make return kind
+    const ret_kind = KindId.BOOL;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern GetFileSizeEx";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32 ; Get size of file call
+                \\    call GetFileSizeEx
+                \\    add rsp, 32
                 \\
             );
         }
@@ -699,7 +766,7 @@ fn read_native(allocator: std.mem.Allocator) Native {
     arg_kinds[0] = KindId.newInt(64);
     arg_kinds[1] = KindId.newPtr(allocator, KindId.newUInt(8), false);
     arg_kinds[2] = KindId.newUInt(64);
-    arg_kinds[3] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    arg_kinds[3] = KindId.newPtr(allocator, KindId.newUInt(64), false);
     // Make return kind
     const ret_kind = KindId.BOOL;
     // Make the function kindid
