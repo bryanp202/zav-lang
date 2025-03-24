@@ -27,9 +27,9 @@ const RegisterStack = Registers.RegisterStack;
 const Register = Registers.Register;
 
 // Writer Type stuff
-const BaseWriterType = @typeInfo(@TypeOf(std.fs.File.writer)).Fn.return_type orelse void;
+const BaseWriterType = @typeInfo(@TypeOf(std.fs.File.writer)).@"fn".return_type orelse void;
 const BufferedWriterType = std.io.BufferedWriter(4096, BaseWriterType);
-const WriterType = @typeInfo(@TypeOf(BufferedWriterType.writer)).Fn.return_type orelse void;
+const WriterType = @typeInfo(@TypeOf(BufferedWriterType.writer)).@"fn".return_type orelse void;
 
 // Useful Constants
 const DWORD_IMIN: i64 = -0x80000000;
@@ -439,7 +439,7 @@ fn storeCPUReg(self: *Generator) GenerationError!usize {
     // Store register count
     const reg_count = self.cpu_reg_stack.count;
 
-    for (reg_count) |_| {
+    for (0..reg_count) |_| {
         const reg = self.popCPUReg();
         try self.print("    push {s}\n", .{reg.name});
     }
@@ -455,7 +455,7 @@ fn storeSSEReg(self: *Generator) GenerationError!usize {
     // Store register count
     const reg_count = self.sse_reg_stack.count;
 
-    for (reg_count) |_| {
+    for (0..reg_count) |_| {
         const reg = self.popSSEReg();
         try self.print("    sub rsp, 8\n movq [rsp], {s}\n", .{reg.name});
     }

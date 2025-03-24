@@ -63,7 +63,7 @@ const ParsedArgs = struct {
 };
 
 /// Parses user args into a struct with flags, path, and name
-fn parseArgs(args: [][]u8) ParsedArgs {
+fn parseArgs(args: [][:0]u8) ParsedArgs {
     // Set up variables for compile flags
     var parsed_args: ParsedArgs = .{};
 
