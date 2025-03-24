@@ -83,11 +83,80 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
     // Set up file header
     const header =
         \\default rel
-        \\extern QueryPerformanceCounter
-        \\global main
+        \\global _start
         \\section .text
-        \\main:
+        \\_start:
         \\    ; Setup main args
+        \\    sub rsp, 40
+        \\    call GetCommandLineW ; Get Full string
+        \\
+        \\    mov rcx, rax
+        \\    lea rdx, [@ARGC]
+        \\    call CommandLineToArgvW ; Split into wide substrings
+        \\    add rsp, 40
+        \\    mov [@ARGV], rax
+        \\
+        \\    xor ebx, ebx
+        \\    xor esi, esi
+        \\    mov rdi, [@ARGC]
+        \\.BUFFER_SIZE_START:
+        \\    cmp rsi, rdi ; Test if i is less than argc
+        \\    jae .BUFFER_SIZE_END
+        \\    mov rcx, 65001
+        \\    xor edx, edx
+        \\    mov r8, [@ARGV]
+        \\    mov r8, [r8+rsi*8]
+        \\    mov r9, -1
+        \\    push 0
+        \\    push 0
+        \\    push 0
+        \\    push 0
+        \\    sub rsp, 40
+        \\    call WideCharToMultiByte ; Get the length of current argv[i] conversion
+        \\    add rsp, 72
+        \\    inc rax
+        \\    add rbx, rax
+        \\    inc rsi
+        \\    jmp .BUFFER_SIZE_START
+        \\.BUFFER_SIZE_END:
+        \\
+        \\    mov rcx, rbx
+        \\    sub rsp, 40
+        \\    call malloc ; Allocate space for argv buffer
+        \\    add rsp, 40
+        \\    mov [@ARG_BUFFER], rax
+        \\
+        \\    xor esi, esi ; arg count
+        \\    xor edi, edi ; total length
+        \\.BUFFER_MAKE_START:
+        \\    cmp rsi, [@ARGC] ; Test if i is less than argc
+        \\    jae .BUFFER_MAKE_END
+        \\    mov rcx, 65001
+        \\    xor edx, edx
+        \\    mov r8, [@ARGV]
+        \\    mov r8, [r8+rsi*8]
+        \\    mov r9, -1
+        \\    push 0
+        \\    push 0
+        \\    push 0
+        \\    push rbx
+        \\    mov r15, [@ARG_BUFFER]
+        \\    lea r15, [r15+rdi]
+        \\    push r15
+        \\    sub rsp, 32
+        \\    call WideCharToMultiByte ; Convert argv[i] to utf8
+        \\    inc rax
+        \\    mov r14, [rsp+32]
+        \\    mov r15, [@ARGV]
+        \\    mov [r15+rsi*8], r14
+        \\    add rsp, 72
+        \\    add rdi, rax
+        \\    inc rsi
+        \\    jmp .BUFFER_MAKE_START
+        \\.BUFFER_MAKE_END:
+        \\    mov rcx, [@ARGC]
+        \\    mov rdx, [@ARGV]
+        \\
         \\    sub rsp, 24
         \\    mov [rsp], rcx
         \\    mov [rsp+8], rdx
@@ -95,9 +164,9 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
         \\    ; Setup clock
         \\    push rax
         \\    mov rcx, rsp
-        \\    sub rsp, 40
+        \\    sub rsp, 32
         \\    call QueryPerformanceCounter
-        \\    add rsp, 40
+        \\    add rsp, 32
         \\    pop qword [@CLOCK_START]
         \\
         \\    ; Global Declarations
@@ -148,6 +217,13 @@ pub fn close(self: Generator) GenerationError!void {
         \\    ; Native Constants and Dependencies;
         \\    @SS_SIGN_BIT: dq 0x80000000, 0, 0, 0
         \\    @SD_SIGN_BIT: dq 0x8000000000000000, 0, 0, 0
+        \\    extern QueryPerformanceCounter
+        \\    extern GetCommandLineW
+        \\    extern CommandLineToArgvW
+        \\    extern WideCharToMultiByte
+        \\    extern malloc
+        \\    extern free
+        \\    extern ExitProcess
         \\
     );
     // Write native data
@@ -193,7 +269,16 @@ pub fn close(self: Generator) GenerationError!void {
     }
 
     // Write global variables to bss section
-    try self.write("\nsection .bss\n    @CLOCK_START: resb 8\n\n    ; Program Globals ;\n");
+    try self.write(
+        \\section .bss
+        \\    @CLOCK_START: resb 8
+        \\    @ARGC: resb 8
+        \\    @ARGV: resb 8
+        \\    @ARG_BUFFER: resb 8
+        \\
+        \\    ; Program Globals ;
+        \\
+    );
     // Reset scope stack
     self.stm.resetStack();
     var global_iter = self.stm.active_scope.symbols.iterator();
@@ -226,7 +311,21 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
     // Call main
     try self.write("\n    call _main ; Execute main\n");
     // Write exit
-    try self.write("    add rsp, 24\n    mov rcx, rax\n    ret\n\n");
+    try self.write(
+        \\    add rsp, 24
+        \\    push rax
+        \\
+        \\    mov rcx, [@ARG_BUFFER]
+        \\    sub rsp, 32
+        \\    call free
+        \\    add rsp, 32
+        \\
+        \\    mov rcx, [rsp]
+        \\    call ExitProcess
+        \\    ret
+        \\
+        \\    
+    );
 
     // Generate all methods for each struct in the module
     for (module.structSlice()) |strct| {
@@ -481,6 +580,9 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
 
     // Generate body
     try self.genStmt(functionStmt.body);
+
+    // Generate default return null
+    try self.write("    xor eax, eax\n");
 
     // Generate return stmt
     try self.print(".L{d}:\n", .{self.return_label});

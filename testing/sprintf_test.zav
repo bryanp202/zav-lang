@@ -1,0 +1,10 @@
+fn main(argc: i64, argv: **u8) i64 {
+    const buffer_len = 1000;
+    const buffer = <*u8>@malloc(buffer_len);
+
+    const name = "Superman";
+    const bytes_written = @sprintf(buffer, "Hello %s!", name);
+
+    @printf("%s\nWrote %d characters\n", buffer, bytes_written);
+    return 0;
+}

@@ -1,0 +1,30 @@
+fn main(argc: i64, argv: **u8) i64 {
+    if (argc != 2) {
+        @printf("Usage: pingsomething.exe address\n");
+        return 1;
+    }
+
+    const buffer = <*u8>@malloc(65536);
+    const extraVariableBecauseWindowsIsAnnoyingAndIHaveNotFixedTheAlignmentIssuesYet: i64 = undefined;
+
+    @sprintf(buffer, "ping %s", argv[1]);
+
+    @printf("Trying to ping: %s!\n", argv[1]);
+    const ran = @run(buffer);
+
+    if (ran) {
+        @printf("Done\n");
+    } else {
+        @printf("Failed\n");
+    }
+
+    const delete_self = @fdelete("pingsomething.exe");
+    @printf("Deleted: %d\n", delete_self);
+
+    @run("nasm -f win64 pingsomething.asm");
+
+    const deleted = @fdelete("pingsomething.obj");
+    @printf("Deleted: %d\n", deleted);
+
+    @free(buffer);
+}

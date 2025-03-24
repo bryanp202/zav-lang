@@ -1,0 +1,11 @@
+fn main(argc: i64, argv: **u8) i64 {
+    var i = 0;
+    while (i < argc) {
+        @printf("argv[%d]: %s\n", i, argv[i]);
+    } loop: i+=1;
+
+    const time = @nanoTimestamp() / 1000000000.0;
+    @printf("Time to run: %f s\n", time);
+
+    return 0;
+}

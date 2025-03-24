@@ -83,6 +83,7 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
 
     // Add all natives to the table
     new_table.natives_table.put(allocator, "printf", printf_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "sprintf", sprintf_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sizeof", sizeof_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "len", len_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "nanoTimestamp", nanoTimestamp_native(allocator)) catch unreachable;
@@ -119,10 +120,18 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "realloc", realloc_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "free", free_native(allocator)) catch unreachable;
 
+    // Threading and processes
+    new_table.natives_table.put(allocator, "run", run_native(allocator)) catch unreachable;
+    //new_table.natives_table.put(allocator, "thread", thread_native(allocator)) catch unreachable;
+    //new_table.natives_table.put(allocator, "wait", wait_native(allocator)) catch unreachable;
+    //new_table.natives_table.put(allocator, "WaitAll", waitAll_native(allocator)) catch unreachable;
+    //new_table.natives_table.put(allocator, "mutex", mutex_native(allocator)) catch unreachable;
+
     // I/O
     new_table.natives_table.put(allocator, "input", input_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "fopen", open_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "fcreate", create_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "fdelete", delete_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "fgetSize", getFileSize_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "fwrite", write_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "fread", read_native(allocator)) catch unreachable;
@@ -179,7 +188,7 @@ fn printf_native(allocator: std.mem.Allocator) Native {
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
     arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
     // Make return kind
-    const ret_kind = KindId.newUInt(32);
+    const ret_kind = KindId.newUInt(64);
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, true, ret_kind);
     const source = undefined;
@@ -192,6 +201,37 @@ fn printf_native(allocator: std.mem.Allocator) Native {
             try generator.write(
                 \\    sub rsp, 32 ; Inline printf call
                 \\    call printf
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Wrapper for stdlib sprintf
+/// Ex => @sprintf(buffer, "Hello: %d\n", 100);
+fn sprintf_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), false);
+    arg_kinds[1] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    // Make return kind
+    const ret_kind = KindId.newUInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, true, ret_kind);
+    const source = undefined;
+    const data = "    extern sprintf";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32 ; Inline sprintf call
+                \\    call sprintf
                 \\    add rsp, 32
                 \\
             );
@@ -518,7 +558,7 @@ fn malloc_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = "    extern malloc";
+    const data = null;
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
@@ -607,7 +647,7 @@ fn free_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = "    extern free";
+    const data = null;
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
@@ -720,6 +760,35 @@ fn create_native(allocator: std.mem.Allocator) Native {
                 \\    sub rsp, 32 ; Open file call
                 \\    call CreateFileA
                 \\    add rsp, 56
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Delete a file
+fn delete_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    // Make return kind
+    const ret_kind = KindId.BOOL;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern DeleteFileA";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32 ; Delete file call
+                \\    call DeleteFileA
+                \\    add rsp, 32
                 \\
             );
         }
@@ -851,5 +920,75 @@ fn close_native(allocator: std.mem.Allocator) Native {
     }.gen;
 
     const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Execute something in command line
+fn run_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    // Make return kind
+    const ret_kind = KindId.BOOL;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source =
+        \\@run:
+        \\    lea r8, [@STARTUP_INFO] ; Zero out STARTUP_INFO
+        \\    mov dword [r8], 96
+        \\    mov r9d, 1
+        \\    xor r10, r10
+        \\.STARTUP_ZERO:
+        \\    cmp r9, 12
+        \\    jae .STARTUP_ZERO_EXIT
+        \\    mov [r8+r9*8], r10
+        \\    inc r9
+        \\    jmp .STARTUP_ZERO
+        \\.STARTUP_ZERO_EXIT:
+        \\    lea r8, [@PROCESS_INFO] ; Zero out PROCESS_INFO
+        \\    mov qword [r8], 0
+        \\    mov qword [r8+8], 0
+        \\    mov qword [r8+16], 0
+        \\
+        \\    mov rdx, rcx ; Move parameters
+        \\    mov rcx, 0
+        \\    mov r8, 0
+        \\    mov r9, 0
+        \\    lea r10, [@PROCESS_INFO]
+        \\    push r10
+        \\    lea r10, [@STARTUP_INFO]
+        \\    push r10
+        \\    push 0
+        \\    push 0
+        \\    push 0
+        \\    push 0
+        \\    sub rsp, 32 ; Create a new cmd process
+        \\    call CreateProcessA
+        \\    add rsp, 80
+        \\
+        \\    mov rcx, [@PROCESS_INFO] ; Wait until it finishes
+        \\    mov rdx, 0xFFFFFFFF
+        \\    sub rsp, 32
+        \\    call WaitForSingleObject
+        \\    add rsp, 32
+        \\    
+        \\    mov rcx, [@PROCESS_INFO] ; Close handels
+        \\    sub rsp, 32
+        \\    call CloseHandle
+        \\    mov rcx, [@PROCESS_INFO+8]
+        \\    call CloseHandle
+        \\    add rsp, 32
+        \\    ret
+        \\
+    ;
+    const data =
+        \\    extern CreateProcessA
+        \\    extern WaitForSingleObject
+        \\    extern CloseHandle
+        \\    @PROCESS_INFO: times 24 db 0
+        \\    @STARTUP_INFO: times 96 db 0
+    ;
+
+    const native = Native.newNative(kind, source, data, null, 0);
     return native;
 }

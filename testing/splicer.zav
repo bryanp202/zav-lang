@@ -1,40 +1,43 @@
+const DEFAULT_EXPORT_PATH = ".\\splicer_out.txt";
 const DEFAULT_DELIMINATOR = ' ';
 const MAX_DENSITY = 0.75;
 
 fn main(argc: i64, argv: **u8) i64 {
-    if (argc != 2 and argc != 3) {
-        @printf("Usage: splicer.exe path/to/file [deliminator]\n");
+    if (argc > 4 or argc < 2) {
+        @printf("Usage: splicer.exe path/to/read/file [path/to/write/file] [deliminator]\n");
         return 1;
     }
 
     const filename = argv[1];
-    const deliminator = argc == 3 ? argv[2][0] : DEFAULT_DELIMINATOR;
+    const export_path = argc == 3 ? argv[2] : DEFAULT_EXPORT_PATH;
+    const deliminator = argc == 4 ? argv[3][0] : DEFAULT_DELIMINATOR;
 
     // Attempt to open the file
     const handle = @fopen(filename);
     if (handle == -1) {
-        @printf("Failed to open file: %s\n", filename);
+        @printf("Failed to open file: \"%s\"\n", filename);
         return 1;
     }
+    @printf("Opened file: \"%s\"\n", filename);
 
     // Get size of file
     var file_size = <u64>0;
     const read_file_size_success = @fgetSize(handle, &file_size);
     if (!read_file_size_success) {
-        @printf("Failed to get file size of file: %s\n", filename);
+        @printf("Failed to get file size of file: \"%s\"\n", filename);
         @fclose(handle);
         return 1;
     }
 
     if (file_size == 0) {
-        @printf("File is isEmpty: %s\n", filename);
+        @printf("File is isEmpty: \"%s\"\n", filename);
         @fclose(handle);
         return 0;
     }
 
     const buffer = <*u8>@malloc(file_size);
     if (buffer == nullptr) {
-        @printf("Failed to allocate read buffer of size %d bytes for file: %s\n", file_size, filename);
+        @printf("Failed to allocate read buffer of size %d bytes for file: \"%s\"\n", file_size, filename);
         @fclose(handle);
         return 1;
     }
@@ -43,10 +46,12 @@ fn main(argc: i64, argv: **u8) i64 {
     var bytes_read = <u64>0;
     const read_success = @fread(handle, buffer, file_size, &bytes_read);
     if (!read_success or bytes_read != file_size) {
-        @printf("Failed to read file: %s\n", filename);
+        @printf("Failed to read file: \"%s\"\n", filename);
+        @free(buffer);
         @fclose(handle);
         return 1;
     }
+    @printf("Read %d bytes from file: \"%s\"\n", bytes_read, filename);
 
     // Init dictionary for keeping track of unique counts
     var dict: Dictionary = undefined;
@@ -63,7 +68,16 @@ fn main(argc: i64, argv: **u8) i64 {
         dict.addEntry(&output);
     }
 
-    dict.display();
+    // Write dictionary to a new file
+    var bytes_wrote = 0;
+    if (!dict.export(export_path, &bytes_wrote)) {
+        @printf("Could not export dictionary to \"%s\"\n", export_path);
+        @free(buffer);
+        return 1;
+    }
+    @printf("Exported %d bytes to file: \"%s\"\n", bytes_wrote, export_path);
+
+    // dict.display();
     dict.free();
     @free(buffer);
     @fclose(handle);
@@ -200,11 +214,13 @@ struct Dictionary {
     items: *Entry;
     count: i64;
     capacity: i64;
+    longest_key_len: u64;
 
     fn init(self: *Dictionary) void {
         self.*.items = <*Entry>@calloc(8, SIZEOF_ENTRY);
         self.*.count = 0;
         self.*.capacity = 8;
+        self.*.longest_key_len = <u64>0;
     }
 
     fn resize(self: *Dictionary) void {
@@ -242,7 +258,8 @@ struct Dictionary {
         var curr_entry = &self.*.items[index];
 
         while (!curr_entry.*.key.isEmpty()) {
-            index = (index + 1) % capacity;
+            index += 1;
+            index &= capacity - 1;
             curr_entry = &self.*.items[index];
         }
 
@@ -261,6 +278,11 @@ struct Dictionary {
             self.*.resize();
         }
 
+        // Check if longer than longest key len
+        if (self.*.longest_key_len < key.*.len) {
+            self.*.longest_key_len = key.*.len;
+        }
+
         // Extract self capacity
         const capacity = self.*.capacity;
 
@@ -271,7 +293,8 @@ struct Dictionary {
         var curr_entry = &self.*.items[index];
 
         while (!curr_entry.*.key.isEmpty() and !key.*.cmp(&curr_entry.*.key)) {
-            index = (index + 1) % capacity;
+            index += 1;
+            index &= capacity - 1;
             curr_entry = &self.*.items[index];
         }
 
@@ -332,6 +355,64 @@ struct Dictionary {
         @printf("Total unique entries: %d\n", self.*.count);
         @printf("Most common entry: ");
         @printf("Key: '%.*s', Value: %i\n", most_common_entry.*.key.len, most_common_entry.*.key.ptr, most_common_entry.*.value);
+    }
+
+    fn export(self: *Dictionary, filename: *const u8, bytes_wrote: *i64) bool {
+        var handle = @fcreate(filename);
+        if (handle == -1) {
+            handle = @fopen(filename);
+            if (handle == -1) {
+                return false;
+            }
+        }
+
+        // Make buffer for value conversion 
+        const buffer = <*u8>@malloc(self.*.longest_key_len + 100);
+        var write_size = 0;
+
+        var index = 0;
+        const capacity = self.*.capacity;
+
+        while (index < capacity) {
+            const curr_entry = &self.*.items[index];
+
+            if (!curr_entry.*.key.isEmpty()) {
+                var quote_splicer: Splicer = undefined;
+                quote_splicer.init(&curr_entry.*.key, '"');
+
+                buffer[0] = '"';
+                var current_index = <u64>1;
+                var slice: String = undefined;
+
+                // First slice
+                quote_splicer.next(&slice);
+                @sprintf(&buffer[current_index], "%.*s", slice.len, slice.ptr);
+                current_index += slice.len;
+
+                while(quote_splicer.next(&slice)) {
+                    buffer[current_index] = '\';
+                    buffer[current_index + 1] = '"';
+                    current_index += <u64>2;
+                    @sprintf(&buffer[current_index], "%.*s", slice.len, slice.ptr);
+                    current_index += slice.len;
+                }
+
+                current_index += @sprintf(
+                    &buffer[current_index],
+                    "\" : %i,\n",
+                    curr_entry.*.value
+                );
+                if(!@fwrite(handle, buffer, current_index, &write_size)) {
+                    @fclose(handle);
+                    return false;
+                }
+                bytes_wrote.* += write_size;
+            }
+        } loop: index += 1;
+
+        @free(buffer);
+        @fclose(handle);
+        return true;
     }
 
     fn free(self: *Dictionary) void {
