@@ -3,6 +3,7 @@ const DEFAULT_DELIMINATOR = ' ';
 const MAX_DENSITY = 0.75;
 
 fn main(argc: i64, argv: **u8) i64 {
+    const a = 100;
     if (argc > 4 or argc < 2) {
         @printf("Usage: splicer.exe path/to/read/file [path/to/write/file] [deliminator]\n");
         return 1;

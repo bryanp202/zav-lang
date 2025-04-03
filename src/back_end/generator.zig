@@ -157,7 +157,7 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generato
         \\    mov rcx, [@ARGC]
         \\    mov rdx, [@ARGV]
         \\
-        \\    sub rsp, 24
+        \\    sub rsp, 16
         \\    mov [rsp], rcx
         \\    mov [rsp+8], rdx
         \\
@@ -312,7 +312,7 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
     try self.write("\n    call _main ; Execute main\n");
     // Write exit
     try self.write(
-        \\    add rsp, 24
+        \\    add rsp, 16
         \\    push rax
         \\
         \\    mov rcx, [@ARG_BUFFER]
@@ -555,9 +555,9 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
     // Enter scope
     self.stm.pushScope();
     // Get locals stack size
-    const locals_size = functionStmt.locals_size;
+    const locals_size = functionStmt.locals_size + ((8 - (functionStmt.locals_size & 7)) & 7);
 
-    self.func_stack_alignment = if (locals_size % 16 == 8) 8 else 0;
+    self.func_stack_alignment = 0;
 
     // Write the functions label
     if (maybe_struct_name) |name| {

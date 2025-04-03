@@ -102,7 +102,7 @@ pub fn compile(self: *Compiler, source: []const u8) void {
         var cwd = std.fs.cwd();
         // Link
         std.debug.print("Linking...\n", .{});
-        const link_args = [_][]const u8{ "gcc", "-s", "-nostartfiles", "-static", "zav_temp.obj", "-o", self.output_name };
+        const link_args = [_][]const u8{ "gcc", "-nostartfiles", "-static", "zav_temp.obj", "-o", self.output_name }; // "-s"
         const link_result = std.process.Child.run(.{ .allocator = self.allocator, .argv = &link_args }) catch {
             std.debug.print("Failed to link file\n", .{});
 
