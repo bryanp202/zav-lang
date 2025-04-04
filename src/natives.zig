@@ -720,11 +720,12 @@ fn open_native(allocator: std.mem.Allocator) Native {
                 \\    mov r8, 3
                 \\    mov r9, 0
                 \\    push 0
+                \\    push 0
                 \\    push 0x80
                 \\    push 3
                 \\    sub rsp, 32 ; Open file call
                 \\    call CreateFileA
-                \\    add rsp, 56
+                \\    add rsp, 64
                 \\
             );
         }
@@ -755,11 +756,12 @@ fn create_native(allocator: std.mem.Allocator) Native {
                 \\    mov r8, 3
                 \\    mov r9, 0
                 \\    push 0
+                \\    push 0
                 \\    push 0x80
                 \\    push 1
                 \\    sub rsp, 32 ; Open file call
                 \\    call CreateFileA
-                \\    add rsp, 56
+                \\    add rsp, 64
                 \\
             );
         }
@@ -849,9 +851,10 @@ fn read_native(allocator: std.mem.Allocator) Native {
             _ = args;
             try generator.write(
                 \\    push 0
+                \\    push 0
                 \\    sub rsp, 32 ; Read call
                 \\    call ReadFile
-                \\    add rsp, 40
+                \\    add rsp, 48
                 \\
             );
         }
@@ -882,9 +885,10 @@ fn write_native(allocator: std.mem.Allocator) Native {
             _ = args;
             try generator.write(
                 \\    push 0
+                \\    push 0
                 \\    sub rsp, 32 ; Write call
                 \\    call WriteFile
-                \\    add rsp, 40
+                \\    add rsp, 48
                 \\
             );
         }

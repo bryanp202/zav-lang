@@ -357,7 +357,7 @@ _String_hash:
 _String_display:
     push rbp
     mov rbp, rsp
-    sub rsp, 32 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C2]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -372,7 +372,6 @@ _String_display:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
     xor eax, eax
 .L18:
@@ -422,13 +421,13 @@ _Splicer_next:
     push rbp
     mov rbp, rsp
     lea rsi, [_Splicer_atEnd] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 8 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 8
     mov rsi, rax
     test rsi, rsi
     jz .L21
@@ -457,13 +456,13 @@ _Splicer_next:
     mov rsi, qword [rsi+24] ; Field access
     mov [rbp + 16], rsi ; Declare identifier
     lea rsi, [_Splicer_atEnd] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 8 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 8
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi ; Logical AND
@@ -490,13 +489,13 @@ _Splicer_next:
     mov [rdi], rsi ; Mutate
 .L25:
     lea rsi, [_Splicer_atEnd] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 8 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 8
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi ; Logical AND
@@ -520,7 +519,7 @@ _Splicer_next:
     sub rsi, rdi ; (U)INT  Sub
     mov [rbp + 24], rsi ; Declare identifier
     lea rsi, [_String_initLen] ; Method access
-    sub rsp, 32 ; Reserve call arg space
+    sub rsp, 24 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+48] ; Get Arg/Local
     mov [rsp+8], rsi
@@ -530,7 +529,7 @@ _Splicer_next:
     mov [rsp+24], rsi
     pop rcx
     call rcx
-    add rsp, 32
+    add rsp, 24
     mov rsi, rax
     mov rsi, 1 ; Load BOOL
     mov rax, rsi
@@ -561,7 +560,7 @@ _Splicer_atEnd:
 _Dictionary_init:
     push rbp
     mov rbp, rsp
-    sub rsp, 24 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, 8 ; Load INT
     mov [rsp+0], rsi
     mov rsi, qword [_SIZEOF_ENTRY] ; Get Global
@@ -571,7 +570,6 @@ _Dictionary_init:
     sub rsp, 32 ; Inline calloc call
     call calloc
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
     mov rdi, qword [rbp+16] ; Get Arg/Local
     mov [rdi], rsi ; Mutate
@@ -603,7 +601,7 @@ _Dictionary_resize:
     mov rsi, qword [rbp+56] ; Get Arg/Local
     mov rsi, qword [rsi+16] ; Field access
     mov [rbp + 16], rsi ; Declare identifier
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     mov rsi, qword [rbp+16] ; Get Arg/Local
     mov rdi, 2 ; Load INT
     imul rsi, rdi ; (U)INT Mul
@@ -615,6 +613,7 @@ _Dictionary_resize:
     sub rsp, 32 ; Inline calloc call
     call calloc
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov [rbp + 24], rsi ; Declare identifier
     mov rsi, qword [rbp+24] ; Get Arg/Local
@@ -646,20 +645,20 @@ _Dictionary_resize:
     lea rsi, [rsi+rdi] ; Ptr Index
     mov [rbp + 40], rsi ; Declare identifier
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 8 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 8
     mov rsi, rax
     test rsi, rsi
     jz .L33
     jmp .L32
 .L33:
     lea rsi, [_Dictionary_moveOverEntry] ; Method access
-    sub rsp, 32 ; Reserve call arg space
+    sub rsp, 24 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+56] ; Get Arg/Local
     mov [rsp+8], rsi
@@ -670,7 +669,7 @@ _Dictionary_resize:
     mov [rsp+24], rsi
     pop rcx
     call rcx
-    add rsp, 32
+    add rsp, 24
     mov rsi, rax
 .L32:
     mov rsi, 1 ; Load INT
@@ -684,13 +683,14 @@ _Dictionary_resize:
     test rsi, rsi ; Loop check
     jnz .L31
 .L30:
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+8] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     xor eax, eax
 .L29:
@@ -707,13 +707,13 @@ _Dictionary_moveOverEntry:
     mov rsi, qword [rsi+16] ; Field access
     mov [rbp + 8], rsi ; Declare identifier
     lea rsi, [_String_hash] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+56] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     mov [rbp + 16], rsi ; Declare identifier
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -730,13 +730,13 @@ _Dictionary_moveOverEntry:
     lea rsi, [rsi+rdi] ; Ptr Index
     mov [rbp + 32], rsi ; Declare identifier
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+32] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi ; Exit check
@@ -759,13 +759,13 @@ _Dictionary_moveOverEntry:
     mov [rdi], rsi ; Mutate
 .L37:
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+32] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi ; Loop check
@@ -815,13 +815,13 @@ _Dictionary_addEntry:
     test rsi, rsi
     jz .L39
     lea rsi, [_Dictionary_resize] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+48] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
 .L39:
     mov rsi, qword [rbp+48] ; Get Arg/Local
@@ -843,13 +843,13 @@ _Dictionary_addEntry:
     mov rsi, qword [rsi+16] ; Field access
     mov [rbp + 8], rsi ; Declare identifier
     lea rsi, [_String_hash] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+56] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     mov [rbp + 16], rsi ; Declare identifier
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -866,19 +866,19 @@ _Dictionary_addEntry:
     lea rsi, [rsi+rdi] ; Ptr Index
     mov [rbp + 32], rsi ; Declare identifier
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+32] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi ; Logical AND
     jz .L42
     lea rsi, [_String_cmp] ; Method access
-    sub rsp, 24 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+56] ; Get Arg/Local
     mov [rsp+8], rsi
@@ -886,7 +886,7 @@ _Dictionary_addEntry:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 24
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
 .L42:
@@ -910,19 +910,19 @@ _Dictionary_addEntry:
     mov [rdi], rsi ; Mutate
 .L44:
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+32] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi ; Logical AND
     jz .L45
     lea rsi, [_String_cmp] ; Method access
-    sub rsp, 24 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+56] ; Get Arg/Local
     mov [rsp+8], rsi
@@ -930,7 +930,7 @@ _Dictionary_addEntry:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 24
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
 .L45:
@@ -938,13 +938,13 @@ _Dictionary_addEntry:
     jnz .L43
 .L41:
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+32] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     test rsi, rsi
     jz .L46
@@ -992,13 +992,13 @@ _Dictionary_getEntry:
     mov rsi, qword [rsi+16] ; Field access
     mov [rbp + 8], rsi ; Declare identifier
     lea rsi, [_String_hash] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+56] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     mov [rbp + 16], rsi ; Declare identifier
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -1015,19 +1015,19 @@ _Dictionary_getEntry:
     lea rsi, [rsi+rdi] ; Ptr Index
     mov [rbp + 32], rsi ; Declare identifier
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+32] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi ; Logical AND
     jz .L50
     lea rsi, [_String_cmp] ; Method access
-    sub rsp, 24 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+56] ; Get Arg/Local
     mov [rsp+8], rsi
@@ -1035,7 +1035,7 @@ _Dictionary_getEntry:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 24
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
 .L50:
@@ -1061,19 +1061,19 @@ _Dictionary_getEntry:
     mov [rdi], rsi ; Mutate
 .L52:
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+32] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi ; Logical AND
     jz .L53
     lea rsi, [_String_cmp] ; Method access
-    sub rsp, 24 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+56] ; Get Arg/Local
     mov [rsp+8], rsi
@@ -1081,7 +1081,7 @@ _Dictionary_getEntry:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 24
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
 .L53:
@@ -1093,13 +1093,13 @@ _Dictionary_getEntry:
     mov rdi, qword [rbp+64] ; Get Arg/Local
     mov [rdi], rsi ; Mutate
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+32] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
     mov rax, rsi
@@ -1142,27 +1142,28 @@ _Dictionary_display:
     lea rsi, [rsi+rdi] ; Ptr Index
     mov [rbp + 40], rsi ; Declare identifier
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 8 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 8
     mov rsi, rax
     test rsi, rsi
     jz .L58
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     lea rsi, [C3]
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     jmp .L59
 .L58:
-    sub rsp, 32 ; Make space for native args
+    sub rsp, 40 ; Make space for native args
     lea rsi, [C4]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+40] ; Get Arg/Local
@@ -1181,6 +1182,7 @@ _Dictionary_display:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov rsi, qword [rsi+16] ; Field access
@@ -1212,7 +1214,7 @@ _Dictionary_display:
     test rsi, rsi ; Loop check
     jnz .L56
 .L55:
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C5]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+32] ; Get Arg/Local
@@ -1222,8 +1224,9 @@ _Dictionary_display:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C6]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+56] ; Get Arg/Local
@@ -1234,16 +1237,18 @@ _Dictionary_display:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     lea rsi, [C7]
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 32 ; Make space for native args
+    sub rsp, 40 ; Make space for native args
     lea rsi, [C4]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+24] ; Get Arg/Local
@@ -1262,6 +1267,7 @@ _Dictionary_display:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     xor eax, eax
 .L54:
@@ -1274,7 +1280,7 @@ _Dictionary_export:
     sub rsp, 112 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 8 ; Make space for native args
     mov rsi, qword [rbp+136] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
@@ -1282,12 +1288,12 @@ _Dictionary_export:
     mov r8, 3
     mov r9, 0
     push 0
+    push 0
     push 0x80
     push 1
     sub rsp, 32 ; Open file call
     call CreateFileA
-    add rsp, 56
-    add rsp, 8
+    add rsp, 64
     mov rsi, rax
     mov [rbp + 8], rsi ; Declare identifier
     mov rsi, qword [rbp+8] ; Get Arg/Local
@@ -1298,7 +1304,7 @@ _Dictionary_export:
     movzx rsi, al
     test rsi, rsi
     jz .L62
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 8 ; Make space for native args
     mov rsi, qword [rbp+136] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
@@ -1306,12 +1312,12 @@ _Dictionary_export:
     mov r8, 3
     mov r9, 0
     push 0
+    push 0
     push 0x80
     push 3
     sub rsp, 32 ; Open file call
     call CreateFileA
-    add rsp, 56
-    add rsp, 8
+    add rsp, 64
     mov rsi, rax
     lea rdi, [rbp+8] ; Get Local
     mov [rdi], rsi ; Mutate
@@ -1328,7 +1334,7 @@ _Dictionary_export:
     jmp .L61
 .L63:
 .L62:
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 8 ; Make space for native args
     mov rsi, qword [rbp+128] ; Get Arg/Local
     mov rsi, qword [rsi+24] ; Field access
     mov rdi, 100 ; Load INT
@@ -1338,7 +1344,6 @@ _Dictionary_export:
     sub rsp, 32 ; Inline malloc call
     call malloc
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
     mov [rbp + 16], rsi ; Declare identifier
     mov rsi, 0 ; Load INT
@@ -1363,19 +1368,19 @@ _Dictionary_export:
     lea rsi, [rsi+rdi] ; Ptr Index
     mov [rbp + 48], rsi ; Declare identifier
     lea rsi, [_String_isEmpty] ; Method access
-    sub rsp, 8 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     mov rsi, qword [rbp+48] ; Get Arg/Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 8
+    add rsp, 16
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi
     jz .L67
     lea rsi, [_Splicer_init] ; Method access
-    sub rsp, 24 ; Reserve call arg space
+    sub rsp, 32 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+56] ; Get Local
     mov [rsp+8], rsi
@@ -1385,7 +1390,7 @@ _Dictionary_export:
     mov [rsp+24], sil
     pop rcx
     call rcx
-    add rsp, 24
+    add rsp, 32
     mov rsi, rax
     mov rsi, 34 ; Load UINT
     mov rdi, qword [rbp+16] ; Get Arg/Local
@@ -1396,7 +1401,7 @@ _Dictionary_export:
     mov rsi, 1 ; Load INT
     mov [rbp + 96], rsi ; Declare identifier
     lea rsi, [_Splicer_next] ; Method access
-    sub rsp, 24 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+56] ; Get Local
     mov [rsp+8], rsi
@@ -1404,9 +1409,9 @@ _Dictionary_export:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 24
+    add rsp, 16
     mov rsi, rax
-    sub rsp, 40 ; Make space for native args
+    sub rsp, 32 ; Make space for native args
     mov rsi, qword [rbp+16] ; Get Arg/Local
     mov rdi, qword [rbp+96] ; Get Arg/Local
     imul rdi, 1
@@ -1427,14 +1432,13 @@ _Dictionary_export:
     sub rsp, 32 ; Inline sprintf call
     call sprintf
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
     lea rsi, [rbp+104] ; Get Local
     mov rsi, qword [rsi+8] ; Field access
     lea rdi, [rbp+96] ; Get Local
     add [rdi], rsi ; Mutate
     lea rsi, [_Splicer_next] ; Method access
-    sub rsp, 24 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+56] ; Get Local
     mov [rsp+8], rsi
@@ -1442,7 +1446,7 @@ _Dictionary_export:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 24
+    add rsp, 16
     mov rsi, rax
     test rsi, rsi ; Exit check
     jz .L68
@@ -1464,7 +1468,7 @@ _Dictionary_export:
     mov rsi, 2 ; Load INT
     lea rdi, [rbp+96] ; Get Local
     add [rdi], rsi ; Mutate
-    sub rsp, 40 ; Make space for native args
+    sub rsp, 32 ; Make space for native args
     mov rsi, qword [rbp+16] ; Get Arg/Local
     mov rdi, qword [rbp+96] ; Get Arg/Local
     imul rdi, 1
@@ -1485,7 +1489,6 @@ _Dictionary_export:
     sub rsp, 32 ; Inline sprintf call
     call sprintf
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
     lea rsi, [rbp+104] ; Get Local
     mov rsi, qword [rsi+8] ; Field access
@@ -1493,7 +1496,7 @@ _Dictionary_export:
     add [rdi], rsi ; Mutate
 .L70:
     lea rsi, [_Splicer_next] ; Method access
-    sub rsp, 24 ; Reserve call arg space
+    sub rsp, 16 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+56] ; Get Local
     mov [rsp+8], rsi
@@ -1501,12 +1504,12 @@ _Dictionary_export:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 24
+    add rsp, 16
     mov rsi, rax
     test rsi, rsi ; Loop check
     jnz .L69
 .L68:
-    sub rsp, 32 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     mov rsi, qword [rbp+16] ; Get Arg/Local
     mov rdi, qword [rbp+96] ; Get Arg/Local
     imul rdi, 1
@@ -1523,11 +1526,10 @@ _Dictionary_export:
     sub rsp, 32 ; Inline sprintf call
     call sprintf
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
     lea rdi, [rbp+96] ; Get Local
     add [rdi], rsi ; Mutate
-    sub rsp, 40 ; Make space for native args
+    sub rsp, 32 ; Make space for native args
     mov rsi, qword [rbp+8] ; Get Arg/Local
     mov [rsp+0], rsi
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -1541,22 +1543,21 @@ _Dictionary_export:
     pop r8
     pop r9
     push 0
+    push 0
     sub rsp, 32 ; Write call
     call WriteFile
-    add rsp, 40
-    add rsp, 8
+    add rsp, 48
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi
     jz .L71
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 8 ; Make space for native args
     mov rsi, qword [rbp+8] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
     mov rsi, 0 ; Load BOOL
     mov rax, rsi
@@ -1578,23 +1579,21 @@ _Dictionary_export:
     test rsi, rsi ; Loop check
     jnz .L65
 .L64:
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 8 ; Make space for native args
     mov rsi, qword [rbp+16] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 8 ; Make space for native args
     mov rsi, qword [rbp+8] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
     mov rsi, 1 ; Load BOOL
     mov rax, rsi
@@ -1608,7 +1607,7 @@ _Dictionary_export:
 _Dictionary_free:
     push rbp
     mov rbp, rsp
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 8 ; Make space for native args
     mov rsi, qword [rbp+16] ; Get Arg/Local
     mov rsi, qword [rsi+0] ; Field access
     mov [rsp+0], rsi
@@ -1616,7 +1615,6 @@ _Dictionary_free:
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
-    add rsp, 8
     mov rsi, rax
     xor eax, eax
 .L72:
@@ -1645,13 +1643,14 @@ _main:
 .L74:
     test rsi, rsi
     jz .L75
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     lea rsi, [C10]
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov rsi, 1 ; Load INT
     mov rax, rsi
@@ -1697,7 +1696,7 @@ _main:
     movzx rsi, byte [_DEFAULT_DELIMINATOR] ; Get Global
 .L79: ; End of If Expr
     mov [rbp + 32], sil ; Declare identifier
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+16] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
@@ -1705,11 +1704,13 @@ _main:
     mov r8, 3
     mov r9, 0
     push 0
+    push 0
     push 0x80
     push 3
     sub rsp, 32 ; Open file call
     call CreateFileA
-    add rsp, 56
+    add rsp, 64
+    add rsp, 8
     mov rsi, rax
     mov [rbp + 40], rsi ; Declare identifier
     mov rsi, qword [rbp+40] ; Get Arg/Local
@@ -1720,7 +1721,7 @@ _main:
     movzx rsi, al
     test rsi, rsi
     jz .L80
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C11]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -1730,12 +1731,13 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov rsi, 1 ; Load INT
     mov rax, rsi
     jmp .L73
 .L80:
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C12]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -1745,10 +1747,11 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov rsi, 0 ; Load INT
     mov [rbp + 48], rsi ; Declare identifier
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+0], rsi
     lea rsi, [rbp+48] ; Get Local
@@ -1758,13 +1761,14 @@ _main:
     sub rsp, 32 ; Get size of file call
     call GetFileSizeEx
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov [rbp + 56], sil ; Declare identifier
     movzx rsi, byte [rbp+56] ; Get Arg/Local
     xor rsi, 1 ; Bool not
     test rsi, rsi
     jz .L81
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C13]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -1774,14 +1778,16 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov rsi, 1 ; Load INT
     mov rax, rsi
@@ -1794,7 +1800,7 @@ _main:
     movzx rsi, al
     test rsi, rsi
     jz .L82
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C14]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -1804,26 +1810,29 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov rsi, 0 ; Load INT
     mov rax, rsi
     jmp .L73
 .L82:
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+48] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Inline malloc call
     call malloc
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov [rbp + 64], rsi ; Declare identifier
     mov rsi, qword [rbp+64] ; Get Arg/Local
@@ -1833,7 +1842,7 @@ _main:
     movzx rsi, al
     test rsi, rsi
     jz .L83
-    sub rsp, 24 ; Make space for native args
+    sub rsp, 32 ; Make space for native args
     lea rsi, [C15]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+48] ; Get Arg/Local
@@ -1846,14 +1855,16 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov rsi, 1 ; Load INT
     mov rax, rsi
@@ -1861,7 +1872,7 @@ _main:
 .L83:
     mov rsi, 0 ; Load INT
     mov [rbp + 72], rsi ; Declare identifier
-    sub rsp, 32 ; Make space for native args
+    sub rsp, 40 ; Make space for native args
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+0], rsi
     mov rsi, qword [rbp+64] ; Get Arg/Local
@@ -1875,9 +1886,11 @@ _main:
     pop r8
     pop r9
     push 0
+    push 0
     sub rsp, 32 ; Read call
     call ReadFile
-    add rsp, 40
+    add rsp, 48
+    add rsp, 8
     mov rsi, rax
     mov [rbp + 80], sil ; Declare identifier
     movzx rsi, byte [rbp+80] ; Get Arg/Local
@@ -1892,7 +1905,7 @@ _main:
 .L84:
     test rsi, rsi
     jz .L85
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C16]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+16] ; Get Arg/Local
@@ -1902,28 +1915,31 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+64] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov rsi, 1 ; Load INT
     mov rax, rsi
     jmp .L73
 .L85:
-    sub rsp, 24 ; Make space for native args
+    sub rsp, 32 ; Make space for native args
     lea rsi, [C17]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+72] ; Get Arg/Local
@@ -1936,18 +1952,19 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     lea rsi, [_Dictionary_init] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 8 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+88] ; Get Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 8
     mov rsi, rax
     lea rsi, [_String_initLen] ; Method access
-    sub rsp, 32 ; Reserve call arg space
+    sub rsp, 24 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+120] ; Get Local
     mov [rsp+8], rsi
@@ -1957,10 +1974,10 @@ _main:
     mov [rsp+24], rsi
     pop rcx
     call rcx
-    add rsp, 32
+    add rsp, 24
     mov rsi, rax
     lea rsi, [_Splicer_init] ; Method access
-    sub rsp, 32 ; Reserve call arg space
+    sub rsp, 24 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+136] ; Get Local
     mov [rsp+8], rsi
@@ -1970,10 +1987,10 @@ _main:
     mov [rsp+24], sil
     pop rcx
     call rcx
-    add rsp, 32
+    add rsp, 24
     mov rsi, rax
     lea rsi, [_Splicer_next] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 24 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+136] ; Get Local
     mov [rsp+8], rsi
@@ -1981,13 +1998,13 @@ _main:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 24
     mov rsi, rax
     test rsi, rsi ; Exit check
     jz .L86
 .L87:
     lea rsi, [_Dictionary_addEntry] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 24 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+88] ; Get Local
     mov [rsp+8], rsi
@@ -1995,11 +2012,11 @@ _main:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 24
     mov rsi, rax
 .L88:
     lea rsi, [_Splicer_next] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 24 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+136] ; Get Local
     mov [rsp+8], rsi
@@ -2007,7 +2024,7 @@ _main:
     mov [rsp+16], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 24
     mov rsi, rax
     test rsi, rsi ; Loop check
     jnz .L87
@@ -2015,7 +2032,7 @@ _main:
     mov rsi, 0 ; Load INT
     mov [rbp + 192], rsi ; Declare identifier
     lea rsi, [_Dictionary_export] ; Method access
-    sub rsp, 32 ; Reserve call arg space
+    sub rsp, 24 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+88] ; Get Local
     mov [rsp+8], rsi
@@ -2025,12 +2042,12 @@ _main:
     mov [rsp+24], rsi
     pop rcx
     call rcx
-    add rsp, 32
+    add rsp, 24
     mov rsi, rax
     xor rsi, 1 ; Bool not
     test rsi, rsi
     jz .L89
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C18]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+24] ; Get Arg/Local
@@ -2040,20 +2057,22 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+64] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     mov rsi, 1 ; Load INT
     mov rax, rsi
     jmp .L73
 .L89:
-    sub rsp, 24 ; Make space for native args
+    sub rsp, 32 ; Make space for native args
     lea rsi, [C19]
     mov [rsp+0], rsi
     mov rsi, qword [rbp+192] ; Get Arg/Local
@@ -2066,39 +2085,44 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     lea rsi, [_Dictionary_free] ; Method access
-    sub rsp, 16 ; Reserve call arg space
+    sub rsp, 8 ; Reserve call arg space
     push rsi
     lea rsi, [rbp+88] ; Get Local
     mov [rsp+8], rsi
     pop rcx
     call rcx
-    add rsp, 16
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+64] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
-    sub rsp, 8 ; Make space for native args
+    sub rsp, 16 ; Make space for native args
     mov rsi, qword [rbp+40] ; Get Arg/Local
     mov [rsp+0], rsi
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
+    sub rsp, 8 ; Make space for native args
     call @nanoTimestamp
+    add rsp, 8
     mov rsi, rax
     cvtsi2sd xmm0, rsi ; Non-floating point to F64
     movsd xmm1, [C20] ; Load F64
     divsd xmm0, xmm1 ; Float Div
     movsd [rbp + 200], xmm0 ; Declare identifier
-    sub rsp, 16 ; Make space for native args
+    sub rsp, 24 ; Make space for native args
     lea rsi, [C21]
     mov [rsp+0], rsi
     movsd xmm0, qword [rbp+200] ; Get Arg/Local
@@ -2108,6 +2132,7 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
+    add rsp, 8
     mov rsi, rax
     xor eax, eax
 .L73:
@@ -2154,28 +2179,28 @@ section .data
     extern GetFileSizeEx
 
     ; Program Constants ;
-    C16: db `Failed to read file: \"%s\"\n`, 0
-    C10: db `Usage: splicer.exe path/to/read/file [path/to/write/file] [deliminator]\n`, 0
-    C13: db `Failed to get file size of file: \"%s\"\n`, 0
-    C15: db `Failed to allocate read buffer of size %d bytes for file: \"%s\"\n`, 0
-    C17: db `Read %d bytes from file: \"%s\"\n`, 0
-    C1: dq 7.5e-1
-    C21: db `Time to run: %f s\n`, 0
     C2: db `\"%.*s\"\n`, 0
-    C6: db `Total unique entries: %d\n`, 0
+    C1: dq 7.5e-1
     C0: db `.\\splicer_out.txt`, 0
-    C8: db `%.*s`, 0
-    C9: db `\" : %i,\n`, 0
-    C20: dq 1e9
+    C3: db `<Empty>\n`, 0
+    C10: db `Usage: splicer.exe path/to/read/file [path/to/write/file] [deliminator]\n`, 0
+    C14: db `File is isEmpty: \"%s\"\n`, 0
+    C15: db `Failed to allocate read buffer of size %d bytes for file: \"%s\"\n`, 0
+    C4: db `Key: '%.*s', Value: %i\n`, 0
     C11: db `Failed to open file: \"%s\"\n`, 0
     C19: db `Exported %d bytes to file: \"%s\"\n`, 0
-    C5: db `Total entries: %d\n`, 0
-    C3: db `<Empty>\n`, 0
-    C4: db `Key: '%.*s', Value: %i\n`, 0
+    C20: dq 1e9
     C18: db `Could not export dictionary to \"%s\"\n`, 0
-    C7: db `Most common entry: `, 0
     C12: db `Opened file: \"%s\"\n`, 0
-    C14: db `File is isEmpty: \"%s\"\n`, 0
+    C8: db `%.*s`, 0
+    C13: db `Failed to get file size of file: \"%s\"\n`, 0
+    C6: db `Total unique entries: %d\n`, 0
+    C5: db `Total entries: %d\n`, 0
+    C7: db `Most common entry: `, 0
+    C17: db `Read %d bytes from file: \"%s\"\n`, 0
+    C21: db `Time to run: %f s\n`, 0
+    C9: db `\" : %i,\n`, 0
+    C16: db `Failed to read file: \"%s\"\n`, 0
 section .bss
     @CLOCK_START: resb 8
     @ARGC: resb 8

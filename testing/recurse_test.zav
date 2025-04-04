@@ -1,0 +1,21 @@
+fn main(argc: i64, argv: **const u8) i64 {
+    const test1 = false;
+
+    const result = recurse(10);
+
+    @printf("Result was %d\n", result);
+    return 0;
+}
+
+fn recurse(count: i64) i64 {
+    const test1 = 100;
+    const test2: i8 = undefined;
+
+    if (count <= 0) {
+        return count;
+    }
+
+    @printf("Count %d\n", count);
+
+    return recurse(count - 1);
+}
