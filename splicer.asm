@@ -2180,27 +2180,27 @@ section .data
 
     ; Program Constants ;
     C15: db `Failed to allocate read buffer of size %d bytes for file: \"%s\"\n`, 0
-    C19: db `Exported %d bytes to file: \"%s\"\n`, 0
-    C17: db `Read %d bytes from file: \"%s\"\n`, 0
     C13: db `Failed to get file size of file: \"%s\"\n`, 0
-    C2: db `\"%.*s\"\n`, 0
-    C11: db `Failed to open file: \"%s\"\n`, 0
+    C17: db `Read %d bytes from file: \"%s\"\n`, 0
     C1: dq 7.5e-1
-    C16: db `Failed to read file: \"%s\"\n`, 0
+    C3: db `<Empty>\n`, 0
+    C5: db `Total entries: %d\n`, 0
+    C19: db `Exported %d bytes to file: \"%s\"\n`, 0
+    C7: db `Most common entry: `, 0
     C20: dq 1e9
+    C21: db `Time to run: %f s\n`, 0
+    C8: db `%.*s`, 0
+    C0: db `.\\splicer_out.txt`, 0
+    C11: db `Failed to open file: \"%s\"\n`, 0
     C14: db `File is isEmpty: \"%s\"\n`, 0
+    C9: db `\" : %i,\n`, 0
+    C18: db `Could not export dictionary to \"%s\"\n`, 0
+    C2: db `\"%.*s\"\n`, 0
     C4: db `Key: '%.*s', Value: %i\n`, 0
     C6: db `Total unique entries: %d\n`, 0
-    C7: db `Most common entry: `, 0
-    C8: db `%.*s`, 0
-    C12: db `Opened file: \"%s\"\n`, 0
-    C21: db `Time to run: %f s\n`, 0
-    C5: db `Total entries: %d\n`, 0
-    C3: db `<Empty>\n`, 0
-    C18: db `Could not export dictionary to \"%s\"\n`, 0
-    C0: db `.\\splicer_out.txt`, 0
-    C9: db `\" : %i,\n`, 0
     C10: db `Usage: splicer.exe path/to/read/file [path/to/write/file] [deliminator]\n`, 0
+    C12: db `Opened file: \"%s\"\n`, 0
+    C16: db `Failed to read file: \"%s\"\n`, 0
 section .bss
     @CLOCK_START: resb 8
     @ARGC: resb 8
