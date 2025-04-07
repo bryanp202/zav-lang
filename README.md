@@ -13,9 +13,12 @@ Will output a .asm file in NASM format without any dependencies, but will assume
 - \? Means the prior token is optional 
 - \| Means logical OR
 
+
 ## Common terms:
+
 ### **Identifier:** [_a-zA-Z] [_a-zA-Z0-9]*
   - A variable, function, method, or arguments identifier
+
 ### **Type/Kind:** Integer | Float | Pointer | Array | Function | Struct | Bool | Void
   - **Integer:** ("i" | "u") ("8" | "16" | "32" | "64")
     - "i" for signed integer; "u" for unsigned integer
@@ -35,8 +38,22 @@ Will output a .asm file in NASM format without any dependencies, but will assume
   - **Bool:** "bool"
     - Node: can be assigned with "true" or "false"
   - **Void:** "void"
+
+### **Primative:** Integer | Float | Character | String | "true" | "false" | "nullptr" | **Identifier** | **NativeExpr**
+  - **Integer:** [0-9]+
+    - Defaults to i64
+  - **Float:** [0-9]* '.' [0-9]*
+    - Defaults to f64
+  - **Character:** '\'' ASCII Character '\''
+    - Results in a u8
+  - **String;** '\"' ASCII Character* '\"'
+    - Does not support multiline strings
+    - Allows for escape sequences such as "Hello world!\n"
+
+
 ## What is in a program?
 Zav currently does not support any form of modules or imports, so everything must be localized to one file. A file will be considered a **program**.
+
 ### **Program:** MainFunction (StructDeclaration | FunctionDefinition | GlobalDeclaration)*
   - **MainFunction:** "fn" main '(' **Identifier** ':' i64, **Identifier** ':' **u8 ')' "i64" BlockStmt
 ### **StructDeclaration:** "struct" '(' (Field | Method)+ ')'
@@ -47,11 +64,21 @@ Zav currently does not support any form of modules or imports, so everything mus
       - Note: Parameters are immutable
 ### **FunctionDeclaration:** "fn" **Identifier** '(' ParamList? ')' BlockStmt
   - **ParamList:** **Parameter** (',' **Parameter**)*
-### **GlobalDeclaration:** ("const" | "var") **Identifier** (':' **Type/Kind**)? '=' (Literal | "undefined") ';'
+### **GlobalDeclaration:** ("const" | "var") **Identifier** (':' **Type/Kind**)? '=' (Primative | "undefined") ';'
   - "undefined" is used to not initialize a variable while reserving space, only useful for "var" variables
   - The type definition is optional only if "undefined" is not used
 
+
 ## Statements: The building blocks
-### **BlockStmt:** '{' DeclarationStmt* '}'
-### **DeclarationStmt:** 
+
+### **Declaration:** Statement | DeclarationStmt
+  - **DeclarationStmt:** ("const" | "var") **Identifier** (':' **Type/Kind**)? '=' (Primative | "undefined") ';'
+    - "undefined" is used to not initialize a variable while reserving space, only useful for "var" variables
+    - The type definition is optional only if "undefined" is not used
+
+### **Statement:** BlockStmt | MutationStmt | ReturnStmt | ContinueStmt | WhileStmt | ExpressionStmt | ReturnStmt | IfStmt
+
+### **BlockStmt:** '{' Declaration* '}'
+### **MutationStmt:** **Indentifier** [-+/*^&|]? '=' Primative ';'
+
 
