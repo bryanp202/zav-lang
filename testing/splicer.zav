@@ -76,8 +76,8 @@ fn main(argc: i64, argv: **u8) i64 {
 
         while(delim_splicer.next(&output)) {
             output.trim();
-            //output.display();
-            dict.addEntry(&output);
+
+            if (!output.isZeroLength()) dict.addEntry(&output);
         }
     }
 
@@ -149,6 +149,10 @@ struct String {
         return self.*.ptr == nullptr;
     }
 
+    fn isZeroLength(self: *const String) bool {
+        return self.*.len == <u64>0;
+    }
+
     fn hash(self: *const String) u64 {
         var hash = <u32>2166126261;
     
@@ -165,18 +169,17 @@ struct String {
     }
 
     fn trim(self: *String) void {
+        const len = self.*.len;
+        const data = self.*.ptr;
+
         var start = 0;
-        var head = self.*.ptr[start];
-        while (head == <u8>10 or head == <u8>13) {
+        while (start < len and data[start] == <u8>10 or data[start] == <u8>13) {
             start += 1;
-            head = self.*.ptr[start];
         }
 
         var end = self.*.len - 1;
-        var tail = self.*.ptr[end];
-        while (tail == <u8>10 or tail == <u8>13) {
+        while (end > 0 and data[end] == <u8>10 or data[end] == <u8>13) {
             end -= 1;
-            tail = self.*.ptr[end];
         }
 
         self.*.len = (end - start + 1 <= 0) ? <u64>0 : <u64>(end - start + 1);
