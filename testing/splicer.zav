@@ -61,12 +61,24 @@ fn main(argc: i64, argv: **u8) i64 {
     var source: String = undefined;
     source.initLen(buffer, bytes_read);
 
-    var splicer: Splicer = undefined;
-    splicer.init(&source, deliminator);
+    var line_splicer: Splicer = undefined;
+    line_splicer.init(&source, <u8>10);
 
-    var output: String = undefined;
-    while(splicer.next(&output)) {
-        dict.addEntry(&output);
+    var line: String = undefined;
+
+    while(line_splicer.next(&line)) {
+        //line.display();
+
+        var delim_splicer: Splicer = undefined;
+        delim_splicer.init(&line, deliminator);
+
+        var output: String = undefined;
+
+        while(delim_splicer.next(&output)) {
+            output.trim();
+            //output.display();
+            dict.addEntry(&output);
+        }
     }
 
     // Write dictionary to a new file
@@ -150,6 +162,25 @@ struct String {
         } loop: index += 1;
 
         return hash;
+    }
+
+    fn trim(self: *String) void {
+        var start = 0;
+        var head = self.*.ptr[start];
+        while (head == <u8>10 or head == <u8>13) {
+            start += 1;
+            head = self.*.ptr[start];
+        }
+
+        var end = self.*.len - 1;
+        var tail = self.*.ptr[end];
+        while (tail == <u8>10 or tail == <u8>13) {
+            end -= 1;
+            tail = self.*.ptr[end];
+        }
+
+        self.*.len = (end - start + 1 <= 0) ? <u64>0 : <u64>(end - start + 1);
+        self.*.ptr = &self.*.ptr[start];
     }
 
     fn display(self: *const String) void {
