@@ -131,6 +131,10 @@ pub const StmtNode = union(enum) {
                 for (structStmt.field_names, structStmt.field_kinds) |name, kind| {
                     std.debug.print("    {s}: {any},\n", .{ name.lexeme, kind });
                 }
+                // Print Methods
+                for (structStmt.methods) |method| {
+                    method.display();
+                }
                 std.debug.print("}}\n", .{});
             },
             .ENUM => |enumStmt| {
@@ -218,6 +222,17 @@ pub const FunctionStmt = struct {
             .return_kind = return_kind,
             .body = body,
         };
+    }
+
+    /// Debug display
+    fn display(self: FunctionStmt) void {
+        std.debug.print("fn {s} (\n", .{self.name.lexeme});
+        // Print args
+        for (self.arg_names, self.arg_kinds) |name, kind| {
+            std.debug.print("    {s}: {any},\n", .{ name.lexeme, kind });
+        }
+        std.debug.print(") {any} ", .{self.return_kind});
+        self.body.display();
     }
 };
 
