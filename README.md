@@ -11,7 +11,7 @@ The testing fold has many examples, some of which are outdated, that demonstrate
 
 Splicer.zav is likely the best place to start.
 
-![splizer example](./assets/example-code.png)
+![splizer example](./assets/splicer-example-code.png)
 
 # Zav Language Grammar
 ### Notation:
