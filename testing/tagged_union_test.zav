@@ -1,0 +1,47 @@
+/*
+    Sample Test of an Enum
+*/
+
+enum Type {
+    Integer,
+    Double
+}
+
+struct Value { // Wrapper that resembles Tagged Union
+    type: Type;
+    data: *void;
+
+    fn init(self: *Value, type: Type, data: *void) void {
+        self.*.type = type;
+        self.*.data = data;
+    }
+}
+
+fn main(argc: i64, argv: **u8) i64 {
+    const data1: i64 = 100;
+    const data2: f64 = 100.0;
+    const data3: i64 = 123;
+    const data4: f64 = 0.111;
+    const data5: f64 = -123;
+
+    const values: [5]Value = undefined;
+    values[0].init(Type::Integer, <*void>&data1);
+    values[1].init(Type::Double, <*void>&data2);
+    values[2].init(Type::Integer, <*void>&data3);
+    values[3].init(Type::Double, <*void>&data4);
+    values[4].init(Type::Double, <*void>&data5);
+
+    var i = 0;
+    while (i < @len(values)) {
+        const type = values[i].type;
+        const data_ptr = values[i].data;
+
+        if (type == Type::Integer and true) {
+            @printf("Integer: %d\n", data_ptr.*);
+        } else if (type == Type::Double) {
+            @printf("Double: %f\n", data_ptr.*);
+        }
+    } loop i += 1;
+
+    @printf("Done: %d\n", @len(values));
+}

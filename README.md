@@ -6,6 +6,13 @@ Zav takes some inspiration from [Clox](https://craftinginterpreters.com/) by Rob
 # Dependencies
 Will output a .asm file in NASM format without any dependencies, but will assume NASM and GCC are installed to path in order to output an exe file.
 
+# Example
+The testing fold has many examples, some of which are outdated, that demonstrate the language's capabilities.
+
+Splicer.zav is likely the best place to start.
+
+![splizer example](./assets/example-code.png)
+
 # Zav Language Grammar
 ### Notation:
 - \* Means zero or more
