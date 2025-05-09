@@ -679,8 +679,7 @@ fn whileStmt(self: *Parser) SyntaxError!StmtNode {
     // Check for loop stmt
     var loop_stmt: ?StmtNode = null;
     if (self.match(.{TokenKind.LOOP})) {
-        // Consume ':'
-        try self.consume(TokenKind.COLON, "Expected ':' after loop keyword");
+        // try self.consume(TokenKind.COLON, "Expected ':' after loop keyword");
         // Try to parse the statement
         loop_stmt = try self.statement();
     }

@@ -81,7 +81,7 @@ pub const StmtNode = union(enum) {
                 std.debug.print(") ", .{});
                 whileStmt.body.display();
                 if (whileStmt.loop_stmt) |loop_stmt| {
-                    std.debug.print(" loop: ", .{});
+                    std.debug.print(" loop ", .{});
                     loop_stmt.display();
                 }
             },
@@ -292,7 +292,7 @@ pub const ExprStmt = struct {
 };
 
 /// Used to store a WhileStmt
-/// whilestmt -> "while" '(' expression ')' statement ("loop: " statemnt)?
+/// whilestmt -> "while" '(' expression ')' statement ("loop " statemnt)?
 pub const WhileStmt = struct {
     op: Token,
     conditional: ExprNode,

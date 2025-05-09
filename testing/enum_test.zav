@@ -18,10 +18,18 @@ fn main(argc: i64, argv: **u8) i64 {
     // This doesn't compile
     // different_type_enum == enum_test;
 
-    <Message>different_type_enum == enum_test;
+    <Message>different_type_enum == enum_test;      // This does
 
     if (take_enum(enum_test2)) {
         @printf("Enum type was Message::Hello!\n");
+    }
+
+    var count = 0;
+
+    while (count < 10) {
+        @printf("Count is %d\n", count);
+    } loop {
+        count += 1;
     }
 
     @printf("The enum values are: %d and %d\n", enum_test, enum_test2);
