@@ -445,7 +445,7 @@ pub const Field = struct {
 // *********************** //
 
 // Enum for the types available in Zav
-pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT };
+pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT, ENUM, USER_KIND };
 
 /// Used to mark what type a variable is
 pub const KindId = union(Kinds) {
@@ -460,6 +460,8 @@ pub const KindId = union(Kinds) {
     ARRAY: Array,
     FUNC: Function,
     STRUCT: Struct,
+    ENUM: Enum,
+    USER_KIND: []const u8,
 
     /// Init a new unsigned integer
     pub fn newUInt(bits: u16) KindId {
@@ -537,6 +539,16 @@ pub const KindId = union(Kinds) {
         const new_struct = Struct{ .name = name, .fields = undefined };
         return KindId{ .STRUCT = new_struct };
     }
+    /// Make an enum with a variant field
+    pub fn newEnumWithVariants(name: []const u8, variants: *std.StringHashMap(Enum.EnumVariant)) KindId {
+        const new_enum = Enum{ .name = name, .variants = variants };
+        return KindId{ .ENUM = new_enum };
+    }
+    /// Make an empty enum
+    pub fn newEnum(name: []const u8) KindId {
+        const new_enum = Enum{ .name = name, .variants = undefined };
+        return KindId{ .ENUM = new_enum };
+    }
 
     /// Return if this kindid is the same as another
     pub fn equal(self: KindId, other: KindId) bool {
@@ -557,6 +569,8 @@ pub const KindId = union(Kinds) {
             .ARRAY => |arr| return other == .ARRAY and arr.equal(other.ARRAY),
             .FUNC => |func| return other == .FUNC and func.equal(other.FUNC),
             .STRUCT => |srct| return other == .STRUCT and srct.equal(other.STRUCT),
+            .ENUM => |enm| return other == .ENUM and enm.equal(other.ENUM),
+            .USER_KIND => unreachable,
         };
     }
 
@@ -571,6 +585,8 @@ pub const KindId = union(Kinds) {
             .ANY, .FLOAT64, .PTR, .FUNC => 8,
             .ARRAY => |arr| arr.size(),
             .STRUCT => |stct| stct.fields.size(),
+            .ENUM => 2,
+            .USER_KIND => unreachable,
         };
     }
 
@@ -583,6 +599,8 @@ pub const KindId = union(Kinds) {
             .INT => |int| int.size(),
             .FLOAT32 => 4,
             .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC, .STRUCT => 8,
+            .ENUM => 2,
+            .USER_KIND => unreachable,
         };
     }
 
@@ -599,6 +617,18 @@ pub const KindId = union(Kinds) {
             .ARRAY => |*arr| arr.updateArray(stm),
             .FUNC => |*func| func.updateArgSize(stm),
             .STRUCT => |*strct| strct.updateFields(stm),
+            .ENUM => |*enm| enm.updateVariants(stm),
+            .USER_KIND => |name| {
+                const symbol = try stm.peakSymbol(name);
+
+                switch (symbol.kind) {
+                    .STRUCT, .ENUM => {
+                        self.* = symbol.kind;
+                        return self.update(stm);
+                    },
+                    else => return ScopeError.UndeclaredSymbol,
+                }
+            },
             else => unreachable,
         };
     }
@@ -611,6 +641,7 @@ pub const ScopeKind = enum {
     GLOBAL,
     FUNC,
     STRUCT,
+    ENUM,
 };
 
 // *********************** //
@@ -735,7 +766,7 @@ const Function = struct {
 };
 
 /// Structure data type
-const Struct = struct {
+pub const Struct = struct {
     name: []const u8,
     fields: *StructScope,
     index: u64 = undefined,
@@ -754,6 +785,33 @@ const Struct = struct {
         self.fields = symbol.kind.STRUCT.fields;
         return self.fields.next_address + 8 - (self.fields.next_address % 8);
     }
+};
+
+/// Stores enum types
+///
+/// All enums are treated as u16 at runtime
+pub const Enum = struct {
+    name: []const u8,
+    variants: *std.StringHashMap(EnumVariant),
+
+    pub fn equal(self: Enum, other: Enum) bool {
+        return self.name.ptr == other.name.ptr and self.name.len == other.name.len and self.variants == other.variants;
+    }
+
+    /// Resolve the struct size of a user defined struct kind
+    pub fn updateVariants(self: *Enum, stm: *SymbolTableManager) ScopeError!usize {
+        const symbol = try stm.getSymbol(self.name);
+        if (symbol.kind != .ENUM) return ScopeError.UndeclaredSymbol;
+        self.variants = symbol.kind.ENUM.variants;
+        return 2;
+    }
+
+    pub const EnumVariant = struct {
+        name: []const u8,
+        value: u16,
+        dcl_line: u64,
+        dcl_column: u64,
+    };
 };
 
 // *********************** //

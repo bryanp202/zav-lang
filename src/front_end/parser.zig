@@ -248,7 +248,7 @@ fn parseKind(self: *Parser) SyntaxError!KindId {
         .F64_TYPE => KindId.FLOAT64,
         .LEFT_SQUARE => try self.parseArrayKind(),
         .STAR => try self.parsePtrKind(),
-        .IDENTIFIER => KindId.newStruct(token.lexeme),
+        .IDENTIFIER => KindId{ .USER_KIND = token.lexeme },
         .FN => try self.parseFuncKind(),
         else => self.errorAt("Expected type"),
     };
@@ -367,6 +367,8 @@ fn global(self: *Parser) SyntaxError!StmtNode {
         return self.functionStmt();
     } else if (self.match(.{TokenKind.STRUCT})) {
         return self.structStmt();
+    } else if (self.match(.{TokenKind.ENUM})) {
+        return self.enumStmt();
     }
     _ = self.advance();
     return self.errorAt("Expected global variable, function declaration, or struct definition");
@@ -542,6 +544,34 @@ fn struct_field(self: *Parser, field_name_list: *std.ArrayList(Token), field_kin
 fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) SyntaxError!void {
     const new_method = try self.functionStmt();
     method_list.append(new_method.FUNCTION.*) catch unreachable;
+}
+
+fn enumStmt(self: *Parser) SyntaxError!StmtNode {
+    try self.consume(TokenKind.IDENTIFIER, "Expected enum identifier");
+    const id = self.previous;
+    try self.consume(TokenKind.LEFT_BRACE, "Expected '{' before enum variant list");
+
+    var variant_names_list = std.ArrayList(Token).init(self.allocator);
+
+    try self.consume(TokenKind.IDENTIFIER, "Expected at least one enum variant");
+    variant_names_list.append(self.previous) catch unreachable;
+
+    // Do the rest if there are any
+    while (!self.match(.{TokenKind.RIGHT_BRACE}) and !self.isAtEnd()) {
+        try self.consume(TokenKind.COMMA, "Expected comma between variants");
+
+        try self.consume(TokenKind.IDENTIFIER, "Expected enum variant");
+        variant_names_list.append(self.previous) catch unreachable;
+    }
+    // Check if previous was brace
+    if (self.previous.kind != .RIGHT_BRACE) {
+        return self.errorAt("Expected '}' after struct field list");
+    }
+
+    // Create new stmt
+    const new_stmt = self.allocator.create(Stmt.EnumStmt) catch unreachable;
+    new_stmt.* = Stmt.EnumStmt.init(id, variant_names_list.items);
+    return StmtNode{ .ENUM = new_stmt };
 }
 
 // ************************** //
@@ -1309,9 +1339,20 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             return self.errorAt("Do not use arrays yet please thanks");
         },
         .IDENTIFIER => {
+            var id_token: Token = token;
+            var lexical_scope: ?Token = null;
+
+            // Check if next is "::"
+            if (self.match(.{TokenKind.SCOPE})) {
+                try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope deliminator");
+
+                id_token = self.previous;
+                lexical_scope = token;
+            }
+
             // Make new constant expression
             const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-            identifier_expr.* = .{ .id = token };
+            identifier_expr.* = .{ .id = id_token, .lexical_scope = lexical_scope };
             const node = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
             // Wrap in ExprResult
             return ExprResult.init(node, 0);

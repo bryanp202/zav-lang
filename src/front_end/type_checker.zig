@@ -57,6 +57,19 @@ pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
 /// in preparation for code generation
 /// Returns true if semantics are okay
 pub fn check(self: *TypeChecker, module: *Module) void {
+    // Define all enums
+    for (module.enumSlice()) |enm| {
+        self.declareEnum(enm.ENUM) catch {
+            self.panic = false;
+            self.had_error = true;
+            continue;
+        };
+    }
+    // If had error in enum names, return
+    if (self.had_error) {
+        return;
+    }
+
     // Index all struct definitions
     for (module.structSlice(), 0..) |strct, index| {
         // Add it to symbol table
@@ -695,6 +708,33 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
 // Stmt anaylsis  methods //
 // ********************** //
 
+/// Declare a enum type, checking if name has already been used
+fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void {
+    const EnumVariant = Symbols.Enum.EnumVariant;
+
+    const new_variants = self.allocator.create(std.StringHashMap(EnumVariant)) catch unreachable;
+    new_variants.* = std.StringHashMap(EnumVariant).init(self.allocator);
+
+    for (0.., enum_stmt.variant_names) |value, variant| {
+        const getOrPut = new_variants.getOrPut(variant.lexeme) catch unreachable;
+
+        if (getOrPut.found_existing) {
+            const line = getOrPut.value_ptr.*.dcl_line;
+            const column = getOrPut.value_ptr.*.dcl_column;
+            return self.reportDuplicateError(variant, line, column);
+        }
+
+        getOrPut.value_ptr.* = EnumVariant{ .value = @as(u16, @intCast(value)), .name = variant.lexeme, .dcl_line = variant.line, .dcl_column = variant.column };
+    }
+
+    const enum_kind = KindId.newEnumWithVariants(enum_stmt.id.lexeme, new_variants);
+
+    _ = self.stm.declareSymbol(enum_stmt.id.lexeme, enum_kind, ScopeKind.ENUM, enum_stmt.id.line, enum_stmt.id.column, false) catch {
+        const old_id = self.stm.getSymbol(enum_stmt.id.lexeme) catch unreachable;
+        return self.reportDuplicateError(enum_stmt.id, old_id.dcl_line, old_id.dcl_column);
+    };
+}
+
 /// Index and add a struct to the STM
 fn indexStruct(self: *TypeChecker, name: Token, index: u64) SemanticError!void {
     // Create new struct with scope and index
@@ -725,28 +765,35 @@ fn declareStruct(
     // Add each field to the struct, declaring any structs encountered
     for (structStmt.field_names, structStmt.field_kinds) |name, *kind| {
         switch (kind.*) {
-            .STRUCT => |*struct_arg| {
+            .USER_KIND => |unknown_name| {
                 // Get from stm
-                const field_symbol = self.stm.getSymbol(struct_arg.name) catch {
+                const field_symbol = self.stm.getSymbol(unknown_name) catch {
                     return self.reportError(SemanticError.UnresolvableIdentifier, name, "Undefined struct type");
                 };
-                // If already visited, throw error
-                if (field_symbol.kind.STRUCT.visited) {
-                    struct_kind.*.visited = false;
-                    return self.reportError(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected");
-                }
-                // Visit this struct if not already declared
-                if (!field_symbol.kind.STRUCT.declared) {
-                    const field_index = field_symbol.kind.STRUCT.index;
-                    const field_structStmt = module.structSlice()[field_index].STRUCT;
-                    self.declareStruct(module, field_symbol, field_structStmt) catch {
-                        self.panic = false;
-                        return self.reportError(SemanticError.UnresolvableIdentifier, name, " |");
-                    };
-                }
 
-                // Update StructScope
-                struct_arg.fields = field_symbol.kind.STRUCT.fields;
+                switch (field_symbol.kind) {
+                    .STRUCT => {
+                        // If already visited, throw error
+                        if (field_symbol.kind.STRUCT.visited) {
+                            struct_kind.*.visited = false;
+                            return self.reportError(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected");
+                        }
+                        // Visit this struct if not already declared
+                        if (!field_symbol.kind.STRUCT.declared) {
+                            const field_index = field_symbol.kind.STRUCT.index;
+                            const field_structStmt = module.structSlice()[field_index].STRUCT;
+                            self.declareStruct(module, field_symbol, field_structStmt) catch {
+                                self.panic = false;
+                                return self.reportError(SemanticError.UnresolvableIdentifier, name, " |");
+                            };
+                        }
+
+                        // Update StructScope
+                        kind.* = KindId{ .STRUCT = Symbols.Struct{ .name = unknown_name, .fields = field_symbol.kind.STRUCT.fields } };
+                    },
+                    .ENUM => kind.* = KindId{ .ENUM = Symbols.Enum{ .name = unknown_name, .variants = field_symbol.kind.ENUM.variants } },
+                    else => undefined,
+                }
             },
             .PTR => |*ptr_arg| _ = ptr_arg.updatePtr(self.stm) catch {
                 return self.reportError(
@@ -1286,6 +1333,12 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     // Extract name from id token
     const token = node.*.expr.IDENTIFIER.id;
     const name = token.lexeme;
+
+    // Check if trying to access lexical scope
+    if (node.expr.IDENTIFIER.lexical_scope) |lexical_scope| {
+        return self.reportError(SemanticError.UnmutatedVarIdentifier, lexical_scope, "Cannot modify values accessed through scopes");
+    }
+
     // Try to get the symbol, else throw error
     const symbol = self.stm.getSymbol(name) catch {
         return self.reportError(SemanticError.UnresolvableIdentifier, token, "Identifier is undeclared");
@@ -1300,7 +1353,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
         .GLOBAL, .FUNC => undefined,
-        .STRUCT => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct type"),
+        .STRUCT, .ENUM => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct or enum type"),
     }
 
     // Wrap in id_result with constant status of symbol
@@ -1315,6 +1368,29 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     // Extract name from id token
     const token = node.*.expr.IDENTIFIER.id;
     const name = token.lexeme;
+
+    // Check if trying to access lexical scope
+    if (node.expr.IDENTIFIER.lexical_scope) |lexical_scope| {
+        const scope_target = self.stm.getSymbol(lexical_scope.lexeme) catch {
+            return self.reportError(SemanticError.UnresolvableIdentifier, lexical_scope, "Could not find lexical scope target");
+        };
+
+        switch (scope_target.kind) {
+            .ENUM => |enm| {
+                const variant = enm.variants.get(name) orelse {
+                    return self.reportError(SemanticError.UnresolvableIdentifier, token, "Undeclared enum variant");
+                };
+
+                const new_literal = self.allocator.create(Expr.LiteralExpr) catch unreachable;
+                new_literal.* = Expr.LiteralExpr{ .literal = token, .value = Value.newUInt(variant.value, 16) };
+                node.* = ExprNode.init(Expr.ExprUnion{ .LITERAL = new_literal });
+            },
+            else => return self.reportError(SemanticError.TypeMismatch, lexical_scope, "Can only lexically scope enum kinds"),
+        }
+        node.*.result_kind = scope_target.kind;
+        return scope_target.kind;
+    }
+
     // Try to get the symbol, else throw error
     const symbol = self.stm.getSymbol(name) catch {
         return self.reportError(SemanticError.UnresolvableIdentifier, token, "Identifier is undeclared");
@@ -1327,7 +1403,7 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
         .GLOBAL, .FUNC => undefined,
-        .STRUCT => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access a struct type"),
+        .STRUCT, .ENUM => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct or enum type"),
     }
 
     // Return its stored kind and update final
@@ -1817,7 +1893,7 @@ fn visitCompareExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Rename form to be shorter
     const kind = coerce_result.final_kind;
     // Check if legal type for comparison
-    if (kind != .INT and kind != .UINT and kind != .FLOAT32 and kind != .FLOAT64 and kind != .PTR) {
+    if (kind != .INT and kind != .UINT and kind != .FLOAT32 and kind != .FLOAT64 and kind != .PTR and kind != .ENUM) {
         return self.reportError(SemanticError.TypeMismatch, op, "Cannot compare non-number values");
     }
 

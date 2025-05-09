@@ -23,6 +23,7 @@ pub const StmtNode = union(enum) {
     FUNCTION: *FunctionStmt,
     RETURN: *ReturnStmt,
     STRUCT: *StructStmt,
+    ENUM: *EnumStmt,
 
     /// Display a stmt
     pub fn display(self: StmtNode) void {
@@ -129,6 +130,13 @@ pub const StmtNode = union(enum) {
                 // Print Fields
                 for (structStmt.field_names, structStmt.field_kinds) |name, kind| {
                     std.debug.print("    {s}: {any},\n", .{ name.lexeme, kind });
+                }
+                std.debug.print("}}\n", .{});
+            },
+            .ENUM => |enumStmt| {
+                std.debug.print("enum {s} {{\n", .{enumStmt.id.lexeme});
+                for (enumStmt.variant_names) |variant| {
+                    std.debug.print("    {s},\n", .{variant.lexeme});
                 }
                 std.debug.print("}}\n", .{});
             },
@@ -350,6 +358,23 @@ pub const ReturnStmt = struct {
         return ReturnStmt{
             .op = op,
             .expr = expr,
+        };
+    }
+};
+
+/// Used to store an enum
+///
+/// - enumStmt -> "enum" { variants_list }
+/// - variants_list -> variant (, variant)?
+/// - variant -> identifier
+pub const EnumStmt = struct {
+    id: Token,
+    variant_names: []Token,
+
+    pub fn init(id: Token, variants: []Token) EnumStmt {
+        return EnumStmt{
+            .id = id,
+            .variant_names = variants,
         };
     }
 };

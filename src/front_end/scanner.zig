@@ -51,7 +51,6 @@ pub const Scanner = struct {
         // Determine what symbol it is
         switch (c) {
             // Single char tokens
-            ':' => return self.emitToken(TokenKind.COLON),
             ';' => return self.emitToken(TokenKind.SEMICOLON),
             ',' => return self.emitToken(TokenKind.COMMA),
             '.' => return self.emitToken(TokenKind.DOT),
@@ -123,6 +122,11 @@ pub const Scanner = struct {
             // Indexing and Array type
             '[' => {
                 const kind = if (self.match(']')) TokenKind.ARRAY_TYPE else TokenKind.LEFT_SQUARE;
+                return self.emitToken(kind);
+            },
+            // Scopes or type declaration
+            ':' => {
+                const kind = if (self.match(':')) TokenKind.SCOPE else TokenKind.COLON;
                 return self.emitToken(kind);
             },
 
@@ -572,7 +576,6 @@ pub const TokenKind = enum {
     //// Single char ////
     DOT,
     SEMICOLON,
-    COLON,
     COMMA,
     QUESTION_MARK,
     LEFT_BRACE,
@@ -613,6 +616,8 @@ pub const TokenKind = enum {
     RIGHT_SQUARE,
     // Array
     ARRAY_TYPE,
+    COLON,
+    SCOPE,
 
     //// Literals ////
     INTEGER,

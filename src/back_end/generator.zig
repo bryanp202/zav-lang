@@ -1346,6 +1346,14 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
                 const reg = self.popCPUReg();
                 try self.print("    mov [rsp+{d}], {s}\n", .{ stack_pos, reg.name });
             },
+            .ENUM => {
+                // Get register and pop
+                const reg = self.popCPUReg();
+                try self.print(
+                    "    movzx {s}, {s}\n    mov [rsp+{d}], {s}\n",
+                    .{ reg.name, cpu_reg_names_16bit[reg.index], stack_pos, reg.name },
+                );
+            },
             else => unreachable,
         }
     }
@@ -1390,7 +1398,7 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
     try self.restoreCPUReg(cpu_reg_count);
     // Put result into next register
     switch (result_kind) {
-        .VOID, .BOOL, .UINT, .INT, .PTR, .FUNC => {
+        .VOID, .BOOL, .UINT, .INT, .PTR, .FUNC, .ENUM => {
             // Get a new register
             const reg = try self.getNextCPUReg();
             try self.print("    mov {s}, rax\n", .{reg.name});
@@ -1527,6 +1535,21 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
                 // Increment next address
                 next_address += size;
             },
+            .ENUM => {
+                // Get kind size
+                const size = 2;
+                // Check for alignment
+                next_address = realignStack(next_address, size);
+
+                // Pop cpu register
+                const reg = self.popCPUReg();
+                // Get sized register
+                const sized_reg = getSizedCPUReg(reg.index, size);
+                // Move to stack
+                try self.print("    mov [rsp+{d}], {s}\n", .{ next_address, sized_reg });
+                // Increment next address
+                next_address += size;
+            },
             else => unreachable,
         }
     }
@@ -1545,7 +1568,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     try self.restoreCPUReg(cpu_reg_count);
     // Move result
     switch (result_kind) {
-        .BOOL, .UINT, .INT, .PTR, .FUNC, .VOID => {
+        .BOOL, .UINT, .INT, .PTR, .FUNC, .VOID, .ENUM => {
             // Get a new register
             const reg = try self.getNextCPUReg();
             try self.print("    mov {s}, rax\n", .{reg.name});

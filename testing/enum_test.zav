@@ -1,0 +1,34 @@
+enum Message {
+    Morning,
+    Hello,
+    Goodbye
+}
+
+enum Sports {
+    Baseball,
+    Running
+}
+
+fn main(argc: i64, argv: **u8) i64 {
+    const enum_test = Message::Hello;
+    const enum_test2 = Message::Goodbye;
+
+    const different_type_enum = Sports::Baseball;
+
+    // This doesn't compile
+    // different_type_enum == enum_test;
+
+    <Message>different_type_enum == enum_test;
+
+    if (take_enum(enum_test2)) {
+        @printf("Enum type was Message::Hello!\n");
+    }
+
+    @printf("The enum values are: %d and %d\n", enum_test, enum_test2);
+
+    return 0;
+}
+
+fn take_enum(arg1: Message) bool {
+    return arg1 == Message::Hello;
+}
