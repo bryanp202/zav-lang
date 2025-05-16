@@ -25,8 +25,8 @@ const GenerationError = Error.GenerationError;
 const Compiler = @This();
 arena: *std.heap.ArenaAllocator,
 allocator: std.mem.Allocator,
-stm: STM,
 // Fields for compiler flags
+root_path: []const u8,
 root_name: []const u8,
 output_name: []const u8,
 asm_name: []const u8,
@@ -37,13 +37,11 @@ emit_asm: bool,
 pub fn init(
     setup_allocator: std.mem.Allocator,
     local_arena: *std.heap.ArenaAllocator,
+    main_path: []const u8,
     output_name: []const u8,
     show_ast: bool,
     emit_asm: bool,
 ) Compiler {
-    // Set up stm
-    const symbol_table = STM.init(setup_allocator);
-
     // Get assembly path name
     var output_no_dot = std.mem.splitSequence(u8, output_name, "./");
     var trimmed_name = output_no_dot.next().?;
@@ -59,10 +57,12 @@ pub fn init(
     // Get asm name
     const asm_name = std.fmt.allocPrint(setup_allocator, "{s}.asm", .{root_name}) catch unreachable;
 
+    const root_path = std.fs.path.dirname(main_path) orelse "";
+
     return .{
         .arena = local_arena,
         .allocator = local_arena.*.allocator(),
-        .stm = symbol_table,
+        .root_path = root_path,
         .root_name = root_name,
         .output_name = trimmed_name,
         .asm_name = asm_name,
@@ -136,36 +136,65 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     // Make a parser
     var parser = Parser.init(self.allocator, &scanner);
     // Make TypeChecker
-    var type_checker = TypeChecker.init(self.allocator, &self.stm);
-    // Make a new root module
-    var root_module = Module.init(self.root_name, self.allocator);
+    var type_checker = TypeChecker.init(self.allocator);
+    // Make modules list and root module
+    var modules = std.StringHashMap(*Module).init(self.allocator);
+    var root_module: Module = undefined;
+    root_module = Module.init(self.allocator, "", Module.ModuleKind.ROOT, &root_module);
+    modules.put(root_module.path, &root_module) catch unreachable;
 
     // Parse
     std.debug.print("Parsing...\n", .{});
     // Parse into it
-    parser.parse(&root_module);
+    const root_dependencies = parser.parse(&root_module);
 
     // Output
-    if (!parser.hadError()) {
-        // Print program
-        //if (self.show_ast) {
-        //    root_module.display();
-        //}
-
-        std.debug.print("Checking types...\n", .{});
-        // Check types
-        type_checker.check(&root_module);
-
-        if (!type_checker.hadError()) {
-            std.debug.print("Types all good\n", .{});
-        } else {
-            std.debug.print("Had Semantic Error\n", .{});
-            return false;
-        }
-    } else {
+    if (parser.hadError()) {
         std.debug.print("Had Syntax Error\n", .{});
         return false;
     }
+
+    const Request = struct {
+        requester: *Module,
+        requests: [][]const u8,
+    };
+
+    var requested_dependencies = std.ArrayList(Request).init(self.allocator);
+    requested_dependencies.append(Request{ .requester = &root_module, .requests = root_dependencies }) catch unreachable;
+
+    while (requested_dependencies.pop()) |request| {
+        for (request.requests) |module_name| {
+            const module_path = std.fmt.allocPrint(self.allocator, "{s}::{s}", .{ request.requester.path, module_name }) catch unreachable;
+
+            const getOrPut = modules.getOrPut(module_path) catch unreachable;
+            if (getOrPut.found_existing) {
+                std.debug.print("Duplicate modules\n", .{});
+                return false;
+            }
+
+            const dependency_source = openSourceFile(self.allocator, module_path) catch {
+                std.debug.print("Module path too long\n", .{});
+                return false;
+            };
+            parser.reset(dependency_source);
+            const new_module = self.allocator.create(Module) catch unreachable;
+            new_module.* = Module.init(self.allocator, module_path, Module.ModuleKind.DEPENDENCY, &root_module);
+            getOrPut.value_ptr.* = new_module;
+            const sub_dependencies = parser.parse(new_module);
+
+            requested_dependencies.append(Request{ .requester = new_module, .requests = sub_dependencies }) catch unreachable;
+        }
+    }
+
+    std.debug.print("Checking types...\n", .{});
+    // Check types
+    type_checker.check(&root_module);
+
+    if (type_checker.hadError()) {
+        std.debug.print("Had Semantic Error\n", .{});
+        return false;
+    }
+    std.debug.print("Types all good\n", .{});
 
     // Check if display ast is on
     if (self.show_ast) {
@@ -175,7 +204,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     }
 
     // Generation
-    var generator = Generator.open(self.allocator, &self.stm, self.asm_name) catch {
+    var generator = Generator.open(self.allocator, &root_module.stm, self.asm_name) catch {
         std.debug.print("Failed to write file\n", .{});
         return false;
     };
@@ -195,4 +224,29 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
 
     // Success
     return true;
+}
+
+fn openSourceFile(allocator: std.mem.Allocator, module_name: []const u8) ![]const u8 {
+    var path_buffer: [1024:0]u8 = undefined;
+    path_buffer[0] = '.';
+    const path_len = std.mem.replace(u8, module_name, "::", "/", path_buffer[2..]);
+
+    if (path_len + 2 > path_buffer.len) {
+        return Error.CompilerError.AllocationFailed;
+    }
+    const path = path_buffer[0 .. path_len + 2];
+
+    // Try to open file
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    // Read file stats
+    const file_stats = try file.stat();
+    // Make input buffer
+    const buffer = try allocator.alloc(u8, file_stats.size + 1);
+    // Read file
+    const contents = try file.reader().read(buffer);
+    // Add null at end
+    buffer[contents] = '\x00';
+    return buffer;
 }

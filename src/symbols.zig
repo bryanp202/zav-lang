@@ -5,6 +5,7 @@ const Error = @import("error.zig");
 const ScopeError = Error.ScopeError;
 // Natives Table
 const NativesTable = @import("natives.zig");
+const Module = @import("module.zig");
 
 // *********************** //
 //*** STM type Classes  ***//
@@ -25,9 +26,11 @@ pub const SymbolTableManager = struct {
     constant_count: u64,
     /// Used to resolve native functions
     natives_table: NativesTable,
+    /// Used for global/absolute scoping
+    global_module: *Module,
 
     /// Init a STM
-    pub fn init(allocator: std.mem.Allocator) SymbolTableManager {
+    pub fn init(allocator: std.mem.Allocator, global_module: *Module) SymbolTableManager {
         // Make global scope
         const global = allocator.create(Scope) catch unreachable;
         global.* = Scope.init(allocator, null);
@@ -52,6 +55,7 @@ pub const SymbolTableManager = struct {
             .constants = const_map,
             .constant_count = 0,
             .natives_table = natives_table,
+            .global_module = global_module,
         };
     }
 
@@ -115,6 +119,7 @@ pub const SymbolTableManager = struct {
         dcl_line: u64,
         dcl_column: u64,
         is_mutable: bool,
+        public: bool,
     ) !u64 {
         // Calculate the size of the kind
         const size = kind.size();
@@ -127,12 +132,18 @@ pub const SymbolTableManager = struct {
             dcl_line,
             dcl_column,
             is_mutable,
+            public,
             &self.next_address,
             size,
         );
 
         // Return the memory location
         return mem_loc;
+    }
+
+    pub fn addDependency(self: *SymbolTableManager, dependency: *Module, name: []const u8, dcl_line: u64, dcl_column: u64) !void {
+        const new_dependency = KindId{ .MODULE = dependency };
+        _ = try self.declareSymbol(name, new_dependency, ScopeKind.MODULE, dcl_line, dcl_column, false);
     }
 
     /// Add a new symbol to the top scope on the stack, assign it a memory location
@@ -226,6 +237,7 @@ pub const Scope = struct {
         dcl_line: u64,
         dcl_column: u64,
         is_mutable: bool,
+        public: bool,
         global_next_address: *u64,
         size: u64,
     ) ScopeError!u64 {
@@ -273,6 +285,7 @@ pub const Scope = struct {
             dcl_line,
             dcl_column,
             is_mutable,
+            public,
             mem_loc,
             size,
         );
@@ -394,13 +407,14 @@ pub const Symbol = struct {
     dcl_line: u64,
     dcl_column: u64,
     is_mutable: bool,
+    public: bool,
     has_mutated: bool,
     mem_loc: u64,
     size: u64,
     used: bool,
 
     /// Make a new symbol
-    pub fn init(name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, dcl_column: u64, is_mutable: bool, mem_loc: u64, size: u64) Symbol {
+    pub fn init(name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, dcl_column: u64, is_mutable: bool, public: bool, mem_loc: u64, size: u64) Symbol {
         return Symbol{
             .name = name,
             .kind = kind,
@@ -408,6 +422,7 @@ pub const Symbol = struct {
             .dcl_line = dcl_line,
             .dcl_column = dcl_column,
             .is_mutable = is_mutable,
+            .public = public,
             .has_mutated = false,
             .mem_loc = mem_loc,
             .size = size,
@@ -445,7 +460,7 @@ pub const Field = struct {
 // *********************** //
 
 // Enum for the types available in Zav
-pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT, ENUM, USER_KIND };
+pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT, ENUM, USER_KIND, MODULE };
 
 /// Used to mark what type a variable is
 pub const KindId = union(Kinds) {
@@ -462,6 +477,7 @@ pub const KindId = union(Kinds) {
     STRUCT: Struct,
     ENUM: Enum,
     USER_KIND: []const u8,
+    MODULE: *Module,
 
     /// Init a new unsigned integer
     pub fn newUInt(bits: u16) KindId {
@@ -570,14 +586,14 @@ pub const KindId = union(Kinds) {
             .FUNC => |func| return other == .FUNC and func.equal(other.FUNC),
             .STRUCT => |srct| return other == .STRUCT and srct.equal(other.STRUCT),
             .ENUM => |enm| return other == .ENUM and enm.equal(other.ENUM),
-            .USER_KIND => unreachable,
+            .USER_KIND, .MODULE => unreachable,
         };
     }
 
     /// Return the size of the Kind
     pub fn size(self: KindId) u64 {
         return switch (self) {
-            .VOID => 0,
+            .VOID, .MODULE => 0,
             .BOOL => 1,
             .UINT => |uint| uint.size(),
             .INT => |int| int.size(),
@@ -600,7 +616,7 @@ pub const KindId = union(Kinds) {
             .FLOAT32 => 4,
             .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC, .STRUCT => 8,
             .ENUM => 2,
-            .USER_KIND => unreachable,
+            .USER_KIND, .MODULE => unreachable,
         };
     }
 

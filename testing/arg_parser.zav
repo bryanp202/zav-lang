@@ -42,7 +42,7 @@ fn parseInt(buffer: *u8) i64 {
         result *= 10;
         // Add new char minus 48
         result += char - 48;
-    } loop: index += 1;
+    } loop index += 1;
 
     if (negative) {
         return -result;
@@ -58,7 +58,7 @@ fn countUp(num: i64) void {
     var current = 1;
     while (current <= num_minus_one) {
         @printf("%d, ", current);
-    } loop: current += 1;
+    } loop current += 1;
 
     @printf("%d\nDone!\n", current);
 }
@@ -71,7 +71,7 @@ fn countDown(num: i64) void {
     var current = -1;
     while (current >= num_plus_one) {
         @printf("%d, ", current);
-    } loop: current -= 1;
+    } loop current -= 1;
 
     @printf("%d\nDone!\n", current);
 }

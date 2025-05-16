@@ -30,6 +30,9 @@ pub const StmtNode = union(enum) {
         // Display based off of self
         switch (self) {
             .GLOBAL => |globalStmt| {
+                if (globalStmt.public) {
+                    std.debug.print("pub ", .{});
+                }
                 if (globalStmt.mutable) {
                     std.debug.print("global var {s}", .{globalStmt.id.lexeme});
                 } else {
@@ -109,6 +112,9 @@ pub const StmtNode = union(enum) {
                 std.debug.print("continue;\n", .{});
             },
             .FUNCTION => |funcStmt| {
+                if (funcStmt.public) {
+                    std.debug.print("pub ", .{});
+                }
                 std.debug.print("fn {s} (\n", .{funcStmt.name.lexeme});
                 // Print args
                 for (funcStmt.arg_names, funcStmt.arg_kinds) |name, kind| {
@@ -126,6 +132,9 @@ pub const StmtNode = union(enum) {
                 std.debug.print(";\n", .{});
             },
             .STRUCT => |structStmt| {
+                if (structStmt.public) {
+                    std.debug.print("pub ", .{});
+                }
                 std.debug.print("struct {s} {{\n", .{structStmt.id.lexeme});
                 // Print Fields
                 for (structStmt.field_names, structStmt.field_kinds) |name, kind| {
@@ -138,6 +147,9 @@ pub const StmtNode = union(enum) {
                 std.debug.print("}}\n", .{});
             },
             .ENUM => |enumStmt| {
+                if (enumStmt.public) {
+                    std.debug.print("pub ", .{});
+                }
                 std.debug.print("enum {s} {{\n", .{enumStmt.id.lexeme});
                 for (enumStmt.variant_names) |variant| {
                     std.debug.print("    {s},\n", .{variant.lexeme});
@@ -173,6 +185,7 @@ pub const MutStmt = struct {
 /// Used to store an GlobalStmt
 /// GlobalStmt -> ("const"|"var") identifier (":" type)? "=" expression ";"
 pub const GlobalStmt = struct {
+    public: bool,
     mutable: bool,
     id: Token,
     kind: ?KindId,
@@ -180,8 +193,9 @@ pub const GlobalStmt = struct {
     expr: ?ExprNode,
 
     /// Initialize a GlobalStmt with an mutablity, identifier token, optional kind, and expr
-    pub fn init(mutable: bool, id: Token, kind: ?KindId, op: Token, expr: ?ExprNode) GlobalStmt {
+    pub fn init(public: bool, mutable: bool, id: Token, kind: ?KindId, op: Token, expr: ?ExprNode) GlobalStmt {
         return GlobalStmt{
+            .public = public,
             .mutable = mutable,
             .id = id,
             .kind = kind,
@@ -202,6 +216,7 @@ pub const FunctionStmt = struct {
         kind: KindId,
     };
     // Fields
+    public: bool,
     op: Token,
     name: Token,
     arg_names: []Token,
@@ -212,8 +227,9 @@ pub const FunctionStmt = struct {
     scope_count: u16 = 0,
 
     /// Iniitalize a Function Statement
-    pub fn init(op: Token, name: Token, arg_names: []Token, arg_kinds: []KindId, return_kind: KindId, body: StmtNode) FunctionStmt {
+    pub fn init(public: bool, op: Token, name: Token, arg_names: []Token, arg_kinds: []KindId, return_kind: KindId, body: StmtNode) FunctionStmt {
         return FunctionStmt{
+            .public = public,
             .op = op,
             .name = name,
             .arg_names = arg_names,
@@ -241,14 +257,16 @@ pub const FunctionStmt = struct {
 /// FieldList -> (Field ';')+
 /// Field -> identifier ':' KindId
 pub const StructStmt = struct {
+    public: bool,
     id: Token,
     field_names: []Token,
     field_kinds: []KindId,
     methods: []FunctionStmt,
 
     /// Initialize a structstmt
-    pub fn init(id: Token, field_names: []Token, field_kinds: []KindId, methods: []FunctionStmt) StructStmt {
+    pub fn init(public: bool, id: Token, field_names: []Token, field_kinds: []KindId, methods: []FunctionStmt) StructStmt {
         return StructStmt{
+            .public = public,
             .id = id,
             .field_names = field_names,
             .field_kinds = field_kinds,
@@ -383,11 +401,13 @@ pub const ReturnStmt = struct {
 /// - variants_list -> variant (, variant)?
 /// - variant -> identifier
 pub const EnumStmt = struct {
+    public: bool,
     id: Token,
     variant_names: []Token,
 
-    pub fn init(id: Token, variants: []Token) EnumStmt {
+    pub fn init(public: bool, id: Token, variants: []Token) EnumStmt {
         return EnumStmt{
+            .public = public,
             .id = id,
             .variant_names = variants,
         };

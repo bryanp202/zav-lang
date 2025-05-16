@@ -2,33 +2,49 @@ const std = @import("std");
 // Stmt import
 const Stmt = @import("stmt.zig");
 const StmtNode = Stmt.StmtNode;
+const Symbols = @import("symbols.zig");
+const STM = Symbols.SymbolTableManager;
 
 /// Used to store a program/script
 /// Program -> Declarations*
 const Module = @This();
 
 /// Stores the name of this module
-name: []const u8,
+path: []const u8,
+kind: ModuleKind,
 /// Stores all global variables and functions in this module
 globals: std.ArrayList(StmtNode),
 functions: std.ArrayList(StmtNode),
 structs: std.ArrayList(StmtNode),
 enums: std.ArrayList(StmtNode),
+/// Scope handlers
+stm: STM,
+
+pub const ModuleKind = enum {
+    ROOT,
+    DEPENDENCY,
+};
 
 /// Init a new program stmt
-pub fn init(name: []const u8, allocator: std.mem.Allocator) Module {
+pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleKind, global_module: *Module) Module {
     return Module{
-        .name = name,
+        .path = path,
+        .kind = module_kind,
         .globals = std.ArrayList(StmtNode).init(allocator),
         .functions = std.ArrayList(StmtNode).init(allocator),
         .structs = std.ArrayList(StmtNode).init(allocator),
         .enums = std.ArrayList(StmtNode).init(allocator),
+        .stm = STM.init(allocator, global_module),
     };
+}
+
+pub fn add_dependency(self: Module, dependency: *Module) void {
+    self.stm.addDependency(dependency) catch unreachable;
 }
 
 /// Print out this module
 pub fn display(self: Module) void {
-    std.debug.print("\n--- Module <{s}> ---\n", .{self.name});
+    std.debug.print("\n--- Module <::{s}> ---\n", .{self.path});
     for (self.enumSlice()) |enm| {
         enm.display();
     }
@@ -41,7 +57,7 @@ pub fn display(self: Module) void {
     for (self.functionSlice()) |function| {
         function.display();
     }
-    std.debug.print("--- End of <{s}> ---\n\n", .{self.name});
+    std.debug.print("--- End of <::{s}> ---\n\n", .{self.path});
 }
 
 /// Return a slice of all globals in this module

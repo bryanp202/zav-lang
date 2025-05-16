@@ -141,6 +141,7 @@ fn run(
     global_allocator: std.mem.Allocator,
     setup_allocator: std.mem.Allocator,
     source: []const u8,
+    main_path: []const u8,
     output_name: ?[]const u8,
     show_ast: bool,
     emit_asm: bool,
@@ -152,7 +153,7 @@ fn run(
     // Check if name
     const name = output_name orelse "out.exe";
     // Make compiler
-    var compiler = Compiler.init(setup_allocator, &local_arena, name, show_ast, emit_asm);
+    var compiler = Compiler.init(setup_allocator, &local_arena, main_path, name, show_ast, emit_asm);
     defer compiler.reset();
 
     // Compile source code
@@ -185,10 +186,11 @@ fn runFile(
     const contents = try file.reader().read(buffer);
     // Add null at end
     buffer[contents] = '\x00';
-
     // Slice source
     const source = buffer[0..];
-    try run(global_allocator, setup_allocator, source, output_name, show_ast, emit_asm);
+
+    const main_path = try std.fs.cwd().realpathAlloc(setup_allocator, path);
+    try run(global_allocator, setup_allocator, source, main_path, output_name, show_ast, emit_asm);
 }
 
 /// Run an interactive REPL
@@ -202,6 +204,8 @@ fn repl(
     // Std printer
     const stdout = std.io.getStdOut().writer();
     const stdin = std.io.getStdIn().reader();
+
+    const main_path = try std.fs.cwd().realpathAlloc(setup_allocator, ".");
 
     // Run loop
     while (true) {
@@ -223,6 +227,6 @@ fn repl(
         }
         // Slice source
         const source = buffer[0..end_index];
-        try run(global_allocator, setup_allocator, source, output_name, show_ast, emit_asm);
+        try run(global_allocator, setup_allocator, source, main_path, output_name, show_ast, emit_asm);
     }
 }

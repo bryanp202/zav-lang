@@ -23,6 +23,15 @@ pub const Scanner = struct {
         };
     }
 
+    pub fn reset(self: *Scanner, source: []const u8) void {
+        self.column = 0;
+        self.line = 0;
+        self.column_start = 0;
+        self.start = 0;
+        self.current = 0;
+        self.source = source;
+    }
+
     /// Scan next token and return it
     pub fn nextToken(self: *Scanner) Token {
         // Skip past whitespace
@@ -489,6 +498,10 @@ pub const Scanner = struct {
                     _ = self.advance();
                     return self.checkKeyword("r", TokenKind.OR);
                 },
+                'p' => {
+                    _ = self.advance();
+                    return self.checkKeyword("ub", TokenKind.PUB);
+                },
                 'r' => {
                     _ = self.advance();
                     return self.checkKeyword("eturn", TokenKind.RETURN);
@@ -670,6 +683,7 @@ pub const TokenKind = enum {
     FN,
     UNDEFINED,
     NULLPTR,
+    PUB,
 
     //// Parser Tokens ////
     ERROR,

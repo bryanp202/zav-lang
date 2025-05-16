@@ -39,10 +39,10 @@ current_return_kind: KindId,
 current_scope_count: u16,
 
 /// Initialize a new TypeChecker
-pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
+pub fn init(allocator: std.mem.Allocator) TypeChecker {
     return TypeChecker{
         .allocator = allocator,
-        .stm = stm,
+        .stm = undefined,
         .loop_depth = 0,
         .switch_depth = 0,
         .had_error = false,
@@ -57,6 +57,8 @@ pub fn init(allocator: std.mem.Allocator, stm: *STM) TypeChecker {
 /// in preparation for code generation
 /// Returns true if semantics are okay
 pub fn check(self: *TypeChecker, module: *Module) void {
+    self.stm = &module.stm;
+
     // Define all enums
     for (module.enumSlice()) |enm| {
         self.declareEnum(enm.ENUM) catch {
@@ -799,21 +801,21 @@ fn declareStruct(
                 return self.reportError(
                     SemanticError.UnresolvableIdentifier,
                     name,
-                    "Could not resolve struct type in pointer type definition",
+                    "Could not resolve type in pointer type definition",
                 );
             },
             .ARRAY => |*array_arg| _ = array_arg.updateArray(self.stm) catch {
                 return self.reportError(
                     SemanticError.UnresolvableIdentifier,
                     name,
-                    "Could not resolve struct type in array type definition",
+                    "Could not resolve type in array type definition",
                 );
             },
             .FUNC => |*func_arg| _ = func_arg.updateArgSize(self.stm) catch {
                 return self.reportError(
                     SemanticError.UnresolvableIdentifier,
                     name,
-                    "Could not resolve struct type in function type definition",
+                    "Could not resolve type in function type definition",
                 );
             },
             // If array, find the root child, if struct do the same thing as above
@@ -984,7 +986,7 @@ fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticErr
     // Check if declared with a kind
     if (maybe_declared_kind != null) {
         _ = globalStmt.kind.?.update(self.stm) catch {
-            return self.reportError(SemanticError.UnresolvableIdentifier, globalStmt.op, "Could not resolve struct type in declaration type");
+            return self.reportError(SemanticError.UnresolvableIdentifier, globalStmt.op, "Could not resolve type in declaration type");
         };
 
         // Check if rhs has kind
@@ -1054,7 +1056,7 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
     // Check if declared with a kind
     if (maybe_declared_kind != null) {
         _ = declareExpr.kind.?.update(self.stm) catch {
-            return self.reportError(SemanticError.UnresolvableIdentifier, declareExpr.op, "Could not resolve struct type in declaration type");
+            return self.reportError(SemanticError.UnresolvableIdentifier, declareExpr.op, "Could not resolve type in declaration type");
         };
 
         if (maybe_expr_kind) |expr_kind| {

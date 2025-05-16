@@ -32,6 +32,8 @@ current: Token,
 previous: Token,
 had_error: bool,
 panic: bool,
+/// Stores all use dependency module requests
+dependencies: std.ArrayList([]const u8),
 
 /// Parser initializer
 pub fn init(allocator: std.mem.Allocator, scanner: *Scanner) Parser {
@@ -43,13 +45,21 @@ pub fn init(allocator: std.mem.Allocator, scanner: *Scanner) Parser {
         .previous = undefined,
         .had_error = false,
         .panic = false,
+        .dependencies = std.ArrayList([]const u8).init(allocator),
     };
     return new_parser;
 }
 
+pub fn reset(self: *Parser, source: []const u8) void {
+    self.had_error = false;
+    self.panic = false;
+    self.scanner.reset(source);
+    self.dependencies.shrinkRetainingCapacity(0);
+}
+
 /// Parse until scanner returns an EOF Token
 /// Report any errors encountered
-pub fn parse(self: *Parser, module: *Module) void {
+pub fn parse(self: *Parser, module: *Module) [][]const u8 {
     // Advance
     _ = self.advance();
     // Parse
@@ -63,6 +73,8 @@ pub fn parse(self: *Parser, module: *Module) void {
         // Try to append to module
         module.addStmt(stmt_node) catch unreachable;
     }
+
+    return self.dependencies.items;
 }
 
 /// Return true if there was an error while parsing
@@ -361,14 +373,17 @@ const ExprResult = struct {
 /// Parse a Global level stmt
 /// Global -> GlobalStmt | FunctionStmt
 fn global(self: *Parser) SyntaxError!StmtNode {
+    // Check if public
+    const is_public = self.match(.{TokenKind.PUB});
+
     if (self.match(.{ TokenKind.CONST, TokenKind.VAR })) {
-        return self.globalStmt();
+        return self.globalStmt(is_public);
     } else if (self.match(.{TokenKind.FN})) {
-        return self.functionStmt();
+        return self.functionStmt(is_public);
     } else if (self.match(.{TokenKind.STRUCT})) {
-        return self.structStmt();
+        return self.structStmt(is_public);
     } else if (self.match(.{TokenKind.ENUM})) {
-        return self.enumStmt();
+        return self.enumStmt(is_public);
     }
     _ = self.advance();
     return self.errorAt("Expected global variable, function declaration, or struct definition");
@@ -376,7 +391,7 @@ fn global(self: *Parser) SyntaxError!StmtNode {
 
 /// Parse a global declaration stmt
 /// GlobalStmt -> ("const" | "var") (':' type)? '=' expression ';'
-fn globalStmt(self: *Parser) SyntaxError!StmtNode {
+fn globalStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
     // Get mutability of this declaration
     const mutable = (self.previous.kind == .VAR);
     // Consume identifier
@@ -407,7 +422,7 @@ fn globalStmt(self: *Parser) SyntaxError!StmtNode {
 
     // Allocate new DeclareStmt
     const new_stmt = self.allocator.create(Stmt.GlobalStmt) catch unreachable;
-    new_stmt.* = Stmt.GlobalStmt.init(mutable, id, kind, op, assign_expr);
+    new_stmt.* = Stmt.GlobalStmt.init(is_public, mutable, id, kind, op, assign_expr);
 
     return StmtNode{ .GLOBAL = new_stmt };
 }
@@ -416,7 +431,7 @@ fn globalStmt(self: *Parser) SyntaxError!StmtNode {
 /// FunctionStmt -> "fn" identifier '(' arglist? ')' type BlockStmt
 /// arglist -> arg (',' arg)*
 /// arg -> identifier ':' type
-fn functionStmt(self: *Parser) SyntaxError!StmtNode {
+fn functionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
     // Get op
     const op = self.previous;
     // Get name
@@ -476,6 +491,7 @@ fn functionStmt(self: *Parser) SyntaxError!StmtNode {
     // Allocate new FunctionStmt
     const new_stmt = self.allocator.create(Stmt.FunctionStmt) catch unreachable;
     new_stmt.* = Stmt.FunctionStmt.init(
+        is_public,
         op,
         name,
         arg_name_list.items,
@@ -490,7 +506,7 @@ fn functionStmt(self: *Parser) SyntaxError!StmtNode {
 /// FieldList -> (Field | Method)+
 /// Field -> identifier ':' KindId ';'
 /// Method -> fn identifier '(' arglist ')' block
-fn structStmt(self: *Parser) SyntaxError!StmtNode {
+fn structStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
     try self.consume(TokenKind.IDENTIFIER, "Expected identifier after 'struct' keyword");
     const id = self.previous;
     try self.consume(TokenKind.LEFT_BRACE, "Expected '{' before struct field list");
@@ -499,7 +515,7 @@ fn structStmt(self: *Parser) SyntaxError!StmtNode {
     var field_kind_list = std.ArrayList(KindId).init(self.allocator);
     var method_list = std.ArrayList(Stmt.FunctionStmt).init(self.allocator);
     // Parse fields and methods
-    if (self.match(.{TokenKind.FN})) {
+    if (self.match(.{ TokenKind.PUB, TokenKind.FN })) {
         try self.struct_method(&method_list);
     } else { // Field
         try self.struct_field(&field_name_list, &field_kind_list);
@@ -507,7 +523,7 @@ fn structStmt(self: *Parser) SyntaxError!StmtNode {
     // Do the rest if there are any
     while (!self.match(.{TokenKind.RIGHT_BRACE}) and !self.isAtEnd()) {
         // Check for method
-        if (self.match(.{TokenKind.FN})) {
+        if (self.match(.{ TokenKind.PUB, TokenKind.FN })) {
             try self.struct_method(&method_list);
         } else { // Field
             try self.struct_field(&field_name_list, &field_kind_list);
@@ -520,7 +536,13 @@ fn structStmt(self: *Parser) SyntaxError!StmtNode {
 
     // Create new stmt
     const new_stmt = self.allocator.create(Stmt.StructStmt) catch unreachable;
-    new_stmt.* = Stmt.StructStmt.init(id, field_name_list.items, field_kind_list.items, method_list.items);
+    new_stmt.* = Stmt.StructStmt.init(
+        is_public,
+        id,
+        field_name_list.items,
+        field_kind_list.items,
+        method_list.items,
+    );
     return StmtNode{ .STRUCT = new_stmt };
 }
 
@@ -542,11 +564,13 @@ fn struct_field(self: *Parser, field_name_list: *std.ArrayList(Token), field_kin
 /// Parse a struct method
 /// Method -> function (but it can use "this" and has the "this" parameter added)
 fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) SyntaxError!void {
-    const new_method = try self.functionStmt();
+    const is_public = self.previous.kind == TokenKind.PUB;
+
+    const new_method = try self.functionStmt(is_public);
     method_list.append(new_method.FUNCTION.*) catch unreachable;
 }
 
-fn enumStmt(self: *Parser) SyntaxError!StmtNode {
+fn enumStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
     try self.consume(TokenKind.IDENTIFIER, "Expected enum identifier");
     const id = self.previous;
     try self.consume(TokenKind.LEFT_BRACE, "Expected '{' before enum variant list");
@@ -570,7 +594,7 @@ fn enumStmt(self: *Parser) SyntaxError!StmtNode {
 
     // Create new stmt
     const new_stmt = self.allocator.create(Stmt.EnumStmt) catch unreachable;
-    new_stmt.* = Stmt.EnumStmt.init(id, variant_names_list.items);
+    new_stmt.* = Stmt.EnumStmt.init(is_public, id, variant_names_list.items);
     return StmtNode{ .ENUM = new_stmt };
 }
 
