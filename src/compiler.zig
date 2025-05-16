@@ -20,6 +20,8 @@ const Generator = @import("back_end/generator.zig");
 const Error = @import("error.zig");
 const ScopeError = Error.ScopeError;
 const GenerationError = Error.GenerationError;
+/// ModStmt import
+const Stmt = @import("stmt.zig");
 
 // Compiler fields
 const Compiler = @This();
@@ -156,15 +158,21 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
 
     const Request = struct {
         requester: *Module,
-        requests: [][]const u8,
+        requests: []Stmt.ModStmt,
     };
 
     var requested_dependencies = std.ArrayList(Request).init(self.allocator);
     requested_dependencies.append(Request{ .requester = &root_module, .requests = root_dependencies }) catch unreachable;
 
     while (requested_dependencies.pop()) |request| {
-        for (request.requests) |module_name| {
-            const module_path = std.fmt.allocPrint(self.allocator, "{s}::{s}", .{ request.requester.path, module_name }) catch unreachable;
+        for (request.requests) |mod_stmt| {
+            const module_name = mod_stmt.module_name;
+
+            const module_path = std.fmt.allocPrint(
+                self.allocator,
+                "{s}::{s}",
+                .{ request.requester.path, module_name.lexeme },
+            ) catch unreachable;
 
             const getOrPut = modules.getOrPut(module_path) catch unreachable;
             if (getOrPut.found_existing) {
@@ -182,6 +190,13 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
             getOrPut.value_ptr.* = new_module;
             const sub_dependencies = parser.parse(new_module);
 
+            request.requester.add_dependency(
+                new_module,
+                module_name.lexeme,
+                module_name.line,
+                module_name.column,
+                mod_stmt.public,
+            );
             requested_dependencies.append(Request{ .requester = new_module, .requests = sub_dependencies }) catch unreachable;
         }
     }

@@ -11,6 +11,7 @@ const Expr = @import("expr.zig");
 const ExprNode = Expr.ExprNode;
 
 pub const StmtNode = union(enum) {
+    USE: *ModStmt,
     GLOBAL: *GlobalStmt,
     MUTATE: *MutStmt,
     DECLARE: *DeclareStmt,
@@ -29,6 +30,12 @@ pub const StmtNode = union(enum) {
     pub fn display(self: StmtNode) void {
         // Display based off of self
         switch (self) {
+            .USE => |modStmt| {
+                if (modStmt.public) {
+                    std.debug.print("pub ", .{});
+                }
+                std.debug.print("use {s};\n", .{modStmt.module_name.lexeme});
+            },
             .GLOBAL => |globalStmt| {
                 if (globalStmt.public) {
                     std.debug.print("pub ", .{});
@@ -163,6 +170,23 @@ pub const StmtNode = union(enum) {
 // ************** //
 //   Stmt Structs //
 // ************** //
+/// Used to bring a module into the hierarchy
+///
+/// ModStmt -> "pub"? "use" identifier ";"
+pub const ModStmt = struct {
+    public: bool,
+    op: Token,
+    module_name: Token,
+
+    pub fn init(public: bool, op: Token, module_name: Token) ModStmt {
+        return ModStmt{
+            .public = public,
+            .op = op,
+            .module_name = module_name,
+        };
+    }
+};
+
 /// Used to store an MutExpr
 /// MutStmt -> identifier "=" expression ";"
 pub const MutStmt = struct {

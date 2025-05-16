@@ -28,6 +28,8 @@ pub const SymbolTableManager = struct {
     natives_table: NativesTable,
     /// Used for global/absolute scoping
     global_module: *Module,
+    /// Used for user defined scoping
+    current_scope_target: ?KindId,
 
     /// Init a STM
     pub fn init(allocator: std.mem.Allocator, global_module: *Module) SymbolTableManager {
@@ -56,6 +58,7 @@ pub const SymbolTableManager = struct {
             .constant_count = 0,
             .natives_table = natives_table,
             .global_module = global_module,
+            .current_scope_target = null,
         };
     }
 
@@ -141,9 +144,24 @@ pub const SymbolTableManager = struct {
         return mem_loc;
     }
 
-    pub fn addDependency(self: *SymbolTableManager, dependency: *Module, name: []const u8, dcl_line: u64, dcl_column: u64) !void {
+    pub fn addDependency(self: *SymbolTableManager, dependency: *Module, name: []const u8, dcl_line: u64, dcl_column: u64, public: bool) !void {
         const new_dependency = KindId{ .MODULE = dependency };
-        _ = try self.declareSymbol(name, new_dependency, ScopeKind.MODULE, dcl_line, dcl_column, false);
+        _ = try self.declareSymbol(name, new_dependency, ScopeKind.MODULE, dcl_line, dcl_column, false, public);
+    }
+
+    pub fn changeTargetScope(self: *SymbolTableManager, target: []const u8) !void {
+        if (self.current_scope_target == null) {
+            const symbol = try self.peakSymbol(target);
+            self.current_scope_target = symbol.kind;
+        } else {
+            switch (self.current_scope_target.?) {
+                .MODULE => |module| {
+                    const symbol = try module.stm.peakSymbol(target);
+                    self.current_scope_target = symbol.kind;
+                },
+                else => return ScopeError.UndeclaredSymbol,
+            }
+        }
     }
 
     /// Add a new symbol to the top scope on the stack, assign it a memory location
@@ -658,6 +676,7 @@ pub const ScopeKind = enum {
     FUNC,
     STRUCT,
     ENUM,
+    MODULE,
 };
 
 // *********************** //

@@ -33,7 +33,7 @@ previous: Token,
 had_error: bool,
 panic: bool,
 /// Stores all use dependency module requests
-dependencies: std.ArrayList([]const u8),
+dependencies: std.ArrayList(Stmt.ModStmt),
 
 /// Parser initializer
 pub fn init(allocator: std.mem.Allocator, scanner: *Scanner) Parser {
@@ -45,7 +45,7 @@ pub fn init(allocator: std.mem.Allocator, scanner: *Scanner) Parser {
         .previous = undefined,
         .had_error = false,
         .panic = false,
-        .dependencies = std.ArrayList([]const u8).init(allocator),
+        .dependencies = std.ArrayList(Stmt.ModStmt).init(allocator),
     };
     return new_parser;
 }
@@ -59,7 +59,7 @@ pub fn reset(self: *Parser, source: []const u8) void {
 
 /// Parse until scanner returns an EOF Token
 /// Report any errors encountered
-pub fn parse(self: *Parser, module: *Module) [][]const u8 {
+pub fn parse(self: *Parser, module: *Module) []Stmt.ModStmt {
     // Advance
     _ = self.advance();
     // Parse
@@ -1375,7 +1375,7 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
 
             // Make new constant expression
             const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-            identifier_expr.* = .{ .id = id_token, .lexical_scope = lexical_scope };
+            identifier_expr.* = .{ .id = id_token, .lexical_scope = undefined };
             const node = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
             // Wrap in ExprResult
             return ExprResult.init(node, 0);

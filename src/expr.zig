@@ -51,9 +51,6 @@ pub const ExprNode = struct {
     pub fn display(self: ExprNode) void {
         switch (self.expr) {
             .IDENTIFIER => |idExpr| {
-                if (idExpr.lexical_scope) |scope| {
-                    std.debug.print("{s}::", .{scope.lexeme});
-                }
                 std.debug.print("{s}", .{idExpr.id.lexeme});
                 if (idExpr.scope_kind == .ARG or idExpr.scope_kind == .LOCAL) {
                     std.debug.print("(at [rbp+{d}])", .{idExpr.stack_offset});
@@ -163,7 +160,7 @@ pub const IdentifierExpr = struct {
     id: Token,
     scope_kind: Symbol.ScopeKind = undefined,
     stack_offset: u64 = undefined,
-    lexical_scope: ?Token,
+    lexical_scope: []const u8,
 };
 
 /// Used to access a variable or a constant

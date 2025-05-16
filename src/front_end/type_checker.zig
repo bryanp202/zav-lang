@@ -75,7 +75,7 @@ pub fn check(self: *TypeChecker, module: *Module) void {
     // Index all struct definitions
     for (module.structSlice(), 0..) |strct, index| {
         // Add it to symbol table
-        self.indexStruct(strct.STRUCT.id, index) catch {
+        self.indexStruct(strct.STRUCT.id, index, strct.STRUCT.public) catch {
             self.panic = false;
             self.had_error = true;
             continue;
@@ -731,18 +731,34 @@ fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void
 
     const enum_kind = KindId.newEnumWithVariants(enum_stmt.id.lexeme, new_variants);
 
-    _ = self.stm.declareSymbol(enum_stmt.id.lexeme, enum_kind, ScopeKind.ENUM, enum_stmt.id.line, enum_stmt.id.column, false) catch {
+    _ = self.stm.declareSymbol(
+        enum_stmt.id.lexeme,
+        enum_kind,
+        ScopeKind.ENUM,
+        enum_stmt.id.line,
+        enum_stmt.id.column,
+        false,
+        enum_stmt.public,
+    ) catch {
         const old_id = self.stm.getSymbol(enum_stmt.id.lexeme) catch unreachable;
         return self.reportDuplicateError(enum_stmt.id, old_id.dcl_line, old_id.dcl_column);
     };
 }
 
 /// Index and add a struct to the STM
-fn indexStruct(self: *TypeChecker, name: Token, index: u64) SemanticError!void {
+fn indexStruct(self: *TypeChecker, name: Token, index: u64, public: bool) SemanticError!void {
     // Create new struct with scope and index
     const new_struct = KindId.newStructWithIndex(self.allocator, name.lexeme, index);
     // Try to add to stm global scope
-    _ = self.stm.declareSymbol(name.lexeme, new_struct, ScopeKind.STRUCT, name.line, name.column, false) catch {
+    _ = self.stm.declareSymbol(
+        name.lexeme,
+        new_struct,
+        ScopeKind.STRUCT,
+        name.line,
+        name.column,
+        false,
+        public,
+    ) catch {
         const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
         return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
     };
@@ -867,7 +883,15 @@ fn declareStruct(
                 return self.reportError(SemanticError.UnresolvableIdentifier, name, "Could not resolve struct type in this argument");
             };
             // Declare arg
-            _ = self.stm.declareSymbol(name.lexeme, kind.*, ScopeKind.ARG, name.line, name.column, false) catch {
+            _ = self.stm.declareSymbol(
+                name.lexeme,
+                kind.*,
+                ScopeKind.ARG,
+                name.line,
+                name.column,
+                false,
+                false,
+            ) catch {
                 const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
                 return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
             };
@@ -920,7 +944,15 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
             return self.reportError(SemanticError.UnresolvableIdentifier, name, "Could not resolve struct type in this argument");
         };
         // Declare arg
-        _ = self.stm.declareSymbol(name.lexeme, kind.*, ScopeKind.ARG, name.line, name.column, false) catch {
+        _ = self.stm.declareSymbol(
+            name.lexeme,
+            kind.*,
+            ScopeKind.ARG,
+            name.line,
+            name.column,
+            false,
+            false,
+        ) catch {
             const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
             return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
         };
@@ -942,6 +974,7 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
         func.name.line,
         func.name.column,
         false,
+        func.public,
     ) catch {
         const old_id = self.stm.getSymbol(func.name.lexeme) catch unreachable;
         return self.reportDuplicateError(func.name, old_id.dcl_line, old_id.dcl_column);
@@ -1019,6 +1052,7 @@ fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticErr
         globalStmt.id.line,
         globalStmt.id.column,
         globalStmt.mutable,
+        globalStmt.public,
     ) catch {
         const old_id = self.stm.getSymbol(globalStmt.id.lexeme) catch unreachable;
         return self.reportDuplicateError(globalStmt.id, old_id.dcl_line, old_id.dcl_column);
@@ -1087,6 +1121,7 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
         declareExpr.id.line,
         declareExpr.id.column,
         declareExpr.mutable,
+        false,
     ) catch {
         const old_id = self.stm.getSymbol(declareExpr.id.lexeme) catch unreachable;
         return self.reportDuplicateError(declareExpr.id, old_id.dcl_line, old_id.dcl_column);

@@ -38,8 +38,8 @@ pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleK
     };
 }
 
-pub fn add_dependency(self: Module, dependency: *Module) void {
-    self.stm.addDependency(dependency) catch unreachable;
+pub fn add_dependency(self: *Module, dependency: *Module, name: []const u8, dcl_line: usize, dcl_column: usize, public: bool) void {
+    self.stm.addDependency(dependency, name, dcl_line, dcl_column, public) catch unreachable;
 }
 
 /// Print out this module
