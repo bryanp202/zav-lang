@@ -561,7 +561,7 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
 
     // Write the functions label
     if (maybe_struct_name) |name| {
-        try self.print("\n_{s}_{s}:\n", .{ name, functionStmt.name.lexeme });
+        try self.print("\n_{s}__{s}:\n", .{ name, functionStmt.name.lexeme });
     } else {
         try self.print("\n_{s}:\n", .{functionStmt.name.lexeme});
     }
@@ -1022,6 +1022,7 @@ fn genExpr(self: *Generator, node: ExprNode) GenerationError!void {
     const result_kind = node.result_kind;
     // Determine the type of expr and analysis it
     switch (node.expr) {
+        .SCOPE => unreachable,
         .IDENTIFIER => |idExpr| try self.visitIdentifierExpr(idExpr, result_kind),
         .LITERAL => |litExpr| try self.visitLiteralExpr(litExpr),
         .NATIVE => |nativeExpr| try self.visitNativeExpr(nativeExpr, result_kind),
@@ -1045,13 +1046,14 @@ fn visitIdentifierExprID(self: *Generator, idExpr: *Expr.IdentifierExpr) Generat
     // Get register to store pointer in
     const reg = try self.getNextCPUReg();
     // Get pointer to the identifier
+    const path = idExpr.lexical_scope;
     const id_name = idExpr.id.lexeme;
 
     // Access based on scope kind
     switch (idExpr.scope_kind) {
         .ARG => try self.print("    lea {s}, [rbp+{d}] ; Get Arg\n", .{ reg.name, idExpr.stack_offset + self.current_func_locals_size }),
         .LOCAL => try self.print("    lea {s}, [rbp+{d}] ; Get Local\n", .{ reg.name, idExpr.stack_offset - self.current_func_args_size }),
-        .GLOBAL, .FUNC => try self.print("    lea {s}, [_{s}] ; Get Global\n", .{ reg.name, id_name }),
+        .GLOBAL, .FUNC => try self.print("    lea {s}, [_{s}{s}] ; Get Global\n", .{ reg.name, path, id_name }),
         else => unreachable,
     }
 }
@@ -1132,23 +1134,24 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
             }
         }
     } else {
+        const path = idExpr.lexical_scope;
         if (result_kind == .FUNC) {
             const reg = try self.getNextCPUReg();
             // Write function pointer load
-            try self.print("    lea {s}, [_{s}] ; Get Function\n", .{ reg.name, idExpr.id.lexeme });
+            try self.print("    lea {s}, [_{s}{s}] ; Get Function\n", .{ reg.name, path, idExpr.id.lexeme });
         } else if (result_kind == .FLOAT32) {
             const reg = try self.getNextSSEReg();
             // Mov normally
             try self.print(
-                "    movss {s}, {s} [_{s}] ; Get Global\n",
-                .{ reg.name, size_keyword, idExpr.id.lexeme },
+                "    movss {s}, {s} [_{s}{s}] ; Get Global\n",
+                .{ reg.name, size_keyword, path, idExpr.id.lexeme },
             );
         } else if (result_kind == .FLOAT64) {
             const reg = try self.getNextSSEReg();
             // Mov normally
             try self.print(
-                "    movsd {s}, {s} [_{s}] ; Get Global\n",
-                .{ reg.name, size_keyword, idExpr.id.lexeme },
+                "    movsd {s}, {s} [_{s}{s}] ; Get Global\n",
+                .{ reg.name, size_keyword, path, idExpr.id.lexeme },
             );
         } else {
             const reg = try self.getNextCPUReg();
@@ -1156,22 +1159,22 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
             if (kind_size == 8) {
                 // Mov normally
                 try self.print(
-                    "    mov {s}, {s} [_{s}] ; Get Global\n",
-                    .{ reg.name, size_keyword, idExpr.id.lexeme },
+                    "    mov {s}, {s} [_{s}{s}] ; Get Global\n",
+                    .{ reg.name, size_keyword, path, idExpr.id.lexeme },
                 );
             } else {
                 // Check if unsigned
                 if (result_kind == .INT) {
                     // Move and extend sign bit
                     try self.print(
-                        "    movsx {s}, {s} [_{s}] ; Get Global\n",
-                        .{ reg.name, size_keyword, idExpr.id.lexeme },
+                        "    movsx {s}, {s} [_{s}{s}] ; Get Global\n",
+                        .{ reg.name, size_keyword, path, idExpr.id.lexeme },
                     );
                 } else {
                     // Move and zero top
                     try self.print(
-                        "    movzx {s}, {s} [_{s}] ; Get Global\n",
-                        .{ reg.name, size_keyword, idExpr.id.lexeme },
+                        "    movzx {s}, {s} [_{s}{s}] ; Get Global\n",
+                        .{ reg.name, size_keyword, path, idExpr.id.lexeme },
                     );
                 }
             }
@@ -1662,7 +1665,7 @@ fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: Kin
     // Check if method
     if (fieldExpr.method_parent) |parent_struct| {
         const dest_reg = try self.getNextCPUReg();
-        try self.print("    lea {s}, [_{s}_{s}] ; Method access\n", .{ dest_reg.name, parent_struct.STRUCT.name, fieldExpr.field_name.lexeme });
+        try self.print("    lea {s}, [_{s}__{s}] ; Method access\n", .{ dest_reg.name, parent_struct.STRUCT.name, fieldExpr.field_name.lexeme });
         return;
     }
 

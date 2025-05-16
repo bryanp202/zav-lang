@@ -1,3 +1,16 @@
+struct Complex {
+    real: f64;
+    imag: f64;
+
+    fn display(self: *const Complex) void {
+        if (self.*.imag < 0) {
+            @printf("%f - %fi\n", self.*.real, self.*.imag);
+        } else {
+            @printf("%f - %fi\n", self.*.real, self.*.imag);
+        }
+    }
+}
+
 enum Message {
     Morning,
     Hello,
@@ -10,10 +23,10 @@ enum Sports {
 }
 
 fn main(argc: i64, argv: **u8) i64 {
-    const enum_test = Message::Hello;
-    const enum_test2 = Message::Goodbye;
+    const enum_test = ::Message::Hello;
+    const enum_test2 = ::Message::Goodbye;
 
-    const different_type_enum = Sports::Baseball;
+    const different_type_enum = ::Sports::Baseball;
 
     // This doesn't compile
     // different_type_enum == enum_test;
@@ -32,11 +45,15 @@ fn main(argc: i64, argv: **u8) i64 {
         count += 1;
     }
 
+    const cool = ::Complex::display;
+    const complex1: Complex = undefined;
+    cool(&complex1);
+
     @printf("The enum values are: %d and %d\n", enum_test, enum_test2);
 
     return 0;
 }
 
 fn take_enum(arg1: Message) bool {
-    return arg1 == Message::Hello;
+    return arg1 == ::Message::Hello;
 }

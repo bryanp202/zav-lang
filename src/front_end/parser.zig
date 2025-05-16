@@ -1361,17 +1361,43 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             // FOR NOW THROWS AN ERROR
             return self.errorAt("Do not use arrays yet please thanks");
         },
-        .IDENTIFIER => {
-            var id_token: Token = token;
-            var lexical_scope: ?Token = null;
+        .SCOPE => {
+            const scoper = self.previous;
+            const global_scope_token = Token{
+                .kind = .IDENTIFIER,
+                .lexeme = "",
+                .line = scoper.line,
+                .column = scoper.column,
+            };
 
-            // Check if next is "::"
-            if (self.match(.{TokenKind.SCOPE})) {
-                try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope deliminator");
+            const expr = self.allocator.create(Expr.ScopeExpr) catch unreachable;
+            expr.* = Expr.ScopeExpr.init(global_scope_token, scoper, undefined);
+            const new_node = ExprNode.init(ExprUnion{ .SCOPE = expr });
 
-                id_token = self.previous;
-                lexical_scope = token;
+            try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
+            var next_scope = self.previous;
+
+            var current_node = new_node;
+
+            while (self.match(.{TokenKind.SCOPE})) {
+                const next_scoper = self.previous;
+                const new_scope = self.allocator.create(Expr.ScopeExpr) catch unreachable;
+                current_node.expr.SCOPE.operand = ExprNode.init(ExprUnion{ .SCOPE = new_scope });
+                current_node = current_node.expr.SCOPE.operand;
+
+                current_node.expr.SCOPE.* = Expr.ScopeExpr.init(next_scope, next_scoper, undefined);
+                try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
+                next_scope = self.previous;
             }
+
+            const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+            identifier_expr.* = Expr.IdentifierExpr{ .id = next_scope, .lexical_scope = undefined };
+            current_node.expr.SCOPE.operand = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
+
+            return ExprResult.init(new_node, 0);
+        },
+        .IDENTIFIER => {
+            const id_token: Token = token;
 
             // Make new constant expression
             const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;

@@ -712,10 +712,10 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
 
 /// Declare a enum type, checking if name has already been used
 fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void {
-    const EnumVariant = Symbols.Enum.EnumVariant;
+    const new_variants = self.allocator.create(std.StringHashMap(Symbol)) catch unreachable;
+    new_variants.* = std.StringHashMap(Symbol).init(self.allocator);
 
-    const new_variants = self.allocator.create(std.StringHashMap(EnumVariant)) catch unreachable;
-    new_variants.* = std.StringHashMap(EnumVariant).init(self.allocator);
+    const enum_kind = KindId.newEnumWithVariants(enum_stmt.id.lexeme, new_variants);
 
     for (0.., enum_stmt.variant_names) |value, variant| {
         const getOrPut = new_variants.getOrPut(variant.lexeme) catch unreachable;
@@ -726,10 +726,18 @@ fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void
             return self.reportDuplicateError(variant, line, column);
         }
 
-        getOrPut.value_ptr.* = EnumVariant{ .value = @as(u16, @intCast(value)), .name = variant.lexeme, .dcl_line = variant.line, .dcl_column = variant.column };
+        getOrPut.value_ptr.* = Symbol.init(
+            variant.lexeme,
+            enum_kind,
+            ScopeKind.ENUM_VARIANT,
+            variant.line,
+            variant.column,
+            false,
+            true,
+            value,
+            2,
+        );
     }
-
-    const enum_kind = KindId.newEnumWithVariants(enum_stmt.id.lexeme, new_variants);
 
     _ = self.stm.declareSymbol(
         enum_stmt.id.lexeme,
@@ -841,7 +849,7 @@ fn declareStruct(
         }
 
         // Add field to struct
-        symbol.kind.STRUCT.fields.addField(ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*) catch {
+        symbol.kind.STRUCT.fields.addField(ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*, true) catch {
             const old_field = symbol.kind.STRUCT.fields.getField(name.lexeme) catch unreachable;
             return self.reportDuplicateError(name, old_field.dcl_line, old_field.dcl_column);
         };
@@ -890,7 +898,7 @@ fn declareStruct(
                 name.line,
                 name.column,
                 false,
-                false,
+                method.public,
             ) catch {
                 const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
                 return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
@@ -912,6 +920,7 @@ fn declareStruct(
             method.name.line,
             method.name.column,
             new_func,
+            method.public,
         ) catch {
             const old_field = symbol.kind.STRUCT.fields.getField(method.name.lexeme) catch unreachable;
             return self.reportDuplicateError(method.name, old_field.dcl_line, old_field.dcl_column);
@@ -1294,6 +1303,7 @@ fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!I
 fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Determine the type of expr and analysis it
     return switch (node.*.expr) {
+        .SCOPE => self.visitScopeExpr(node),
         .IDENTIFIER => self.visitIdentifierExpr(node),
         .LITERAL => self.visitLiteralExpr(node),
         .NATIVE => self.visitNativeExpr(node),
@@ -1310,6 +1320,17 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .IF => self.visitIfExpr(node),
         //else => unreachable,
     };
+}
+
+fn visitScopeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    const scope_expr = node.expr.SCOPE;
+    self.stm.changeTargetScope(scope_expr.scope.lexeme) catch {
+        return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Expected a valid scope target");
+    };
+
+    _ = try self.analyzeExpr(&scope_expr.operand);
+    node.* = scope_expr.operand;
+    return node.result_kind;
 }
 
 /// Visit a literal
@@ -1371,14 +1392,19 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     const token = node.*.expr.IDENTIFIER.id;
     const name = token.lexeme;
 
-    // Check if trying to access lexical scope
-    if (node.expr.IDENTIFIER.lexical_scope) |lexical_scope| {
-        return self.reportError(SemanticError.UnmutatedVarIdentifier, lexical_scope, "Cannot modify values accessed through scopes");
-    }
+    const path_source = self.stm.current_scope_target_path.items;
+    const path = self.allocator.alloc(u8, path_source.len) catch unreachable;
+    std.mem.copyForwards(u8, path, path_source);
+
+    node.*.expr.IDENTIFIER.lexical_scope = path;
 
     // Try to get the symbol, else throw error
-    const symbol = self.stm.getSymbol(name) catch {
-        return self.reportError(SemanticError.UnresolvableIdentifier, token, "Identifier is undeclared");
+    const symbol = self.stm.getSymbol(name) catch |err| {
+        const msg = switch (err) {
+            error.InvalidScope => "Invalid scope target",
+            else => "Identifier is undeclared",
+        };
+        return self.reportError(SemanticError.UnresolvableIdentifier, token, msg);
     };
     // Set symbol as mutated
     symbol.has_mutated = true;
@@ -1390,7 +1416,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
         .GLOBAL, .FUNC => undefined,
-        .STRUCT, .ENUM => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct or enum type"),
+        .STRUCT, .ENUM, .ENUM_VARIANT, .MODULE => return self.reportError(SemanticError.TypeMismatch, token, "Cannot modify kind values (enum and variants or structs)"),
     }
 
     // Wrap in id_result with constant status of symbol
@@ -1406,31 +1432,19 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     const token = node.*.expr.IDENTIFIER.id;
     const name = token.lexeme;
 
-    // Check if trying to access lexical scope
-    if (node.expr.IDENTIFIER.lexical_scope) |lexical_scope| {
-        const scope_target = self.stm.getSymbol(lexical_scope.lexeme) catch {
-            return self.reportError(SemanticError.UnresolvableIdentifier, lexical_scope, "Could not find lexical scope target");
-        };
+    const path_source = self.stm.current_scope_target_path.items;
+    const path = self.allocator.alloc(u8, path_source.len) catch unreachable;
+    std.mem.copyForwards(u8, path, path_source);
 
-        switch (scope_target.kind) {
-            .ENUM => |enm| {
-                const variant = enm.variants.get(name) orelse {
-                    return self.reportError(SemanticError.UnresolvableIdentifier, token, "Undeclared enum variant");
-                };
-
-                const new_literal = self.allocator.create(Expr.LiteralExpr) catch unreachable;
-                new_literal.* = Expr.LiteralExpr{ .literal = token, .value = Value.newUInt(variant.value, 16) };
-                node.* = ExprNode.init(Expr.ExprUnion{ .LITERAL = new_literal });
-            },
-            else => return self.reportError(SemanticError.TypeMismatch, lexical_scope, "Can only lexically scope enum kinds"),
-        }
-        node.*.result_kind = scope_target.kind;
-        return scope_target.kind;
-    }
+    node.*.expr.IDENTIFIER.lexical_scope = path;
 
     // Try to get the symbol, else throw error
-    const symbol = self.stm.getSymbol(name) catch {
-        return self.reportError(SemanticError.UnresolvableIdentifier, token, "Identifier is undeclared");
+    const symbol = self.stm.getSymbol(name) catch |err| {
+        const msg = switch (err) {
+            error.InvalidScope => "Invalid scope target",
+            else => "Identifier is undeclared",
+        };
+        return self.reportError(SemanticError.UnresolvableIdentifier, token, msg);
     };
 
     // Update scope kind
@@ -1439,8 +1453,15 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     switch (symbol.scope) {
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
-        .GLOBAL, .FUNC => undefined,
-        .STRUCT, .ENUM => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct or enum type"),
+        .GLOBAL, .FUNC => {},
+        .STRUCT, .ENUM, .MODULE => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, or module types"),
+        .ENUM_VARIANT => {
+            const new_literal = self.allocator.create(Expr.LiteralExpr) catch unreachable;
+            new_literal.* = Expr.LiteralExpr{ .literal = token, .value = Value.newUInt(symbol.mem_loc, 16) };
+            node.* = ExprNode.init(Expr.ExprUnion{ .LITERAL = new_literal });
+            node.*.result_kind = symbol.kind;
+            return node.*.result_kind;
+        },
     }
 
     // Return its stored kind and update final
@@ -1630,7 +1651,7 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
         return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name");
     };
     // Update offset from base of struct
-    fieldExpr.stack_offset = field.relative_loc;
+    fieldExpr.stack_offset = field.mem_loc;
     node.result_kind = field.kind;
     // Check if mutable
     const mutable = operand_result.mutable and field.scope != .FUNC;
@@ -1654,7 +1675,7 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name");
     };
     // Update offset from base of struct
-    fieldExpr.stack_offset = field.relative_loc;
+    fieldExpr.stack_offset = field.mem_loc;
     node.result_kind = field.kind;
     // Check if method
     if (field.scope == .FUNC) {

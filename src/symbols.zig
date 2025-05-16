@@ -30,6 +30,7 @@ pub const SymbolTableManager = struct {
     global_module: *Module,
     /// Used for user defined scoping
     current_scope_target: ?KindId,
+    current_scope_target_path: std.ArrayList(u8),
 
     /// Init a STM
     pub fn init(allocator: std.mem.Allocator, global_module: *Module) SymbolTableManager {
@@ -59,6 +60,7 @@ pub const SymbolTableManager = struct {
             .natives_table = natives_table,
             .global_module = global_module,
             .current_scope_target = null,
+            .current_scope_target_path = std.ArrayList(u8).init(allocator),
         };
     }
 
@@ -151,8 +153,16 @@ pub const SymbolTableManager = struct {
 
     pub fn changeTargetScope(self: *SymbolTableManager, target: []const u8) !void {
         if (self.current_scope_target == null) {
-            const symbol = try self.peakSymbol(target);
-            self.current_scope_target = symbol.kind;
+            // Check if absolute scope or not
+            if (target.len == 0) {
+                self.current_scope_target = KindId{ .MODULE = self.global_module };
+            } else {
+                const symbol = try self.peakSymbol(target);
+                self.current_scope_target = symbol.kind;
+
+                self.current_scope_target_path.appendSlice(target) catch unreachable;
+                self.current_scope_target_path.appendSlice("__") catch unreachable;
+            }
         } else {
             switch (self.current_scope_target.?) {
                 .MODULE => |module| {
@@ -161,6 +171,9 @@ pub const SymbolTableManager = struct {
                 },
                 else => return ScopeError.UndeclaredSymbol,
             }
+
+            self.current_scope_target_path.appendSlice(target) catch unreachable;
+            self.current_scope_target_path.appendSlice("__") catch unreachable;
         }
     }
 
@@ -168,6 +181,27 @@ pub const SymbolTableManager = struct {
     /// if it has not been assigned one. Global scope variables will use a static memory location
     /// and Local scope variables use a relative stack location
     pub fn getSymbol(self: *SymbolTableManager, name: []const u8) !*Symbol {
+        const current_scope_target = self.current_scope_target;
+        if (current_scope_target) |target| {
+            self.current_scope_target = null;
+            self.current_scope_target_path.shrinkRetainingCapacity(0);
+
+            const symbol = switch (target) {
+                .MODULE => |module| try module.stm.getSymbol(name),
+                .ENUM => |enm| enm.variants.getPtr(name) orelse return ScopeError.UndeclaredSymbol,
+                .STRUCT => |strct| {
+                    const symbol = try strct.fields.getField(name);
+                    if (symbol.kind != .FUNC) {
+                        return ScopeError.InvalidScope;
+                    } else {
+                        return symbol;
+                    }
+                },
+                else => return ScopeError.InvalidScope,
+            };
+            return symbol;
+        }
+
         // Get symbol, starting at active_scope
         return self.active_scope.getSymbol(name);
     }
@@ -348,19 +382,19 @@ pub const Scope = struct {
 };
 
 pub const StructScope = struct {
-    fields: std.StringHashMap(Field),
+    fields: std.StringHashMap(Symbol),
     next_address: u64,
 
     /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
     pub fn init(allocator: std.mem.Allocator) StructScope {
         return StructScope{
-            .fields = std.StringHashMap(Field).init(allocator),
+            .fields = std.StringHashMap(Symbol).init(allocator),
             .next_address = 0,
         };
     }
 
     /// Add a new field to this scope
-    pub fn addField(self: *StructScope, scope: ScopeKind, name: []const u8, dcl_line: u64, dcl_column: u64, kind: KindId) ScopeError!void {
+    pub fn addField(self: *StructScope, scope: ScopeKind, name: []const u8, dcl_line: u64, dcl_column: u64, kind: KindId, is_public: bool) ScopeError!void {
         // Check if already in scope
         const getOrPut = self.fields.getOrPut(name) catch unreachable;
         if (getOrPut.found_existing) {
@@ -386,21 +420,21 @@ pub const StructScope = struct {
             mem_loc = self.next_address;
             // Increment next addres
             self.next_address += kind_size;
-            const field = Field.init(scope, name, kind, dcl_line, dcl_column, mem_loc);
+            const field = Symbol.init(name, kind, scope, dcl_line, dcl_column, true, is_public, mem_loc, kind_size);
             getOrPut.value_ptr.* = field;
         } else {
-            const field = Field.init(scope, name, kind, dcl_line, dcl_column, undefined);
+            const field = Symbol.init(name, kind, scope, dcl_line, dcl_column, true, is_public, undefined, undefined);
             getOrPut.value_ptr.* = field;
         }
     }
 
     /// Get a field by name from this scope
-    pub fn getField(self: *StructScope, name: []const u8) ScopeError!Field {
+    pub fn getField(self: *StructScope, name: []const u8) ScopeError!*Symbol {
         const field = self.fields.getPtr(name) orelse {
             return ScopeError.UndeclaredSymbol;
         };
         field.used = true;
-        return field.*;
+        return field;
     }
 
     /// Calculate the size of this scope
@@ -444,30 +478,6 @@ pub const Symbol = struct {
             .has_mutated = false,
             .mem_loc = mem_loc,
             .size = size,
-            .used = false,
-        };
-    }
-};
-
-/// Used to store information about a structs field
-pub const Field = struct {
-    scope: ScopeKind,
-    name: []const u8,
-    kind: KindId,
-    dcl_line: u64,
-    dcl_column: u64,
-    relative_loc: u64,
-    used: bool,
-
-    /// Init a new field, used to store information about a structs field
-    pub fn init(scope: ScopeKind, name: []const u8, kind: KindId, dcl_line: u64, dcl_column: u64, relative_loc: u64) Field {
-        return Field{
-            .scope = scope,
-            .name = name,
-            .kind = kind,
-            .dcl_line = dcl_line,
-            .dcl_column = dcl_column,
-            .relative_loc = relative_loc,
             .used = false,
         };
     }
@@ -574,7 +584,7 @@ pub const KindId = union(Kinds) {
         return KindId{ .STRUCT = new_struct };
     }
     /// Make an enum with a variant field
-    pub fn newEnumWithVariants(name: []const u8, variants: *std.StringHashMap(Enum.EnumVariant)) KindId {
+    pub fn newEnumWithVariants(name: []const u8, variants: *std.StringHashMap(Symbol)) KindId {
         const new_enum = Enum{ .name = name, .variants = variants };
         return KindId{ .ENUM = new_enum };
     }
@@ -676,6 +686,7 @@ pub const ScopeKind = enum {
     FUNC,
     STRUCT,
     ENUM,
+    ENUM_VARIANT,
     MODULE,
 };
 
@@ -827,7 +838,7 @@ pub const Struct = struct {
 /// All enums are treated as u16 at runtime
 pub const Enum = struct {
     name: []const u8,
-    variants: *std.StringHashMap(EnumVariant),
+    variants: *std.StringHashMap(Symbol),
 
     pub fn equal(self: Enum, other: Enum) bool {
         return self.name.ptr == other.name.ptr and self.name.len == other.name.len and self.variants == other.variants;
@@ -840,13 +851,6 @@ pub const Enum = struct {
         self.variants = symbol.kind.ENUM.variants;
         return 2;
     }
-
-    pub const EnumVariant = struct {
-        name: []const u8,
-        value: u16,
-        dcl_line: u64,
-        dcl_column: u64,
-    };
 };
 
 // *********************** //

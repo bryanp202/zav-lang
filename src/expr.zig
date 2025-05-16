@@ -12,6 +12,7 @@ const Token = @import("front_end/scanner.zig").Token;
 //**********************************************//
 
 pub const ExprUnion = union(enum) {
+    SCOPE: *ScopeExpr,
     IDENTIFIER: *IdentifierExpr,
     LITERAL: *LiteralExpr,
     NATIVE: *NativeExpr,
@@ -50,6 +51,10 @@ pub const ExprNode = struct {
     /// Used to display an AST in polish notation
     pub fn display(self: ExprNode) void {
         switch (self.expr) {
+            .SCOPE => |scopeExpr| {
+                std.debug.print("{s}::", .{scopeExpr.scope.lexeme});
+                scopeExpr.operand.display();
+            },
             .IDENTIFIER => |idExpr| {
                 std.debug.print("{s}", .{idExpr.id.lexeme});
                 if (idExpr.scope_kind == .ARG or idExpr.scope_kind == .LOCAL) {
@@ -221,6 +226,21 @@ pub const CallExpr = struct {
 //**********************************************//
 //          Access nodes
 //**********************************************//
+
+/// Scope through the stm
+pub const ScopeExpr = struct {
+    scope: Token,
+    op: Token,
+    operand: ExprNode,
+
+    pub fn init(scope: Token, op: Token, operand: ExprNode) ScopeExpr {
+        return ScopeExpr{
+            .scope = scope,
+            .op = op,
+            .operand = operand,
+        };
+    }
+};
 
 /// Operation for accessing a struct field
 pub const FieldExpr = struct {
