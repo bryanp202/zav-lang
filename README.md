@@ -3,6 +3,11 @@ A custom compiler developed as a learning experiment for compiler design and the
 
 Zav takes some inspiration from [Clox](https://craftinginterpreters.com/) by Robert Nystrom, but is a typed compiler unlike [Clox](https://craftinginterpreters.com/), which is a dynamically typed virtual machine.
 
+# VS Code Extension
+The 'zavlang.vscode' folder has a simple syntax highlighting extension for all .zav extension files.
+
+Does not support more complex features like autocomplete 
+
 # Dependencies
 Will output a .asm file in NASM format without any dependencies, but will assume NASM and GCC are installed to path in order to output an exe file.
 
