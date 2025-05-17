@@ -1,0 +1,138 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Zav",
+	"patterns": [
+		{
+			"include": "#control-keywords"
+		},
+		{
+			"include": "#operator-keywords"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#primative-types"
+		},
+		{
+			"include": "#native-function"
+		},
+		{
+			"include": "#user-function"
+		},
+		{
+			"include": "#literal-number"
+		},
+		{
+			"include": "#literal-char"
+		},
+		{
+			"include": "#literal-other"
+		},
+		{
+			"include": "#single-comment"
+		},
+		{
+			"include": "#block-comment"
+		},
+		{
+			"include": "#user-constant"
+		},
+		{
+			"include": "#user-type"
+		},
+		{
+			"include": "#variable"
+		}
+	],
+	"repository": {
+		"primative-types": {
+			"patterns": [{
+				"name": "storage.type.zav",
+				"match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|bool|void|struct|enum)\\b"
+			}]
+		},
+		"native-function": {
+			"patterns": [{
+				"name": "support.function",
+				"match": "(@[a-zA-Z0-9_]*)"
+			}]
+		},
+		"user-function": {
+			"patterns": [{
+				"name": "entity.name.function.zav",
+				"match": "\\b([a-z_][a-zA-Z0-9_]*\\()"
+			}]
+		},
+		"user-constant": {
+			"patterns": [{
+				"name": "keyword",
+				"match": "\\b([A-Z][A-Z0-9_]*)\\b"
+			}]
+		},
+		"user-type": {
+			"patterns": [{
+				"name": "entity.name.type.zav",
+				"match": "\\b([A-Z][a-zA-Z0-9_]*)\\b"
+			}]
+		},
+		"literal-number": {
+			"patterns": [{
+				"name": "constant.numeric.zav",
+				"match": "\\b((-)?[0-9]+(.[0-9]+)?)\\b"
+			}]
+		},
+		"literal-char": {
+			"patterns": [{
+				"name": "string.quoted.single.zav",
+				"match": "'.'"
+			}]
+		},
+		"literal-other": {
+			"patterns": [{
+				"name": "constant.language",
+				"match": "\\b(true|false|nullptr|undefined)\\b"
+			}]
+		},
+		"control-keywords": {
+			"patterns": [{
+				"name": "keyword.control.zav",
+				"match": "\\b(if|else|while|loop|return|fn|const|var|break|continue)\\b"
+			}]
+		},
+		"operator-keywords": {
+			"patterns": [{
+				"name": "keyword.zav",
+				"match": "\\b(or|and)\\b"
+			}]
+		},
+		"strings": {
+			"name": "string.quoted.double.zav",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.zav",
+					"match": "\\\\."
+				}
+			]
+		},
+		"single-comment": {
+			"name": "comment.line.double-slash",
+			"begin": "//",
+			"end": "\n"
+		},
+		"block-comment": {
+			"name": "comment.block",
+			"begin": "/\\*",
+			"end": "\\*/"
+		},
+		"variable": {
+			"patterns": [{
+				"name": "variable.name.zav",
+				"match": "([a-z_][a-zA-Z0-9_]*)"
+			}]
+		}
+	},
+	"scopeName": "source.zav"
+}

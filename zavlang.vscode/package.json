@@ -1,0 +1,25 @@
+{
+  "name": "zavlang-vscode",
+  "displayName": "zavlang.vscode",
+  "description": "Zav language",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "zav",
+      "aliases": ["Zav", "zav"],
+      "extensions": [".zav"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "zav",
+      "scopeName": "source.zav",
+      "path": "./syntaxes/zav.tmLanguage.json"
+    }]
+  }
+}
