@@ -44,7 +44,7 @@ pub fn add_dependency(self: *Module, dependency: *Module, name: []const u8, dcl_
 
 /// Print out this module
 pub fn display(self: Module) void {
-    std.debug.print("\n--- Module <::{s}> ---\n", .{self.path});
+    std.debug.print("\n--- Module <root{s}> ---\n", .{self.path});
     for (self.enumSlice()) |enm| {
         enm.display();
     }
@@ -57,7 +57,7 @@ pub fn display(self: Module) void {
     for (self.functionSlice()) |function| {
         function.display();
     }
-    std.debug.print("--- End of <::{s}> ---\n\n", .{self.path});
+    std.debug.print("--- End of <root{s}> ---\n\n", .{self.path});
 }
 
 /// Return a slice of all globals in this module

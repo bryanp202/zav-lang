@@ -51,6 +51,7 @@ file: std.fs.File,
 buffered_writer_ptr: *BufferedWriterType,
 writer: WriterType,
 stm: *STM,
+module_path: []const u8,
 
 // Label counters
 /// Used in the generation of if statement labels
@@ -72,113 +73,118 @@ func_stack_alignment: usize,
 cpu_reg_stack: RegisterStack(cpu_reg_names),
 sse_reg_stack: RegisterStack(sse_reg_names),
 
-pub fn open(allocator: std.mem.Allocator, stm: *STM, path: []const u8) !Generator {
-    const file = try std.fs.cwd().createFile(path, .{ .read = true });
+pub fn open(allocator: std.mem.Allocator, stm: *STM, root_path: []const u8, path: []const u8, module_path: []const u8, module_kind: Module.ModuleKind) !Generator {
+    const dir = try std.fs.openDirAbsolute(root_path, .{});
+    const file = try dir.createFile(path, .{ .read = true });
     const base_writer_ptr = allocator.create(BaseWriterType) catch unreachable;
     const buffered_writer_ptr = allocator.create(BufferedWriterType) catch unreachable;
     base_writer_ptr.* = file.writer();
     buffered_writer_ptr.* = std.io.bufferedWriter(base_writer_ptr.*);
     var writer = buffered_writer_ptr.*.writer();
 
-    // Set up file header
-    const header =
-        \\default rel
-        \\global _start
-        \\section .text
-        \\_start:
-        \\    ; Setup main args
-        \\    sub rsp, 40
-        \\    call GetCommandLineW ; Get Full string
-        \\
-        \\    mov rcx, rax
-        \\    lea rdx, [@ARGC]
-        \\    call CommandLineToArgvW ; Split into wide substrings
-        \\    add rsp, 40
-        \\    mov [@ARGV], rax
-        \\
-        \\    xor ebx, ebx
-        \\    xor esi, esi
-        \\    mov rdi, [@ARGC]
-        \\.BUFFER_SIZE_START:
-        \\    cmp rsi, rdi ; Test if i is less than argc
-        \\    jae .BUFFER_SIZE_END
-        \\    mov rcx, 65001
-        \\    xor edx, edx
-        \\    mov r8, [@ARGV]
-        \\    mov r8, [r8+rsi*8]
-        \\    mov r9, -1
-        \\    push 0
-        \\    push 0
-        \\    push 0
-        \\    push 0
-        \\    sub rsp, 40
-        \\    call WideCharToMultiByte ; Get the length of current argv[i] conversion
-        \\    add rsp, 72
-        \\    inc rax
-        \\    add rbx, rax
-        \\    inc rsi
-        \\    jmp .BUFFER_SIZE_START
-        \\.BUFFER_SIZE_END:
-        \\
-        \\    mov rcx, rbx
-        \\    sub rsp, 40
-        \\    call malloc ; Allocate space for argv buffer
-        \\    add rsp, 40
-        \\    mov [@ARG_BUFFER], rax
-        \\
-        \\    xor esi, esi ; arg count
-        \\    xor edi, edi ; total length
-        \\.BUFFER_MAKE_START:
-        \\    cmp rsi, [@ARGC] ; Test if i is less than argc
-        \\    jae .BUFFER_MAKE_END
-        \\    mov rcx, 65001
-        \\    xor edx, edx
-        \\    mov r8, [@ARGV]
-        \\    mov r8, [r8+rsi*8]
-        \\    mov r9, -1
-        \\    push 0
-        \\    push 0
-        \\    push 0
-        \\    push rbx
-        \\    mov r15, [@ARG_BUFFER]
-        \\    lea r15, [r15+rdi]
-        \\    push r15
-        \\    sub rsp, 32
-        \\    call WideCharToMultiByte ; Convert argv[i] to utf8
-        \\    inc rax
-        \\    mov r14, [rsp+32]
-        \\    mov r15, [@ARGV]
-        \\    mov [r15+rsi*8], r14
-        \\    add rsp, 72
-        \\    add rdi, rax
-        \\    inc rsi
-        \\    jmp .BUFFER_MAKE_START
-        \\.BUFFER_MAKE_END:
-        \\    mov rcx, [@ARGC]
-        \\    mov rdx, [@ARGV]
-        \\
-        \\    sub rsp, 16
-        \\    mov [rsp], rcx
-        \\    mov [rsp+8], rdx
-        \\
-        \\    ; Setup clock
-        \\    push rax
-        \\    mov rcx, rsp
-        \\    sub rsp, 32
-        \\    call QueryPerformanceCounter
-        \\    add rsp, 32
-        \\    pop qword [@CLOCK_START]
-        \\
-        \\    ; Global Declarations
-        \\
-    ;
-    _ = try writer.write(header);
+    _ = try writer.write("default rel\n");
+
+    if (module_kind == .ROOT) {
+        // Set up file header
+        const header =
+            \\global _start
+            \\section .text
+            \\_start:
+            \\    ; Setup main args
+            \\    sub rsp, 40
+            \\    call GetCommandLineW ; Get Full string
+            \\
+            \\    mov rcx, rax
+            \\    lea rdx, [@ARGC]
+            \\    call CommandLineToArgvW ; Split into wide substrings
+            \\    add rsp, 40
+            \\    mov [@ARGV], rax
+            \\
+            \\    xor ebx, ebx
+            \\    xor esi, esi
+            \\    mov rdi, [@ARGC]
+            \\.BUFFER_SIZE_START:
+            \\    cmp rsi, rdi ; Test if i is less than argc
+            \\    jae .BUFFER_SIZE_END
+            \\    mov rcx, 65001
+            \\    xor edx, edx
+            \\    mov r8, [@ARGV]
+            \\    mov r8, [r8+rsi*8]
+            \\    mov r9, -1
+            \\    push 0
+            \\    push 0
+            \\    push 0
+            \\    push 0
+            \\    sub rsp, 40
+            \\    call WideCharToMultiByte ; Get the length of current argv[i] conversion
+            \\    add rsp, 72
+            \\    inc rax
+            \\    add rbx, rax
+            \\    inc rsi
+            \\    jmp .BUFFER_SIZE_START
+            \\.BUFFER_SIZE_END:
+            \\
+            \\    mov rcx, rbx
+            \\    sub rsp, 40
+            \\    call malloc ; Allocate space for argv buffer
+            \\    add rsp, 40
+            \\    mov [@ARG_BUFFER], rax
+            \\
+            \\    xor esi, esi ; arg count
+            \\    xor edi, edi ; total length
+            \\.BUFFER_MAKE_START:
+            \\    cmp rsi, [@ARGC] ; Test if i is less than argc
+            \\    jae .BUFFER_MAKE_END
+            \\    mov rcx, 65001
+            \\    xor edx, edx
+            \\    mov r8, [@ARGV]
+            \\    mov r8, [r8+rsi*8]
+            \\    mov r9, -1
+            \\    push 0
+            \\    push 0
+            \\    push 0
+            \\    push rbx
+            \\    mov r15, [@ARG_BUFFER]
+            \\    lea r15, [r15+rdi]
+            \\    push r15
+            \\    sub rsp, 32
+            \\    call WideCharToMultiByte ; Convert argv[i] to utf8
+            \\    inc rax
+            \\    mov r14, [rsp+32]
+            \\    mov r15, [@ARGV]
+            \\    mov [r15+rsi*8], r14
+            \\    add rsp, 72
+            \\    add rdi, rax
+            \\    inc rsi
+            \\    jmp .BUFFER_MAKE_START
+            \\.BUFFER_MAKE_END:
+            \\    mov rcx, [@ARGC]
+            \\    mov rdx, [@ARGV]
+            \\
+            \\    sub rsp, 16
+            \\    mov [rsp], rcx
+            \\    mov [rsp+8], rdx
+            \\
+            \\    ; Setup clock
+            \\    push rax
+            \\    mov rcx, rsp
+            \\    sub rsp, 32
+            \\    call QueryPerformanceCounter
+            \\    add rsp, 32
+            \\    pop qword [@CLOCK_START]
+            \\
+            \\    ; Global Declarations
+            \\
+        ;
+        _ = try writer.write(header);
+    }
 
     return .{
         .file = file,
         .buffered_writer_ptr = buffered_writer_ptr,
         .writer = writer,
         .stm = stm,
+        .module_path = module_path,
         .label_count = 0,
         .break_label = undefined,
         .continue_label = undefined,
@@ -303,29 +309,31 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
     // Reset STM stack
     self.stm.resetStack();
 
-    // Generate all statements in the module
-    for (module.globalSlice()) |global| {
-        try self.visitGlobalStmt(global.GLOBAL.*);
-    }
+    if (module.kind == .ROOT) {
+        // Generate all statements in the module
+        for (module.globalSlice()) |global| {
+            try self.visitGlobalStmt(global.GLOBAL.*);
+        }
 
-    // Call main
-    try self.write("\n    call _main ; Execute main\n");
-    // Write exit
-    try self.write(
-        \\    add rsp, 16
-        \\    push rax
-        \\
-        \\    mov rcx, [@ARG_BUFFER]
-        \\    sub rsp, 32
-        \\    call free
-        \\    add rsp, 32
-        \\
-        \\    mov rcx, [rsp]
-        \\    call ExitProcess
-        \\    ret
-        \\
-        \\    
-    );
+        // Call main
+        try self.write("\n    call __main ; Execute main\n");
+        // Write exit
+        try self.write(
+            \\    add rsp, 16
+            \\    push rax
+            \\
+            \\    mov rcx, [@ARG_BUFFER]
+            \\    sub rsp, 32
+            \\    call free
+            \\    add rsp, 32
+            \\
+            \\    mov rcx, [rsp]
+            \\    call ExitProcess
+            \\    ret
+            \\
+            \\    
+        );
+    }
 
     // Generate all methods for each struct in the module
     for (module.structSlice()) |strct| {
@@ -561,9 +569,9 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
 
     // Write the functions label
     if (maybe_struct_name) |name| {
-        try self.print("\n_{s}__{s}:\n", .{ name, functionStmt.name.lexeme });
+        try self.print("\n{s}__{s}__{s}:\n", .{ self.module_path, name, functionStmt.name.lexeme });
     } else {
-        try self.print("\n_{s}:\n", .{functionStmt.name.lexeme});
+        try self.print("\n{s}__{s}:\n", .{ self.module_path, functionStmt.name.lexeme });
     }
     // Allocate stack space for locals
     if (locals_size > 0) {
@@ -1053,7 +1061,7 @@ fn visitIdentifierExprID(self: *Generator, idExpr: *Expr.IdentifierExpr) Generat
     switch (idExpr.scope_kind) {
         .ARG => try self.print("    lea {s}, [rbp+{d}] ; Get Arg\n", .{ reg.name, idExpr.stack_offset + self.current_func_locals_size }),
         .LOCAL => try self.print("    lea {s}, [rbp+{d}] ; Get Local\n", .{ reg.name, idExpr.stack_offset - self.current_func_args_size }),
-        .GLOBAL, .FUNC => try self.print("    lea {s}, [_{s}{s}] ; Get Global\n", .{ reg.name, path, id_name }),
+        .GLOBAL, .FUNC => try self.print("    lea {s}, [__{s}{s}] ; Get Global\n", .{ reg.name, path, id_name }),
         else => unreachable,
     }
 }
@@ -1138,19 +1146,19 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
         if (result_kind == .FUNC) {
             const reg = try self.getNextCPUReg();
             // Write function pointer load
-            try self.print("    lea {s}, [_{s}{s}] ; Get Function\n", .{ reg.name, path, idExpr.id.lexeme });
+            try self.print("    lea {s}, [__{s}{s}] ; Get Function\n", .{ reg.name, path, idExpr.id.lexeme });
         } else if (result_kind == .FLOAT32) {
             const reg = try self.getNextSSEReg();
             // Mov normally
             try self.print(
-                "    movss {s}, {s} [_{s}{s}] ; Get Global\n",
+                "    movss {s}, {s} [__{s}{s}] ; Get Global\n",
                 .{ reg.name, size_keyword, path, idExpr.id.lexeme },
             );
         } else if (result_kind == .FLOAT64) {
             const reg = try self.getNextSSEReg();
             // Mov normally
             try self.print(
-                "    movsd {s}, {s} [_{s}{s}] ; Get Global\n",
+                "    movsd {s}, {s} [__{s}{s}] ; Get Global\n",
                 .{ reg.name, size_keyword, path, idExpr.id.lexeme },
             );
         } else {
@@ -1159,7 +1167,7 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
             if (kind_size == 8) {
                 // Mov normally
                 try self.print(
-                    "    mov {s}, {s} [_{s}{s}] ; Get Global\n",
+                    "    mov {s}, {s} [__{s}{s}] ; Get Global\n",
                     .{ reg.name, size_keyword, path, idExpr.id.lexeme },
                 );
             } else {
@@ -1167,13 +1175,13 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
                 if (result_kind == .INT) {
                     // Move and extend sign bit
                     try self.print(
-                        "    movsx {s}, {s} [_{s}{s}] ; Get Global\n",
+                        "    movsx {s}, {s} [__{s}{s}] ; Get Global\n",
                         .{ reg.name, size_keyword, path, idExpr.id.lexeme },
                     );
                 } else {
                     // Move and zero top
                     try self.print(
-                        "    movzx {s}, {s} [_{s}{s}] ; Get Global\n",
+                        "    movzx {s}, {s} [__{s}{s}] ; Get Global\n",
                         .{ reg.name, size_keyword, path, idExpr.id.lexeme },
                     );
                 }

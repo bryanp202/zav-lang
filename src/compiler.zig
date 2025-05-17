@@ -31,7 +31,7 @@ allocator: std.mem.Allocator,
 root_path: []const u8,
 root_name: []const u8,
 output_name: []const u8,
-asm_name: []const u8,
+asm_names: std.ArrayList([]const u8),
 show_ast: bool,
 emit_asm: bool,
 
@@ -56,8 +56,6 @@ pub fn init(
     // Split based on '.'
     var output_name_iter = std.mem.splitScalar(u8, trimmed_name, '.');
     const root_name = output_name_iter.next().?;
-    // Get asm name
-    const asm_name = std.fmt.allocPrint(setup_allocator, "{s}.asm", .{root_name}) catch unreachable;
 
     const root_path = std.fs.path.dirname(main_path) orelse "";
 
@@ -67,9 +65,9 @@ pub fn init(
         .root_path = root_path,
         .root_name = root_name,
         .output_name = trimmed_name,
-        .asm_name = asm_name,
         .show_ast = show_ast,
         .emit_asm = emit_asm,
+        .asm_names = std.ArrayList([]const u8).init(setup_allocator),
     };
 }
 
@@ -85,18 +83,32 @@ pub fn compile(self: *Compiler, source: []const u8) void {
 
     // If successfully made asm, assemble and link
     if (asm_okay) {
+        var obj_names = std.ArrayList([]const u8).init(self.allocator);
         // Assemble
-        std.debug.print("Assembling...\n", .{});
-        const as_args = [_][]const u8{ "nasm", "-f", "win64", self.asm_name, "-o", "zav_temp.obj" };
-        const asm_result = std.process.Child.run(.{ .allocator = self.allocator, .argv = &as_args }) catch {
-            std.debug.print("Failed to assemble file\n", .{});
-            return;
-        };
+        for (0.., self.asm_names.items) |i, module| {
+            std.debug.print("[File: \'{s}\'] Assembling...\n", .{module});
 
-        // Check if asm was successful
-        if (asm_result.term != .Exited or asm_result.term.Exited != 0) {
-            std.debug.print("Failed to assemble file\n", .{});
-            return;
+            var filename_iter = std.mem.splitScalar(u8, module, '.');
+            const filename_no_ext = filename_iter.next() orelse "";
+            const new_obj_name = std.fmt.allocPrint(
+                self.allocator,
+                "{s}{d}.obj",
+                .{ filename_no_ext, i },
+            ) catch unreachable;
+
+            obj_names.append(new_obj_name) catch unreachable;
+
+            const as_args = [_][]const u8{ "nasm", "-f", "win64", new_obj_name, "-o", "zav_temp.obj" };
+            const asm_result = std.process.Child.run(.{ .allocator = self.allocator, .argv = &as_args }) catch {
+                std.debug.print("[File: \'{s}\'] Failed to assemble file\n", .{module});
+                return;
+            };
+
+            // Check if asm was successful
+            if (asm_result.term != .Exited or asm_result.term.Exited != 0) {
+                std.debug.print("[File: \'{s}\'] Failed to assemble file\n", .{module});
+                return;
+            }
         }
         std.debug.print("Successfully assembled\n", .{});
 
@@ -126,7 +138,7 @@ pub fn compile(self: *Compiler, source: []const u8) void {
         cwd.deleteFile("zav_temp.obj") catch unreachable;
         // If keep assembly flag not used, delete .asm file
         if (!self.emit_asm) {
-            cwd.deleteFile(self.asm_name) catch unreachable;
+            cwd.deleteFile(self.asm_names.items[0]) catch unreachable;
         }
     }
 }
@@ -218,27 +230,48 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     if (self.show_ast) {
         // Print root module post type checking
         std.debug.print("Post type checking program:\n", .{});
-        root_module.display();
+        var module_iter = modules.iterator();
+        while (module_iter.next()) |entry| {
+            const module = entry.value_ptr.*;
+            module.display();
+        }
     }
 
     // Generation
-    var generator = Generator.open(self.allocator, &root_module.stm, self.asm_name) catch {
-        std.debug.print("Failed to write file\n", .{});
-        return false;
-    };
+    var module_iter = modules.iterator();
+    while (module_iter.next()) |entry| {
+        const module = entry.value_ptr.*;
+        const module_asm_path = std.fmt.allocPrint(self.allocator, "{s}{s}.asm", .{ self.root_name, module.path }) catch unreachable;
+        _ = std.mem.replace(u8, module_asm_path, "::", "__", module_asm_path);
+        self.asm_names.append(module_asm_path) catch unreachable;
+        const module_path = std.fmt.allocPrint(self.allocator, "{s}", .{module.path}) catch unreachable;
+        _ = std.mem.replace(u8, module_path, "::", "__", module_path);
 
-    std.debug.print("Generating assembly...\n", .{});
-    // Generate asm
-    _ = generator.genModule(root_module) catch {
-        std.debug.print("Failed to write file\n", .{});
-        return false;
-    };
+        var generator = Generator.open(
+            self.allocator,
+            &module.stm,
+            self.root_path,
+            module_asm_path,
+            module_path,
+            module.kind,
+        ) catch {
+            std.debug.print("[Module<root{s}>] Failed to write file\n", .{module.path});
+            return false;
+        };
 
-    // Close file
-    generator.close() catch {
-        std.debug.print("Failed to close file\n", .{});
-        return false;
-    };
+        std.debug.print("[Module<root{s}>] Generating assembly...\n", .{module.path});
+        // Generate asm
+        _ = generator.genModule(module.*) catch {
+            std.debug.print("[Module<root{s}>] Failed to write file\n", .{module.path});
+            return false;
+        };
+
+        // Close file
+        generator.close() catch {
+            std.debug.print("[Module<root{s}>] Failed to close file\n", .{module.path});
+            return false;
+        };
+    }
 
     // Success
     return true;
