@@ -11,7 +11,7 @@ const Expr = @import("expr.zig");
 const ExprNode = Expr.ExprNode;
 
 pub const StmtNode = union(enum) {
-    USE: *ModStmt,
+    MOD: *ModStmt,
     GLOBAL: *GlobalStmt,
     MUTATE: *MutStmt,
     DECLARE: *DeclareStmt,
@@ -30,11 +30,11 @@ pub const StmtNode = union(enum) {
     pub fn display(self: StmtNode) void {
         // Display based off of self
         switch (self) {
-            .USE => |modStmt| {
+            .MOD => |modStmt| {
                 if (modStmt.public) {
                     std.debug.print("pub ", .{});
                 }
-                std.debug.print("use {s};\n", .{modStmt.module_name.lexeme});
+                std.debug.print("mod {s};\n", .{modStmt.module_name.lexeme});
             },
             .GLOBAL => |globalStmt| {
                 if (globalStmt.public) {

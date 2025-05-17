@@ -1,0 +1,3 @@
+fn hello_again() void {
+    @printf("Hello from module hello::hello");
+}

@@ -46,6 +46,7 @@ fn main(argc: i64, argv: **u8) i64 {
     }
 
     const cool = ::Complex::display;
+    const cool2 = Complex::display;
     const complex1: Complex = undefined;
     cool(&complex1);
 

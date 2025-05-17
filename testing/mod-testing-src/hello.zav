@@ -1,0 +1,6 @@
+mod hello;
+mod goodbye;
+
+fn say_hello() void {
+    @printf("Hello from module hello!\n");
+}

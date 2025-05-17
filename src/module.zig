@@ -34,7 +34,7 @@ pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleK
         .functions = std.ArrayList(StmtNode).init(allocator),
         .structs = std.ArrayList(StmtNode).init(allocator),
         .enums = std.ArrayList(StmtNode).init(allocator),
-        .stm = STM.init(allocator, global_module),
+        .stm = STM.init(allocator, global_module, path),
     };
 }
 
@@ -86,6 +86,7 @@ pub fn addStmt(self: *Module, stmt_node: StmtNode) !void {
         .FUNCTION => try self.functions.append(stmt_node),
         .STRUCT => try self.structs.append(stmt_node),
         .ENUM => try self.enums.append(stmt_node),
+        .MOD => {},
         else => unreachable,
     }
 }

@@ -490,6 +490,10 @@ pub const Scanner = struct {
                     _ = self.advance();
                     return self.checkKeyword("oop", TokenKind.LOOP);
                 },
+                'm' => {
+                    _ = self.advance();
+                    return self.checkKeyword("od", TokenKind.MOD);
+                },
                 'n' => {
                     _ = self.advance();
                     return self.checkKeyword("ullptr", TokenKind.NULLPTR);
@@ -684,6 +688,7 @@ pub const TokenKind = enum {
     UNDEFINED,
     NULLPTR,
     PUB,
+    MOD,
 
     //// Parser Tokens ////
     ERROR,

@@ -31,9 +31,10 @@ pub const SymbolTableManager = struct {
     /// Used for user defined scoping
     current_scope_target: ?KindId,
     current_scope_target_path: std.ArrayList(u8),
+    relative_path: []const u8,
 
     /// Init a STM
-    pub fn init(allocator: std.mem.Allocator, global_module: *Module) SymbolTableManager {
+    pub fn init(allocator: std.mem.Allocator, global_module: *Module, relative_path: []const u8) SymbolTableManager {
         // Make global scope
         const global = allocator.create(Scope) catch unreachable;
         global.* = Scope.init(allocator, null);
@@ -61,6 +62,7 @@ pub const SymbolTableManager = struct {
             .global_module = global_module,
             .current_scope_target = null,
             .current_scope_target_path = std.ArrayList(u8).init(allocator),
+            .relative_path = relative_path,
         };
     }
 
@@ -159,6 +161,8 @@ pub const SymbolTableManager = struct {
             } else {
                 const symbol = try self.peakSymbol(target);
                 self.current_scope_target = symbol.kind;
+
+                self.current_scope_target_path.appendSlice(self.relative_path) catch unreachable;
 
                 self.current_scope_target_path.appendSlice(target) catch unreachable;
                 self.current_scope_target_path.appendSlice("__") catch unreachable;

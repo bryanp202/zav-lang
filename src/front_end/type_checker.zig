@@ -37,6 +37,8 @@ panic: bool,
 // Current functions return type
 current_return_kind: KindId,
 current_scope_count: u16,
+/// Stores path of current module
+current_module_path: []const u8,
 
 /// Initialize a new TypeChecker
 pub fn init(allocator: std.mem.Allocator) TypeChecker {
@@ -49,122 +51,158 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .panic = false,
         .current_return_kind = KindId.VOID,
         .current_scope_count = undefined,
+        .current_module_path = undefined,
     };
+}
+
+fn setModule(self: *TypeChecker, module: *Module) void {
+    self.stm = &module.stm;
+    self.current_module_path = module.path;
 }
 
 /// Trace through a AST, checking for type errors
 /// and adding more lower level AST nodes as needed
 /// in preparation for code generation
 /// Returns true if semantics are okay
-pub fn check(self: *TypeChecker, module: *Module) void {
-    self.stm = &module.stm;
+pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
+    var module_iter = modules.iterator();
+    while (module_iter.next()) |entry| {
+        const module = entry.value_ptr.*;
+        self.setModule(module);
 
-    // Define all enums
-    for (module.enumSlice()) |enm| {
-        self.declareEnum(enm.ENUM) catch {
-            self.panic = false;
-            self.had_error = true;
-            continue;
-        };
-    }
-    // If had error in enum names, return
-    if (self.had_error) {
-        return;
-    }
-
-    // Index all struct definitions
-    for (module.structSlice(), 0..) |strct, index| {
-        // Add it to symbol table
-        self.indexStruct(strct.STRUCT.id, index, strct.STRUCT.public) catch {
-            self.panic = false;
-            self.had_error = true;
-            continue;
-        };
-    }
-    // If had error in struct names, return
-    if (self.had_error) {
-        return;
-    }
-
-    // Define all structs
-    for (module.structSlice()) |strct| {
-        // Get from stm
-        const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
-        if (!symbol.kind.STRUCT.declared) {
-            // Declare the new kind with its fields, checking for circular dependencies
-            self.declareStruct(module, symbol, strct.STRUCT) catch {
-                self.panic = false;
-                self.had_error = true;
-                return;
-            };
-        }
-    }
-
-    // Check all global statements and functions first
-    // Declare all functions
-    for (module.functionSlice()) |function| {
-        // Declare function but do not analyze body
-        self.declareFunction(function.FUNCTION) catch {
-            self.panic = false;
-            self.had_error = true;
-            continue;
-        };
-    }
-    // Visit globals
-    for (module.globalSlice()) |*global| {
-        // Analyze globals
-        self.visitGlobalStmt(global.GLOBAL) catch {
-            self.panic = false;
-            self.had_error = true;
-            continue;
-        };
-    }
-    // Look for function called main and make sure it has proper arguments
-    self.checkForMain() catch {
-        self.had_error = true;
-        return;
-    };
-
-    // If had error in delcarations return
-    if (self.had_error) {
-        return;
-    }
-
-    // Reset the symbol table managers stack for function evaluation
-    self.stm.resetStack();
-
-    // Check all method bodies in each struct
-    for (module.structSlice()) |*strct| {
-        // Get struct symbol
-        const struct_symbol = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
-        for (strct.STRUCT.methods) |*method| {
-            // Get args size
-            const method_field = struct_symbol.kind.STRUCT.fields.getField(method.name.lexeme) catch unreachable;
-            const args_size = method_field.kind.FUNC.args_size;
-            // analyze all function bodies, continue if there was an error
-            self.visitFunctionStmt(method, args_size) catch {
+        // Define all enums
+        for (module.enumSlice()) |enm| {
+            self.declareEnum(enm.ENUM) catch {
                 self.panic = false;
                 self.had_error = true;
                 continue;
             };
         }
+        // If had error in enum names, return
+        if (self.had_error) {
+            return;
+        }
     }
 
-    // Check all function bodies in the module
-    for (module.functionSlice()) |*function| {
-        // Get arg_size
-        const func_symbol = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
-        const args_size = func_symbol.kind.FUNC.args_size;
-        // analyze all function bodies, continue if there was an error
-        self.visitFunctionStmt(function.FUNCTION, args_size) catch {
-            self.panic = false;
-            self.had_error = true;
-            continue;
-        };
+    // Index all struct definitions
+    module_iter = modules.iterator();
+    while (module_iter.next()) |entry| {
+        const module = entry.value_ptr.*;
+        self.setModule(module);
+
+        for (module.structSlice(), 0..) |strct, index| {
+            // Add it to symbol table
+            self.indexStruct(strct.STRUCT.id, index, strct.STRUCT.public) catch {
+                self.panic = false;
+                self.had_error = true;
+                continue;
+            };
+        }
+        // If had error in struct names, return
+        if (self.had_error) {
+            return;
+        }
     }
 
-    // Check for unmutated var in global scope
-    self.checkVarInScope();
+    // Define all structs
+    module_iter = modules.iterator();
+    while (module_iter.next()) |entry| {
+        const module = entry.value_ptr.*;
+        self.setModule(module);
+
+        for (module.structSlice()) |strct| {
+            // Get from stm
+            const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
+            if (!symbol.kind.STRUCT.declared) {
+                // Declare the new kind with its fields, checking for circular dependencies
+                self.declareStruct(module, symbol, strct.STRUCT) catch {
+                    self.panic = false;
+                    self.had_error = true;
+                    return;
+                };
+            }
+        }
+    }
+
+    // Check all global statements and functions first
+    // Declare all functions
+    module_iter = modules.iterator();
+    while (module_iter.next()) |entry| {
+        const module = entry.value_ptr.*;
+        self.setModule(module);
+
+        for (module.functionSlice()) |function| {
+            // Declare function but do not analyze body
+            self.declareFunction(function.FUNCTION) catch {
+                self.panic = false;
+                self.had_error = true;
+                continue;
+            };
+        }
+        // Visit globals
+        for (module.globalSlice()) |*global| {
+            // Analyze globals
+            self.visitGlobalStmt(global.GLOBAL) catch {
+                self.panic = false;
+                self.had_error = true;
+                continue;
+            };
+        }
+
+        // Look for function called main and make sure it has proper arguments
+        if (module.kind == .ROOT) {
+            self.checkForMain() catch {
+                self.had_error = true;
+                return;
+            };
+        }
+
+        // If had error in delcarations return
+        if (self.had_error) {
+            return;
+        }
+    }
+
+    module_iter = modules.iterator();
+    while (module_iter.next()) |entry| {
+        const module = entry.value_ptr.*;
+        self.setModule(module);
+
+        // Reset the symbol table managers stack for function evaluation
+        self.stm.resetStack();
+        // Check all method bodies in each struct
+        for (module.structSlice()) |*strct| {
+            // Get struct symbol
+            const struct_symbol = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
+            for (strct.STRUCT.methods) |*method| {
+                // Get args size
+                const method_field = struct_symbol.kind.STRUCT.fields.getField(method.name.lexeme) catch unreachable;
+                const args_size = method_field.kind.FUNC.args_size;
+                // analyze all function bodies, continue if there was an error
+                self.visitFunctionStmt(method, args_size) catch {
+                    self.panic = false;
+                    self.had_error = true;
+                    continue;
+                };
+            }
+        }
+
+        // Check all function bodies in the module
+        for (module.functionSlice()) |*function| {
+            // Get arg_size
+            const func_symbol = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
+            const args_size = func_symbol.kind.FUNC.args_size;
+            // analyze all function bodies, continue if there was an error
+            self.visitFunctionStmt(function.FUNCTION, args_size) catch {
+                self.panic = false;
+                self.had_error = true;
+                continue;
+            };
+        }
+
+        // Check for unmutated var in global scope
+        self.checkVarInScope();
+    }
 }
 
 /// Returns true if this type checker has ever encountered an error
@@ -247,8 +285,8 @@ fn reportDuplicateError(self: *TypeChecker, duplicate_id: Token, dcl_line: u64, 
     if (!self.panic) {
         // Display message
         stderr.print(
-            "[Line {d}:{d}] at \'{s}\': Identifier already declared on [Line {d}:{d}]\n",
-            .{ duplicate_id.line, duplicate_id.column, duplicate_id.lexeme, dcl_line, dcl_column },
+            "[Module<{s}>, Line {d}:{d}] at \'{s}\': Identifier already declared on [Line {d}:{d}]\n",
+            .{ self.current_module_path, duplicate_id.line, duplicate_id.column, duplicate_id.lexeme, dcl_line, dcl_column },
         ) catch unreachable;
 
         // Update had error and panic mode
@@ -267,7 +305,10 @@ fn reportError(self: *TypeChecker, errorType: SemanticError, token: Token, msg: 
     // Only display errors when not in panic mode
     if (!self.panic) {
         // Display message
-        stderr.print("[Line {d}:{d}] at \'{s}\': {s}\n", .{ token.line, token.column, token.lexeme, msg }) catch unreachable;
+        stderr.print(
+            "[Module<{s}>, Line {d}:{d}] at \'{s}\': {s}\n",
+            .{ self.current_module_path, token.line, token.column, token.lexeme, msg },
+        ) catch unreachable;
 
         // Update had error and panic mode
         self.had_error = true;

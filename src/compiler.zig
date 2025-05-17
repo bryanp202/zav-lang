@@ -165,7 +165,10 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     requested_dependencies.append(Request{ .requester = &root_module, .requests = root_dependencies }) catch unreachable;
 
     while (requested_dependencies.pop()) |request| {
-        for (request.requests) |mod_stmt| {
+        const requesting_module = request.requester;
+        const request_slice = request.requests;
+
+        for (request_slice) |mod_stmt| {
             const module_name = mod_stmt.module_name;
 
             const module_path = std.fmt.allocPrint(
@@ -176,12 +179,12 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
 
             const getOrPut = modules.getOrPut(module_path) catch unreachable;
             if (getOrPut.found_existing) {
-                std.debug.print("Duplicate modules\n", .{});
+                std.debug.print("Duplicate module: {s}\n", .{module_path});
                 return false;
             }
 
-            const dependency_source = openSourceFile(self.allocator, module_path) catch {
-                std.debug.print("Module path too long\n", .{});
+            const dependency_source = openSourceFile(self.allocator, self.root_path, module_path) catch {
+                std.debug.print("Could not open file at \'{s}\'\n", .{module_path});
                 return false;
             };
             parser.reset(dependency_source);
@@ -190,7 +193,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
             getOrPut.value_ptr.* = new_module;
             const sub_dependencies = parser.parse(new_module);
 
-            request.requester.add_dependency(
+            requesting_module.add_dependency(
                 new_module,
                 module_name.lexeme,
                 module_name.line,
@@ -203,7 +206,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
 
     std.debug.print("Checking types...\n", .{});
     // Check types
-    type_checker.check(&root_module);
+    type_checker.check(&modules);
 
     if (type_checker.hadError()) {
         std.debug.print("Had Semantic Error\n", .{});
@@ -241,18 +244,25 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     return true;
 }
 
-fn openSourceFile(allocator: std.mem.Allocator, module_name: []const u8) ![]const u8 {
-    var path_buffer: [1024:0]u8 = undefined;
+fn openSourceFile(allocator: std.mem.Allocator, root_path: []const u8, module_name: []const u8) ![]const u8 {
+    var path_buffer: [1024]u8 = undefined;
     path_buffer[0] = '.';
-    const path_len = std.mem.replace(u8, module_name, "::", "/", path_buffer[2..]);
+    const replacement_size = std.mem.replacementSize(u8, module_name, "::", "/");
 
-    if (path_len + 2 > path_buffer.len) {
+    const new_len = replacement_size + 5;
+    if (new_len > path_buffer.len) {
         return Error.CompilerError.AllocationFailed;
     }
-    const path = path_buffer[0 .. path_len + 2];
+    _ = std.mem.replace(u8, module_name, "::", "/", path_buffer[1..]);
+    std.mem.copyForwards(u8, path_buffer[new_len - 4 ..], ".zav");
+
+    const path = path_buffer[0..new_len];
+
+    //std.debug.print("Dependency path: {s}, module name {s}\n", .{ path, module_name });
 
     // Try to open file
-    const file = try std.fs.cwd().openFile(path, .{});
+    const directory = std.fs.openDirAbsolute(root_path, .{}) catch return Error.CompilerError.FileNotFound;
+    const file = directory.openFile(path, .{}) catch return Error.CompilerError.FileNotFound;
     defer file.close();
 
     // Read file stats

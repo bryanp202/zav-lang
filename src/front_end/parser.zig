@@ -53,6 +53,8 @@ pub fn init(allocator: std.mem.Allocator, scanner: *Scanner) Parser {
 pub fn reset(self: *Parser, source: []const u8) void {
     self.had_error = false;
     self.panic = false;
+    self.current = undefined;
+    self.previous = undefined;
     self.scanner.reset(source);
     self.dependencies.shrinkRetainingCapacity(0);
 }
@@ -70,11 +72,14 @@ pub fn parse(self: *Parser, module: *Module) []Stmt.ModStmt {
             self.globalSynchronize();
             continue;
         };
+
         // Try to append to module
         module.addStmt(stmt_node) catch unreachable;
     }
 
-    return self.dependencies.items;
+    const dependencies = self.allocator.alloc(Stmt.ModStmt, self.dependencies.items.len) catch unreachable;
+    std.mem.copyForwards(Stmt.ModStmt, dependencies, self.dependencies.items);
+    return dependencies;
 }
 
 /// Return true if there was an error while parsing
@@ -384,9 +389,26 @@ fn global(self: *Parser) SyntaxError!StmtNode {
         return self.structStmt(is_public);
     } else if (self.match(.{TokenKind.ENUM})) {
         return self.enumStmt(is_public);
+    } else if (self.match(.{TokenKind.MOD})) {
+        return self.modStmt(is_public);
     }
     _ = self.advance();
-    return self.errorAt("Expected global variable, function declaration, or struct definition");
+    return self.errorAt("Expected global level declaration statement");
+}
+
+/// ModStmt -> "mod" identifier ";"
+fn modStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
+    const mod_token = self.previous;
+
+    try self.consume(TokenKind.IDENTIFIER, "Expected identifier after mod keyword");
+    const module_name = self.previous;
+    try self.consume(TokenKind.SEMICOLON, "Expected ';' after module name");
+
+    const new_stmt = self.allocator.create(Stmt.ModStmt) catch unreachable;
+    new_stmt.* = Stmt.ModStmt.init(is_public, mod_token, module_name);
+
+    self.dependencies.append(new_stmt.*) catch unreachable;
+    return StmtNode{ .MOD = new_stmt };
 }
 
 /// Parse a global declaration stmt
@@ -565,6 +587,10 @@ fn struct_field(self: *Parser, field_name_list: *std.ArrayList(Token), field_kin
 /// Method -> function (but it can use "this" and has the "this" parameter added)
 fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) SyntaxError!void {
     const is_public = self.previous.kind == TokenKind.PUB;
+
+    if (is_public) {
+        try self.consume(TokenKind.FN, "Expected fn after pub keyword in method definition");
+    }
 
     const new_method = try self.functionStmt(is_public);
     method_list.append(new_method.FUNCTION.*) catch unreachable;
@@ -1370,34 +1396,15 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
                 .column = scoper.column,
             };
 
-            const expr = self.allocator.create(Expr.ScopeExpr) catch unreachable;
-            expr.* = Expr.ScopeExpr.init(global_scope_token, scoper, undefined);
-            const new_node = ExprNode.init(ExprUnion{ .SCOPE = expr });
-
-            try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
-            var next_scope = self.previous;
-
-            var current_node = new_node;
-
-            while (self.match(.{TokenKind.SCOPE})) {
-                const next_scoper = self.previous;
-                const new_scope = self.allocator.create(Expr.ScopeExpr) catch unreachable;
-                current_node.expr.SCOPE.operand = ExprNode.init(ExprUnion{ .SCOPE = new_scope });
-                current_node = current_node.expr.SCOPE.operand;
-
-                current_node.expr.SCOPE.* = Expr.ScopeExpr.init(next_scope, next_scoper, undefined);
-                try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
-                next_scope = self.previous;
-            }
-
-            const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-            identifier_expr.* = Expr.IdentifierExpr{ .id = next_scope, .lexical_scope = undefined };
-            current_node.expr.SCOPE.operand = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
-
-            return ExprResult.init(new_node, 0);
+            return self.scopeExpr(global_scope_token, scoper);
         },
         .IDENTIFIER => {
             const id_token: Token = token;
+
+            if (self.match(.{TokenKind.SCOPE})) {
+                const first_scope_op = self.previous;
+                return self.scopeExpr(id_token, first_scope_op);
+            }
 
             // Make new constant expression
             const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
@@ -1438,4 +1445,32 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
         .EOF => return self.errorAtCurrent("Expected an expression but found end of file"),
         else => return self.errorAt("Expected an expression"),
     }
+}
+
+fn scopeExpr(self: *Parser, first_scope: Token, first_scope_op: Token) SyntaxError!ExprResult {
+    const expr = self.allocator.create(Expr.ScopeExpr) catch unreachable;
+    expr.* = Expr.ScopeExpr.init(first_scope, first_scope_op, undefined);
+    const new_node = ExprNode.init(ExprUnion{ .SCOPE = expr });
+
+    try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
+    var next_scope = self.previous;
+
+    var current_node = new_node;
+
+    while (self.match(.{TokenKind.SCOPE})) {
+        const next_scoper = self.previous;
+        const new_scope = self.allocator.create(Expr.ScopeExpr) catch unreachable;
+        current_node.expr.SCOPE.operand = ExprNode.init(ExprUnion{ .SCOPE = new_scope });
+        current_node = current_node.expr.SCOPE.operand;
+
+        current_node.expr.SCOPE.* = Expr.ScopeExpr.init(next_scope, next_scoper, undefined);
+        try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
+        next_scope = self.previous;
+    }
+
+    const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+    identifier_expr.* = Expr.IdentifierExpr{ .id = next_scope, .lexical_scope = undefined };
+    current_node.expr.SCOPE.operand = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
+
+    return ExprResult.init(new_node, 0);
 }

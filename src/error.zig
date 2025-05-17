@@ -32,4 +32,5 @@ pub const GenerationError = error{
 /// General Compiler Errors
 pub const CompilerError = error{
     AllocationFailed,
+    FileNotFound,
 };

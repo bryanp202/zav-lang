@@ -1,0 +1,7 @@
+mod hello;
+
+fn main(argc: i64, argv: **u8) i64 {
+    ::hello::goodbye::say_goodbye();
+    ::hello::hello::hello_again();
+    return 0;
+}
