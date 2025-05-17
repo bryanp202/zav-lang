@@ -52,6 +52,7 @@ buffered_writer_ptr: *BufferedWriterType,
 writer: WriterType,
 stm: *STM,
 module_path: []const u8,
+extern_identifiers: std.StringHashMap(void),
 
 // Label counters
 /// Used in the generation of if statement labels
@@ -85,10 +86,37 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, root_path: []const u8, path
     _ = try writer.write("default rel\n");
 
     if (module_kind == .ROOT) {
+        _ = try writer.write("global _start\n");
+    }
+
+    var symbol_iter = stm.scopes.items[0].symbols.iterator();
+    while (symbol_iter.next()) |entry| {
+        const symbol = entry.value_ptr;
+        if (symbol.public and symbol.used) {
+            switch (symbol.scope) {
+                .GLOBAL, .FUNC => _ = try writer.print("global {s}__{s}\n", .{ module_path, symbol.name }),
+                .STRUCT => {
+                    var field_iter = symbol.kind.STRUCT.fields.fields.iterator();
+                    while (field_iter.next()) |field_entry| {
+                        const field = field_entry.value_ptr;
+                        if (field.public and field.used) {
+                            switch (field.scope) {
+                                .GLOBAL, .FUNC => _ = try writer.print("global {s}__{s}__{s}\n", .{ module_path, symbol.name, field.name }),
+                                else => {},
+                            }
+                        }
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
+    _ = try writer.write("section .text\n");
+
+    if (module_kind == .ROOT) {
         // Set up file header
         const header =
-            \\global _start
-            \\section .text
             \\_start:
             \\    ; Setup main args
             \\    sub rsp, 40
@@ -185,6 +213,7 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, root_path: []const u8, path
         .writer = writer,
         .stm = stm,
         .module_path = module_path,
+        .extern_identifiers = std.StringHashMap(void).init(allocator),
         .label_count = 0,
         .break_label = undefined,
         .continue_label = undefined,
@@ -232,6 +261,14 @@ pub fn close(self: Generator) GenerationError!void {
         \\    extern ExitProcess
         \\
     );
+
+    // Write all external imports from modules
+    var extern_iter = self.extern_identifiers.iterator();
+    while (extern_iter.next()) |entry| {
+        const import = entry.key_ptr.*;
+        try self.print("    extern {s}\n", .{import});
+    }
+
     // Write native data
     // Write native functions source
     native_func = self.stm.natives_table.natives_table.iterator();
@@ -1061,7 +1098,14 @@ fn visitIdentifierExprID(self: *Generator, idExpr: *Expr.IdentifierExpr) Generat
     switch (idExpr.scope_kind) {
         .ARG => try self.print("    lea {s}, [rbp+{d}] ; Get Arg\n", .{ reg.name, idExpr.stack_offset + self.current_func_locals_size }),
         .LOCAL => try self.print("    lea {s}, [rbp+{d}] ; Get Local\n", .{ reg.name, idExpr.stack_offset - self.current_func_args_size }),
-        .GLOBAL, .FUNC => try self.print("    lea {s}, [__{s}{s}] ; Get Global\n", .{ reg.name, path, id_name }),
+        .GLOBAL, .FUNC => {
+            if (path.len > 0) {
+                const allocator = self.extern_identifiers.allocator;
+                const new_extern = std.fmt.allocPrint(allocator, "__{s}{s}", .{ path, id_name }) catch unreachable;
+                self.extern_identifiers.put(new_extern, {}) catch unreachable;
+            }
+            try self.print("    lea {s}, [__{s}{s}] ; Get Global\n", .{ reg.name, path, id_name });
+        },
         else => unreachable,
     }
 }
@@ -1143,6 +1187,13 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
         }
     } else {
         const path = idExpr.lexical_scope;
+
+        if (path.len > 0) {
+            const allocator = self.extern_identifiers.allocator;
+            const new_extern = std.fmt.allocPrint(allocator, "__{s}{s}", .{ path, idExpr.id.lexeme }) catch unreachable;
+            self.extern_identifiers.put(new_extern, {}) catch unreachable;
+        }
+
         if (result_kind == .FUNC) {
             const reg = try self.getNextCPUReg();
             // Write function pointer load

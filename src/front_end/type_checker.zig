@@ -1434,8 +1434,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     const name = token.lexeme;
 
     const path_source = self.stm.current_scope_target_path.items;
-    const path = self.allocator.alloc(u8, path_source.len) catch unreachable;
-    std.mem.copyForwards(u8, path, path_source);
+    const path = std.fmt.allocPrint(self.allocator, "{s}", .{path_source}) catch unreachable;
 
     node.*.expr.IDENTIFIER.lexical_scope = path;
 
@@ -1474,8 +1473,7 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     const name = token.lexeme;
 
     const path_source = self.stm.current_scope_target_path.items;
-    const path = self.allocator.alloc(u8, path_source.len) catch unreachable;
-    std.mem.copyForwards(u8, path, path_source);
+    const path = std.fmt.allocPrint(self.allocator, "{s}", .{path_source}) catch unreachable;
 
     node.*.expr.IDENTIFIER.lexical_scope = path;
 

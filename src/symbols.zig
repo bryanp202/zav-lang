@@ -34,7 +34,7 @@ pub const SymbolTableManager = struct {
     relative_path: []const u8,
 
     /// Init a STM
-    pub fn init(allocator: std.mem.Allocator, global_module: *Module, relative_path: []const u8) SymbolTableManager {
+    pub fn init(allocator: std.mem.Allocator, global_module: *Module, relative_path_raw: []const u8) SymbolTableManager {
         // Make global scope
         const global = allocator.create(Scope) catch unreachable;
         global.* = Scope.init(allocator, null);
@@ -49,6 +49,15 @@ pub const SymbolTableManager = struct {
         // Make a natives table
         const natives_table = NativesTable.init(allocator);
 
+        const relative_path_trimmed = if (relative_path_raw.len > 0) relative_path_raw[2..] else relative_path_raw;
+        const relative_path = std.fmt.allocPrint(allocator, "{s}", .{relative_path_trimmed}) catch unreachable;
+        _ = std.mem.replace(u8, relative_path, "::", "__", relative_path);
+
+        var current_scope_target_path = std.ArrayList(u8).init(allocator);
+
+        current_scope_target_path.appendSlice(relative_path) catch unreachable;
+        current_scope_target_path.appendSlice("__") catch unreachable;
+
         // Return a new STM
         return SymbolTableManager{
             .allocator = allocator,
@@ -61,7 +70,7 @@ pub const SymbolTableManager = struct {
             .natives_table = natives_table,
             .global_module = global_module,
             .current_scope_target = null,
-            .current_scope_target_path = std.ArrayList(u8).init(allocator),
+            .current_scope_target_path = current_scope_target_path,
             .relative_path = relative_path,
         };
     }
@@ -158,11 +167,10 @@ pub const SymbolTableManager = struct {
             // Check if absolute scope or not
             if (target.len == 0) {
                 self.current_scope_target = KindId{ .MODULE = self.global_module };
+                self.current_scope_target_path.clearRetainingCapacity();
             } else {
                 const symbol = try self.peakSymbol(target);
                 self.current_scope_target = symbol.kind;
-
-                self.current_scope_target_path.appendSlice(self.relative_path) catch unreachable;
 
                 self.current_scope_target_path.appendSlice(target) catch unreachable;
                 self.current_scope_target_path.appendSlice("__") catch unreachable;
@@ -188,7 +196,9 @@ pub const SymbolTableManager = struct {
         const current_scope_target = self.current_scope_target;
         if (current_scope_target) |target| {
             self.current_scope_target = null;
-            self.current_scope_target_path.shrinkRetainingCapacity(0);
+            self.current_scope_target_path.clearRetainingCapacity();
+            self.current_scope_target_path.appendSlice(self.relative_path) catch unreachable;
+            self.current_scope_target_path.appendSlice("__") catch unreachable;
 
             const symbol = switch (target) {
                 .MODULE => |module| try module.stm.getSymbol(name),

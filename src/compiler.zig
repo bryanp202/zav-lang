@@ -85,20 +85,22 @@ pub fn compile(self: *Compiler, source: []const u8) void {
     if (asm_okay) {
         var obj_names = std.ArrayList([]const u8).init(self.allocator);
         // Assemble
-        for (0.., self.asm_names.items) |i, module| {
+        for (self.asm_names.items) |module| {
             std.debug.print("[File: \'{s}\'] Assembling...\n", .{module});
 
             var filename_iter = std.mem.splitScalar(u8, module, '.');
             const filename_no_ext = filename_iter.next() orelse "";
             const new_obj_name = std.fmt.allocPrint(
                 self.allocator,
-                "{s}{d}.obj",
-                .{ filename_no_ext, i },
+                "{s}\\{s}.obj",
+                .{ self.root_path, filename_no_ext },
             ) catch unreachable;
 
             obj_names.append(new_obj_name) catch unreachable;
 
-            const as_args = [_][]const u8{ "nasm", "-f", "win64", new_obj_name, "-o", "zav_temp.obj" };
+            const abs_asm_path = std.fmt.allocPrint(self.allocator, "{s}\\{s}", .{ self.root_path, module }) catch unreachable;
+
+            const as_args = [_][]const u8{ "nasm", "-f", "win64", abs_asm_path, "-o", new_obj_name };
             const asm_result = std.process.Child.run(.{ .allocator = self.allocator, .argv = &as_args }) catch {
                 std.debug.print("[File: \'{s}\'] Failed to assemble file\n", .{module});
                 return;
@@ -112,34 +114,58 @@ pub fn compile(self: *Compiler, source: []const u8) void {
         }
         std.debug.print("Successfully assembled\n", .{});
 
-        // Get cwd to delete obj file
-        var cwd = std.fs.cwd();
         // Link
         std.debug.print("Linking...\n", .{});
-        const link_args = [_][]const u8{ "gcc", "-s", "-nostartfiles", "-static", "zav_temp.obj", "-o", self.output_name };
-        const link_result = std.process.Child.run(.{ .allocator = self.allocator, .argv = &link_args }) catch {
+        const output_path = std.fmt.allocPrint(self.allocator, "{s}\\{s}", .{
+            self.root_path,
+            self.output_name,
+        }) catch unreachable;
+        std.debug.print("Outputting to: {s}\n", .{output_path});
+        var base_link_args = [_][]const u8{ "gcc", "-s", "-nostartfiles", "-static", "-o", output_path };
+
+        // Concat with obj file args
+        const link_args = std.mem.concat(self.allocator, []const u8, &[_][][]const u8{
+            &base_link_args,
+            obj_names.items,
+        }) catch unreachable;
+
+        const link_result = std.process.Child.run(.{ .allocator = self.allocator, .argv = link_args }) catch {
             std.debug.print("Failed to link file\n", .{});
 
-            // Delete obj file
-            cwd.deleteFile("zav_temp.obj") catch unreachable;
+            // Delete obj files
+            deleteObjFiles(obj_names);
             return;
         };
 
         // Check if link was successful
         if (link_result.term != .Exited or link_result.term.Exited != 0) {
             std.debug.print("Failed to link file\n", .{});
+            std.debug.print("{s}\n", .{link_result.stderr});
             // Delete obj file
-            cwd.deleteFile("zav_temp.obj") catch unreachable;
+            deleteObjFiles(obj_names);
             return;
         }
         std.debug.print("Successfully linked\n", .{});
 
         // Delete obj file
-        cwd.deleteFile("zav_temp.obj") catch unreachable;
+        deleteObjFiles(obj_names);
         // If keep assembly flag not used, delete .asm file
         if (!self.emit_asm) {
-            cwd.deleteFile(self.asm_names.items[0]) catch unreachable;
+            self.deleteAsmFiles();
         }
+    }
+}
+
+fn deleteAsmFiles(self: Compiler) void {
+    for (self.asm_names.items) |asm_file| {
+        const dir = std.fs.openDirAbsolute(self.root_path, .{}) catch unreachable;
+        dir.deleteFile(asm_file) catch unreachable;
+    }
+}
+
+fn deleteObjFiles(obj_names: std.ArrayList([]const u8)) void {
+    for (obj_names.items) |obj_file| {
+        _ = std.fs.deleteFileAbsolute(obj_file) catch {};
     }
 }
 

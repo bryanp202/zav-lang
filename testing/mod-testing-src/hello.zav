@@ -1,6 +1,20 @@
-mod hello;
-mod goodbye;
+pub mod hello;
+pub mod goodbye;
 
-fn say_hello() void {
-    @printf("Hello from module hello!\n");
+pub fn say_hello() void {
+    @printf("Hello from module hello! AND from ");
+}
+
+pub fn local_test() void {
+    say_hello(); //[__hello_say_hello]
+    hello::hello_again();
+}
+
+pub struct Complex {
+    real: f64;
+    imag: f64;
+
+    pub fn display(self: *const Complex) void {
+        @printf("%f + %fi", self.*.real, self.*.imag);
+    }
 }

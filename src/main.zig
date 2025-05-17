@@ -32,7 +32,20 @@ pub fn main() !void {
 
     // Check if REPO or file run
     if (parsed_args.help) {
-        _ = try stdout.write("Usage: Zave [.\\path\\to\\source\\file (default: REPL)] [-o .\\path\\to\\output (default: out.exe)] [-s | --emit-asm] [-d | --show-ast] [-h | --help]\n");
+        _ = try stdout.write("Usage: Zav [options] <source_file>\n\n");
+        _ = try stdout.write(
+            \\Options: 
+            \\  -s, --emit-asm          Emit assembly files for each module
+            \\  -d, --show-ast          Display Abstract Syntax Tree (AST) during compilation
+            \\  -o <file>               Specify output file name (default is 'out.exe')
+            \\  -h, --help              Display this help message
+            \\
+            \\Example:
+            \\  Zav -s -o splicer.exe ./src/main.zav    # Output assembly and specify output file 'splicer.exe'
+            \\  Zav -d splicer.zav                      # Display the AST for each module and compile to default 'out.exe'
+            \\
+            \\
+        );
     } else if (parsed_args.path == null) {
         try repl(
             global_allocator,
