@@ -181,6 +181,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     var modules = std.StringHashMap(*Module).init(self.allocator);
     var root_module: Module = undefined;
     root_module = Module.init(self.allocator, "", Module.ModuleKind.ROOT, &root_module);
+    root_module.stm.setParentModule(&root_module);
     modules.put(root_module.path, &root_module) catch unreachable;
 
     // Parse
@@ -211,7 +212,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
 
             const module_path = std.fmt.allocPrint(
                 self.allocator,
-                "{s}::{s}",
+                "{s}__{s}",
                 .{ request.requester.path, module_name.lexeme },
             ) catch unreachable;
 
@@ -225,9 +226,10 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
                 std.debug.print("Could not open file at \'{s}\'\n", .{module_path});
                 return false;
             };
-            parser.reset(dependency_source);
+            parser.reset(dependency_source, module_path);
             const new_module = self.allocator.create(Module) catch unreachable;
             new_module.* = Module.init(self.allocator, module_path, Module.ModuleKind.DEPENDENCY, &root_module);
+            new_module.stm.setParentModule(new_module);
             getOrPut.value_ptr.* = new_module;
             const sub_dependencies = parser.parse(new_module);
 
@@ -280,6 +282,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
             module_asm_path,
             module_path,
             module.kind,
+            module.stm.extern_dependencies,
         ) catch {
             std.debug.print("[Module<root{s}>] Failed to write file\n", .{module.path});
             return false;
@@ -306,13 +309,13 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
 fn openSourceFile(allocator: std.mem.Allocator, root_path: []const u8, module_name: []const u8) ![]const u8 {
     var path_buffer: [1024]u8 = undefined;
     path_buffer[0] = '.';
-    const replacement_size = std.mem.replacementSize(u8, module_name, "::", "/");
+    const replacement_size = std.mem.replacementSize(u8, module_name, "__", "/");
 
     const new_len = replacement_size + 5;
     if (new_len > path_buffer.len) {
         return Error.CompilerError.AllocationFailed;
     }
-    _ = std.mem.replace(u8, module_name, "::", "/", path_buffer[1..]);
+    _ = std.mem.replace(u8, module_name, "__", "/", path_buffer[1..]);
     std.mem.copyForwards(u8, path_buffer[new_len - 4 ..], ".zav");
 
     const path = path_buffer[0..new_len];

@@ -34,6 +34,7 @@ had_error: bool,
 panic: bool,
 /// Stores all use dependency module requests
 dependencies: std.ArrayList(Stmt.ModStmt),
+current_module_name: []const u8,
 
 /// Parser initializer
 pub fn init(allocator: std.mem.Allocator, scanner: *Scanner) Parser {
@@ -46,17 +47,19 @@ pub fn init(allocator: std.mem.Allocator, scanner: *Scanner) Parser {
         .had_error = false,
         .panic = false,
         .dependencies = std.ArrayList(Stmt.ModStmt).init(allocator),
+        .current_module_name = undefined,
     };
     return new_parser;
 }
 
-pub fn reset(self: *Parser, source: []const u8) void {
+pub fn reset(self: *Parser, source: []const u8, module_name: []const u8) void {
     self.had_error = false;
     self.panic = false;
     self.current = undefined;
     self.previous = undefined;
     self.scanner.reset(source);
     self.dependencies.shrinkRetainingCapacity(0);
+    self.current_module_name = module_name;
 }
 
 /// Parse until scanner returns an EOF Token
@@ -284,7 +287,7 @@ fn reportError(self: *Parser, token: Token, msg: []const u8) SyntaxError {
     // Only display errors when not in panic mode
     if (!self.panic) {
         // Display message
-        stderr.print("[Line {d}:{d}]", .{ token.line, token.column }) catch unreachable;
+        stderr.print("Module <{s}>, Line {d}:{d}]", .{ self.current_module_name, token.line, token.column }) catch unreachable;
 
         // Change message based off of token type
         if (token.kind == TokenKind.EOF) {

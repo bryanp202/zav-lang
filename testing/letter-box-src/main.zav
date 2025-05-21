@@ -1,0 +1,7 @@
+mod string;
+
+fn main(argc: i64, argv: **u8) i64 {
+    const extern_struct = string::new("Hello world!\n");
+
+    extern_struct.*.display();
+}

@@ -34,7 +34,7 @@ pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleK
         .functions = std.ArrayList(StmtNode).init(allocator),
         .structs = std.ArrayList(StmtNode).init(allocator),
         .enums = std.ArrayList(StmtNode).init(allocator),
-        .stm = STM.init(allocator, global_module, path),
+        .stm = STM.init(allocator, global_module),
     };
 }
 

@@ -1,0 +1,42 @@
+pub struct String {
+    data: *u8;
+    len: u64;
+
+    pub fn display(self: *const String) void {
+        self.*.say_hello();
+        @printf("%.*s\n", self.*.len, self.*.data);
+    }
+
+    fn say_hello(self: *const String) void {
+        @printf("Hello!\n");
+    }
+}
+
+pub fn new(data: *const u8) *String {
+    const new_str = <*String>@malloc(16);
+    
+    const len = find_len(data);
+    const new_data = <*u8>@malloc(len);
+    copy_nstr(len, data, new_data);
+
+    new_str.*.data = new_data;
+    new_str.*.len = len;
+    return new_str;
+}
+
+// String helper methods
+fn find_len(data: *const u8) u64 {
+    var current = data;
+    while (current.* != 0) {
+        current = &current[1];
+    }
+    return <u64>(current - data);
+}
+
+fn copy_nstr(len: u64, source: *const u8, buffer: *u8) void {
+    var current = <u64>0;
+    while (current < len) {
+        buffer[current] = source[current];
+        current += <u64>1;
+    }
+}

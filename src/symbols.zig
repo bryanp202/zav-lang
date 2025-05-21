@@ -28,13 +28,14 @@ pub const SymbolTableManager = struct {
     natives_table: NativesTable,
     /// Used for global/absolute scoping
     global_module: *Module,
+    parent_module: *Module,
     /// Used for user defined scoping
     current_scope_target: ?KindId,
-    current_scope_target_path: std.ArrayList(u8),
-    relative_path: []const u8,
+    /// Stores all unique external accesses
+    extern_dependencies: std.StringHashMap(void),
 
     /// Init a STM
-    pub fn init(allocator: std.mem.Allocator, global_module: *Module, relative_path_raw: []const u8) SymbolTableManager {
+    pub fn init(allocator: std.mem.Allocator, global_module: *Module) SymbolTableManager {
         // Make global scope
         const global = allocator.create(Scope) catch unreachable;
         global.* = Scope.init(allocator, null);
@@ -49,15 +50,6 @@ pub const SymbolTableManager = struct {
         // Make a natives table
         const natives_table = NativesTable.init(allocator);
 
-        const relative_path_trimmed = if (relative_path_raw.len > 0) relative_path_raw[2..] else relative_path_raw;
-        const relative_path = std.fmt.allocPrint(allocator, "{s}", .{relative_path_trimmed}) catch unreachable;
-        _ = std.mem.replace(u8, relative_path, "::", "__", relative_path);
-
-        var current_scope_target_path = std.ArrayList(u8).init(allocator);
-
-        current_scope_target_path.appendSlice(relative_path) catch unreachable;
-        current_scope_target_path.appendSlice("__") catch unreachable;
-
         // Return a new STM
         return SymbolTableManager{
             .allocator = allocator,
@@ -69,10 +61,14 @@ pub const SymbolTableManager = struct {
             .constant_count = 0,
             .natives_table = natives_table,
             .global_module = global_module,
+            .parent_module = undefined,
             .current_scope_target = null,
-            .current_scope_target_path = current_scope_target_path,
-            .relative_path = relative_path,
+            .extern_dependencies = std.StringHashMap(void).init(allocator),
         };
+    }
+
+    pub fn setParentModule(self: *SymbolTableManager, module: *Module) void {
+        self.parent_module = module;
     }
 
     /// Reset the active scope stack and scope counter
@@ -139,9 +135,11 @@ pub const SymbolTableManager = struct {
     ) !u64 {
         // Calculate the size of the kind
         const size = kind.size();
+        const module = self.parent_module;
 
         // Else let the local scope calculate the local scope
         const mem_loc = try self.active_scope.declareSymbol(
+            module,
             name,
             kind,
             scope,
@@ -167,13 +165,9 @@ pub const SymbolTableManager = struct {
             // Check if absolute scope or not
             if (target.len == 0) {
                 self.current_scope_target = KindId{ .MODULE = self.global_module };
-                self.current_scope_target_path.clearRetainingCapacity();
             } else {
                 const symbol = try self.peakSymbol(target);
                 self.current_scope_target = symbol.kind;
-
-                self.current_scope_target_path.appendSlice(target) catch unreachable;
-                self.current_scope_target_path.appendSlice("__") catch unreachable;
             }
         } else {
             switch (self.current_scope_target.?) {
@@ -183,9 +177,6 @@ pub const SymbolTableManager = struct {
                 },
                 else => return ScopeError.UndeclaredSymbol,
             }
-
-            self.current_scope_target_path.appendSlice(target) catch unreachable;
-            self.current_scope_target_path.appendSlice("__") catch unreachable;
         }
     }
 
@@ -196,15 +187,12 @@ pub const SymbolTableManager = struct {
         const current_scope_target = self.current_scope_target;
         if (current_scope_target) |target| {
             self.current_scope_target = null;
-            self.current_scope_target_path.clearRetainingCapacity();
-            self.current_scope_target_path.appendSlice(self.relative_path) catch unreachable;
-            self.current_scope_target_path.appendSlice("__") catch unreachable;
 
             const symbol = switch (target) {
                 .MODULE => |module| try module.stm.getSymbol(name),
                 .ENUM => |enm| enm.variants.getPtr(name) orelse return ScopeError.UndeclaredSymbol,
                 .STRUCT => |strct| {
-                    const symbol = try strct.fields.getField(name);
+                    const symbol = try strct.fields.getField(self, name);
                     if (symbol.kind != .FUNC) {
                         return ScopeError.InvalidScope;
                     } else {
@@ -213,11 +201,20 @@ pub const SymbolTableManager = struct {
                 },
                 else => return ScopeError.InvalidScope,
             };
+
+            if (symbol.source_module != self.parent_module) {
+                if (!symbol.public) return ScopeError.SymbolNotPublic;
+
+                self.extern_dependencies.put(symbol.name, {}) catch unreachable;
+            }
+
             return symbol;
         }
 
         // Get symbol, starting at active_scope
-        return self.active_scope.getSymbol(name);
+        const symbol = try self.active_scope.getSymbol(name);
+
+        return symbol;
     }
 
     /// Peak if a symbol is in the table, but do not mark as used
@@ -297,6 +294,7 @@ pub const Scope = struct {
     /// Add a new symbol, providing all of its attributes and a null address
     pub fn declareSymbol(
         self: *Scope,
+        module: *Module,
         name: []const u8,
         kind: KindId,
         scope: ScopeKind,
@@ -345,6 +343,7 @@ pub const Scope = struct {
 
         // Add symbol to the table
         const new_symbol = Symbol.init(
+            module,
             name,
             kind,
             scope,
@@ -398,17 +397,27 @@ pub const Scope = struct {
 pub const StructScope = struct {
     fields: std.StringHashMap(Symbol),
     next_address: u64,
+    is_open: bool,
 
     /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
     pub fn init(allocator: std.mem.Allocator) StructScope {
         return StructScope{
             .fields = std.StringHashMap(Symbol).init(allocator),
             .next_address = 0,
+            .is_open = false,
         };
     }
 
+    pub fn open(self: *StructScope) void {
+        self.is_open = true;
+    }
+
+    pub fn close(self: *StructScope) void {
+        self.is_open = false;
+    }
+
     /// Add a new field to this scope
-    pub fn addField(self: *StructScope, scope: ScopeKind, name: []const u8, dcl_line: u64, dcl_column: u64, kind: KindId, is_public: bool) ScopeError!void {
+    pub fn addField(self: *StructScope, struct_name: []const u8, module: *Module, scope: ScopeKind, name: []const u8, dcl_line: u64, dcl_column: u64, kind: KindId, is_public: bool) ScopeError!void {
         // Check if already in scope
         const getOrPut = self.fields.getOrPut(name) catch unreachable;
         if (getOrPut.found_existing) {
@@ -434,20 +443,33 @@ pub const StructScope = struct {
             mem_loc = self.next_address;
             // Increment next addres
             self.next_address += kind_size;
-            const field = Symbol.init(name, kind, scope, dcl_line, dcl_column, true, is_public, mem_loc, kind_size);
+            const field = Symbol.init(module, name, kind, scope, dcl_line, dcl_column, true, is_public, mem_loc, kind_size);
             getOrPut.value_ptr.* = field;
         } else {
-            const field = Symbol.init(name, kind, scope, dcl_line, dcl_column, true, is_public, undefined, undefined);
+            const field = Symbol.initAsField(module, struct_name, name, kind, scope, dcl_line, dcl_column, true, is_public, undefined, undefined);
             getOrPut.value_ptr.* = field;
         }
     }
 
     /// Get a field by name from this scope
-    pub fn getField(self: *StructScope, name: []const u8) ScopeError!*Symbol {
+    pub fn getField(self: *StructScope, stm: *SymbolTableManager, name: []const u8) ScopeError!*Symbol {
         const field = self.fields.getPtr(name) orelse {
             return ScopeError.UndeclaredSymbol;
         };
+
+        if (field.source_module != stm.parent_module) {
+            stm.extern_dependencies.put(field.name, {}) catch unreachable;
+        }
+        if (!self.is_open and !field.public) return ScopeError.SymbolNotPublic;
+
         field.used = true;
+        return field;
+    }
+
+    pub fn peakField(self: *StructScope, name: []const u8) ScopeError!*Symbol {
+        const field = self.fields.getPtr(name) orelse {
+            return ScopeError.UndeclaredSymbol;
+        };
         return field;
     }
 
@@ -467,6 +489,7 @@ pub const StructScope = struct {
 
 /// Used to store information about a variable/symbol
 pub const Symbol = struct {
+    source_module: *Module,
     name: []const u8,
     kind: KindId,
     scope: ScopeKind,
@@ -480,9 +503,38 @@ pub const Symbol = struct {
     used: bool,
 
     /// Make a new symbol
-    pub fn init(name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, dcl_column: u64, is_mutable: bool, public: bool, mem_loc: u64, size: u64) Symbol {
+    pub fn init(module: *Module, name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, dcl_column: u64, is_mutable: bool, public: bool, mem_loc: u64, size: u64) Symbol {
+        const symbol_name = if (public)
+            (std.fmt.allocPrint(module.stm.allocator, "{s}__{s}", .{ module.path, name }) catch unreachable)
+        else
+            (std.fmt.allocPrint(module.stm.allocator, "__{s}", .{name}) catch unreachable);
+
         return Symbol{
-            .name = name,
+            .source_module = module,
+            .name = symbol_name,
+            .kind = kind,
+            .scope = scope,
+            .dcl_line = dcl_line,
+            .dcl_column = dcl_column,
+            .is_mutable = is_mutable,
+            .public = public,
+            .has_mutated = false,
+            .mem_loc = mem_loc,
+            .size = size,
+            .used = false,
+        };
+    }
+
+    /// Make a new symbol
+    pub fn initAsField(module: *Module, struct_name: []const u8, name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, dcl_column: u64, is_mutable: bool, public: bool, mem_loc: u64, size: u64) Symbol {
+        const symbol_name = if (public)
+            (std.fmt.allocPrint(module.stm.allocator, "{s}__{s}__{s}", .{ module.path, struct_name, name }) catch unreachable)
+        else
+            (std.fmt.allocPrint(module.stm.allocator, "{s}__{s}", .{ struct_name, name }) catch unreachable);
+
+        return Symbol{
+            .source_module = module,
+            .name = symbol_name,
             .kind = kind,
             .scope = scope,
             .dcl_line = dcl_line,

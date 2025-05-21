@@ -174,9 +174,10 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         for (module.structSlice()) |*strct| {
             // Get struct symbol
             const struct_symbol = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
+            struct_symbol.kind.STRUCT.fields.open();
             for (strct.STRUCT.methods) |*method| {
                 // Get args size
-                const method_field = struct_symbol.kind.STRUCT.fields.getField(method.name.lexeme) catch unreachable;
+                const method_field = struct_symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
                 const args_size = method_field.kind.FUNC.args_size;
                 // analyze all function bodies, continue if there was an error
                 self.visitFunctionStmt(method, args_size) catch {
@@ -185,6 +186,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                     continue;
                 };
             }
+            struct_symbol.kind.STRUCT.fields.close();
         }
 
         // Check all function bodies in the module
@@ -258,8 +260,8 @@ fn checkVarInScope(self: *TypeChecker) void {
         if (symbol.is_mutable and !symbol.has_mutated) {
             // Alert user
             stderr.print(
-                "[Declared on Line {d}] as \'{s}\': Var identifier was never mutated\n",
-                .{ symbol.dcl_line, symbol.name },
+                "[Module<{s}>, Declared on Line {d}] as \'{s}\': Var identifier was never mutated\n",
+                .{ self.current_module_path, symbol.dcl_line, entry.key_ptr.* },
             ) catch unreachable;
             // Update had error
             self.had_error = true;
@@ -768,6 +770,7 @@ fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void
         }
 
         getOrPut.value_ptr.* = Symbol.init(
+            self.stm.parent_module,
             variant.lexeme,
             enum_kind,
             ScopeKind.ENUM_VARIANT,
@@ -890,8 +893,8 @@ fn declareStruct(
         }
 
         // Add field to struct
-        symbol.kind.STRUCT.fields.addField(ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*, true) catch {
-            const old_field = symbol.kind.STRUCT.fields.getField(name.lexeme) catch unreachable;
+        symbol.kind.STRUCT.fields.addField(structStmt.id.lexeme, self.stm.parent_module, ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*, true) catch {
+            const old_field = symbol.kind.STRUCT.fields.getField(self.stm, name.lexeme) catch unreachable;
             return self.reportDuplicateError(name, old_field.dcl_line, old_field.dcl_column);
         };
     }
@@ -956,6 +959,8 @@ fn declareStruct(
 
         // Add field to struct
         symbol.kind.STRUCT.fields.addField(
+            structStmt.id.lexeme,
+            self.stm.parent_module,
             ScopeKind.FUNC,
             method.name.lexeme,
             method.name.line,
@@ -963,7 +968,7 @@ fn declareStruct(
             new_func,
             method.public,
         ) catch {
-            const old_field = symbol.kind.STRUCT.fields.getField(method.name.lexeme) catch unreachable;
+            const old_field = symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
             return self.reportDuplicateError(method.name, old_field.dcl_line, old_field.dcl_column);
         };
     }
@@ -1433,21 +1438,19 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     const token = node.*.expr.IDENTIFIER.id;
     const name = token.lexeme;
 
-    const path_source = self.stm.current_scope_target_path.items;
-    const path = std.fmt.allocPrint(self.allocator, "{s}", .{path_source}) catch unreachable;
-
-    node.*.expr.IDENTIFIER.lexical_scope = path;
-
     // Try to get the symbol, else throw error
     const symbol = self.stm.getSymbol(name) catch |err| {
         const msg = switch (err) {
             error.InvalidScope => "Invalid scope target",
+            error.SymbolNotPublic => "Attempted to access a non-public symbol from another module",
             else => "Identifier is undeclared",
         };
         return self.reportError(SemanticError.UnresolvableIdentifier, token, msg);
     };
     // Set symbol as mutated
     symbol.has_mutated = true;
+
+    node.*.expr.IDENTIFIER.lexical_scope = symbol.name;
 
     // Update scope kind
     node.*.expr.IDENTIFIER.scope_kind = symbol.scope;
@@ -1472,19 +1475,17 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     const token = node.*.expr.IDENTIFIER.id;
     const name = token.lexeme;
 
-    const path_source = self.stm.current_scope_target_path.items;
-    const path = std.fmt.allocPrint(self.allocator, "{s}", .{path_source}) catch unreachable;
-
-    node.*.expr.IDENTIFIER.lexical_scope = path;
-
     // Try to get the symbol, else throw error
     const symbol = self.stm.getSymbol(name) catch |err| {
         const msg = switch (err) {
             error.InvalidScope => "Invalid scope target",
+            error.SymbolNotPublic => "Attempted to access a non-public symbol from another module",
             else => "Identifier is undeclared",
         };
         return self.reportError(SemanticError.UnresolvableIdentifier, token, msg);
     };
+
+    node.*.expr.IDENTIFIER.lexical_scope = symbol.name;
 
     // Update scope kind
     node.*.expr.IDENTIFIER.scope_kind = symbol.scope;
@@ -1686,8 +1687,9 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
         return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct type for field access");
     }
     // Check if struct has the field
-    const field = operand_kind.STRUCT.fields.getField(fieldExpr.field_name.lexeme) catch {
-        return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name");
+    const field = operand_kind.STRUCT.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
+        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
+        else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
     };
     // Update offset from base of struct
     fieldExpr.stack_offset = field.mem_loc;
@@ -1710,15 +1712,16 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct type for field access");
     }
     // Check if struct has the field
-    const field = operand_kind.STRUCT.fields.getField(fieldExpr.field_name.lexeme) catch {
-        return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name");
+    const field = operand_kind.STRUCT.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
+        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
+        else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
     };
     // Update offset from base of struct
     fieldExpr.stack_offset = field.mem_loc;
     node.result_kind = field.kind;
     // Check if method
     if (field.scope == .FUNC) {
-        fieldExpr.method_parent = operand_kind;
+        fieldExpr.method_name = field.name;
     }
     return field.kind;
 }

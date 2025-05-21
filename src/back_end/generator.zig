@@ -52,7 +52,6 @@ buffered_writer_ptr: *BufferedWriterType,
 writer: WriterType,
 stm: *STM,
 module_path: []const u8,
-extern_identifiers: std.StringHashMap(void),
 
 // Label counters
 /// Used in the generation of if statement labels
@@ -74,7 +73,15 @@ func_stack_alignment: usize,
 cpu_reg_stack: RegisterStack(cpu_reg_names),
 sse_reg_stack: RegisterStack(sse_reg_names),
 
-pub fn open(allocator: std.mem.Allocator, stm: *STM, root_path: []const u8, path: []const u8, module_path: []const u8, module_kind: Module.ModuleKind) !Generator {
+pub fn open(
+    allocator: std.mem.Allocator,
+    stm: *STM,
+    root_path: []const u8,
+    path: []const u8,
+    module_path: []const u8,
+    module_kind: Module.ModuleKind,
+    extern_dependencies: std.StringHashMap(void),
+) !Generator {
     const dir = try std.fs.openDirAbsolute(root_path, .{});
     const file = try dir.createFile(path, .{ .read = true });
     const base_writer_ptr = allocator.create(BaseWriterType) catch unreachable;
@@ -94,14 +101,14 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, root_path: []const u8, path
         const symbol = entry.value_ptr;
         if (symbol.public and symbol.used) {
             switch (symbol.scope) {
-                .GLOBAL, .FUNC => _ = try writer.print("global {s}__{s}\n", .{ module_path, symbol.name }),
+                .GLOBAL, .FUNC => _ = try writer.print("global {s}\n", .{symbol.name}),
                 .STRUCT => {
                     var field_iter = symbol.kind.STRUCT.fields.fields.iterator();
                     while (field_iter.next()) |field_entry| {
                         const field = field_entry.value_ptr;
                         if (field.public and field.used) {
                             switch (field.scope) {
-                                .GLOBAL, .FUNC => _ = try writer.print("global {s}__{s}__{s}\n", .{ module_path, symbol.name, field.name }),
+                                .GLOBAL, .FUNC => _ = try writer.print("global {s}\n", .{field.name}),
                                 else => {},
                             }
                         }
@@ -110,6 +117,13 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, root_path: []const u8, path
                 else => {},
             }
         }
+    }
+
+    // Write all external imports from modules
+    var extern_iter = extern_dependencies.iterator();
+    while (extern_iter.next()) |entry| {
+        const import = entry.key_ptr.*;
+        try writer.print("extern {s}\n", .{import});
     }
 
     _ = try writer.write("section .text\n");
@@ -213,7 +227,6 @@ pub fn open(allocator: std.mem.Allocator, stm: *STM, root_path: []const u8, path
         .writer = writer,
         .stm = stm,
         .module_path = module_path,
-        .extern_identifiers = std.StringHashMap(void).init(allocator),
         .label_count = 0,
         .break_label = undefined,
         .continue_label = undefined,
@@ -261,13 +274,6 @@ pub fn close(self: Generator) GenerationError!void {
         \\    extern ExitProcess
         \\
     );
-
-    // Write all external imports from modules
-    var extern_iter = self.extern_identifiers.iterator();
-    while (extern_iter.next()) |entry| {
-        const import = entry.key_ptr.*;
-        try self.print("    extern {s}\n", .{import});
-    }
 
     // Write native data
     // Write native functions source
@@ -376,15 +382,15 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
     for (module.structSlice()) |strct| {
         const struct_sym = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
         for (strct.STRUCT.methods) |method| {
-            const method_field = struct_sym.kind.STRUCT.fields.getField(method.name.lexeme) catch unreachable;
-            try self.visitFunctionStmt(method, method_field.kind.FUNC.args_size, method_field.used, strct.STRUCT.id.lexeme);
+            const method_field = struct_sym.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
+            try self.visitFunctionStmt(method, method_field.kind.FUNC.args_size, method_field.used, method_field.name);
         }
     }
 
     // Generate all functions in the module
     for (module.functionSlice()) |function| {
         const function_sym = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
-        try self.visitFunctionStmt(function.FUNCTION.*, function_sym.kind.FUNC.args_size, function_sym.used, null);
+        try self.visitFunctionStmt(function.FUNCTION.*, function_sym.kind.FUNC.args_size, function_sym.used, function_sym.name);
     }
 }
 
@@ -588,7 +594,7 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
 }
 
 /// Generate the asm for a function declaration
-fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_size: usize, used: bool, maybe_struct_name: ?[]const u8) GenerationError!void {
+fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_size: usize, used: bool, name: []const u8) GenerationError!void {
     // Do not generate if not used
     if (!used) {
         self.stm.next_scope += functionStmt.scope_count;
@@ -605,11 +611,7 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
     self.func_stack_alignment = 0;
 
     // Write the functions label
-    if (maybe_struct_name) |name| {
-        try self.print("\n{s}__{s}__{s}:\n", .{ self.module_path, name, functionStmt.name.lexeme });
-    } else {
-        try self.print("\n{s}__{s}:\n", .{ self.module_path, functionStmt.name.lexeme });
-    }
+    try self.print("\n{s}:\n", .{name});
     // Allocate stack space for locals
     if (locals_size > 0) {
         try self.print("    sub rsp, {d} ; Reserve locals space\n", .{locals_size});
@@ -1091,21 +1093,13 @@ fn visitIdentifierExprID(self: *Generator, idExpr: *Expr.IdentifierExpr) Generat
     // Get register to store pointer in
     const reg = try self.getNextCPUReg();
     // Get pointer to the identifier
-    const path = idExpr.lexical_scope;
-    const id_name = idExpr.id.lexeme;
+    const id_name = idExpr.lexical_scope;
 
     // Access based on scope kind
     switch (idExpr.scope_kind) {
         .ARG => try self.print("    lea {s}, [rbp+{d}] ; Get Arg\n", .{ reg.name, idExpr.stack_offset + self.current_func_locals_size }),
         .LOCAL => try self.print("    lea {s}, [rbp+{d}] ; Get Local\n", .{ reg.name, idExpr.stack_offset - self.current_func_args_size }),
-        .GLOBAL, .FUNC => {
-            if (path.len > 0) {
-                const allocator = self.extern_identifiers.allocator;
-                const new_extern = std.fmt.allocPrint(allocator, "__{s}{s}", .{ path, id_name }) catch unreachable;
-                self.extern_identifiers.put(new_extern, {}) catch unreachable;
-            }
-            try self.print("    lea {s}, [__{s}{s}] ; Get Global\n", .{ reg.name, path, id_name });
-        },
+        .GLOBAL, .FUNC => try self.print("    lea {s}, [{s}] ; Get Global\n", .{ reg.name, id_name }),
         else => unreachable,
     }
 }
@@ -1188,29 +1182,23 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
     } else {
         const path = idExpr.lexical_scope;
 
-        if (path.len > 0) {
-            const allocator = self.extern_identifiers.allocator;
-            const new_extern = std.fmt.allocPrint(allocator, "__{s}{s}", .{ path, idExpr.id.lexeme }) catch unreachable;
-            self.extern_identifiers.put(new_extern, {}) catch unreachable;
-        }
-
         if (result_kind == .FUNC) {
             const reg = try self.getNextCPUReg();
             // Write function pointer load
-            try self.print("    lea {s}, [__{s}{s}] ; Get Function\n", .{ reg.name, path, idExpr.id.lexeme });
+            try self.print("    lea {s}, [{s}] ; Get Function\n", .{ reg.name, path });
         } else if (result_kind == .FLOAT32) {
             const reg = try self.getNextSSEReg();
             // Mov normally
             try self.print(
-                "    movss {s}, {s} [__{s}{s}] ; Get Global\n",
-                .{ reg.name, size_keyword, path, idExpr.id.lexeme },
+                "    movss {s}, {s} [{s}] ; Get Global\n",
+                .{ reg.name, size_keyword, path },
             );
         } else if (result_kind == .FLOAT64) {
             const reg = try self.getNextSSEReg();
             // Mov normally
             try self.print(
-                "    movsd {s}, {s} [__{s}{s}] ; Get Global\n",
-                .{ reg.name, size_keyword, path, idExpr.id.lexeme },
+                "    movsd {s}, {s} [{s}] ; Get Global\n",
+                .{ reg.name, size_keyword, path },
             );
         } else {
             const reg = try self.getNextCPUReg();
@@ -1218,22 +1206,22 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
             if (kind_size == 8) {
                 // Mov normally
                 try self.print(
-                    "    mov {s}, {s} [__{s}{s}] ; Get Global\n",
-                    .{ reg.name, size_keyword, path, idExpr.id.lexeme },
+                    "    mov {s}, {s} [{s}] ; Get Global\n",
+                    .{ reg.name, size_keyword, path },
                 );
             } else {
                 // Check if unsigned
                 if (result_kind == .INT) {
                     // Move and extend sign bit
                     try self.print(
-                        "    movsx {s}, {s} [__{s}{s}] ; Get Global\n",
-                        .{ reg.name, size_keyword, path, idExpr.id.lexeme },
+                        "    movsx {s}, {s} [{s}] ; Get Global\n",
+                        .{ reg.name, size_keyword, path },
                     );
                 } else {
                     // Move and zero top
                     try self.print(
-                        "    movzx {s}, {s} [__{s}{s}] ; Get Global\n",
-                        .{ reg.name, size_keyword, path, idExpr.id.lexeme },
+                        "    movzx {s}, {s} [{s}] ; Get Global\n",
+                        .{ reg.name, size_keyword, path },
                     );
                 }
             }
@@ -1722,9 +1710,9 @@ fn visitFieldExprID(self: *Generator, fieldExpr: *Expr.FieldExpr) GenerationErro
 /// Generate asm for a FieldExpr
 fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: KindId) GenerationError!void {
     // Check if method
-    if (fieldExpr.method_parent) |parent_struct| {
+    if (fieldExpr.method_name) |name| {
         const dest_reg = try self.getNextCPUReg();
-        try self.print("    lea {s}, [_{s}__{s}] ; Method access\n", .{ dest_reg.name, parent_struct.STRUCT.name, fieldExpr.field_name.lexeme });
+        try self.print("    lea {s}, [{s}] ; Method access\n", .{ dest_reg.name, name });
         return;
     }
 

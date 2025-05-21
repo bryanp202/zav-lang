@@ -3,6 +3,7 @@ pub const ScopeError = error{
     DuplicateDeclaration,
     UndeclaredSymbol,
     InvalidScope,
+    SymbolNotPublic,
 };
 
 /// Parsing Errors
