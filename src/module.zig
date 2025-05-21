@@ -13,6 +13,7 @@ const Module = @This();
 path: []const u8,
 kind: ModuleKind,
 /// Stores all global variables and functions in this module
+uses: std.ArrayList(StmtNode),
 globals: std.ArrayList(StmtNode),
 functions: std.ArrayList(StmtNode),
 structs: std.ArrayList(StmtNode),
@@ -30,6 +31,7 @@ pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleK
     return Module{
         .path = path,
         .kind = module_kind,
+        .uses = std.ArrayList(StmtNode).init(allocator),
         .globals = std.ArrayList(StmtNode).init(allocator),
         .functions = std.ArrayList(StmtNode).init(allocator),
         .structs = std.ArrayList(StmtNode).init(allocator),
@@ -45,6 +47,9 @@ pub fn add_dependency(self: *Module, dependency: *Module, name: []const u8, dcl_
 /// Print out this module
 pub fn display(self: Module) void {
     std.debug.print("\n--- Module <root{s}> ---\n", .{self.path});
+    for (self.useSlice()) |use| {
+        use.display();
+    }
     for (self.enumSlice()) |enm| {
         enm.display();
     }
@@ -79,6 +84,10 @@ pub fn enumSlice(self: Module) []StmtNode {
     return self.enums.items;
 }
 
+pub fn useSlice(self: Module) []StmtNode {
+    return self.uses.items;
+}
+
 /// Add a new stmt node to the program
 pub fn addStmt(self: *Module, stmt_node: StmtNode) !void {
     switch (stmt_node) {
@@ -87,6 +96,7 @@ pub fn addStmt(self: *Module, stmt_node: StmtNode) !void {
         .STRUCT => try self.structs.append(stmt_node),
         .ENUM => try self.enums.append(stmt_node),
         .MOD => {},
+        .USE => try self.uses.append(stmt_node),
         else => unreachable,
     }
 }

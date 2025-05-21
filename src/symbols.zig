@@ -155,6 +155,10 @@ pub const SymbolTableManager = struct {
         return mem_loc;
     }
 
+    pub fn importSymbol(self: *SymbolTableManager, symbol: Symbol, as_name: []const u8) ScopeError!void {
+        try self.active_scope.importSymbol(symbol, as_name);
+    }
+
     pub fn addDependency(self: *SymbolTableManager, dependency: *Module, name: []const u8, dcl_line: u64, dcl_column: u64, public: bool) !void {
         const new_dependency = KindId{ .MODULE = dependency };
         _ = try self.declareSymbol(name, new_dependency, ScopeKind.MODULE, dcl_line, dcl_column, false, public);
@@ -167,12 +171,22 @@ pub const SymbolTableManager = struct {
                 self.current_scope_target = KindId{ .MODULE = self.global_module };
             } else {
                 const symbol = try self.peakSymbol(target);
+
+                if (symbol.source_module != self.parent_module and !symbol.public) {
+                    return ScopeError.SymbolNotPublic;
+                }
+
                 self.current_scope_target = symbol.kind;
             }
         } else {
             switch (self.current_scope_target.?) {
                 .MODULE => |module| {
                     const symbol = try module.stm.peakSymbol(target);
+
+                    if (symbol.source_module != self.parent_module and !symbol.public) {
+                        return ScopeError.SymbolNotPublic;
+                    }
+
                     self.current_scope_target = symbol.kind;
                 },
                 else => return ScopeError.UndeclaredSymbol,
@@ -289,6 +303,15 @@ pub const Scope = struct {
             .symbols = table,
             .next_address = 0,
         };
+    }
+
+    /// Insert a used symbol, potentially changing names for value
+    pub fn importSymbol(self: *Scope, symbol: Symbol, as_name: []const u8) ScopeError!void {
+        const getOrPut = self.symbols.getOrPut(as_name) catch unreachable;
+        if (getOrPut.found_existing) {
+            return ScopeError.DuplicateDeclaration;
+        }
+        getOrPut.value_ptr.* = symbol;
     }
 
     /// Add a new symbol, providing all of its attributes and a null address
@@ -726,15 +749,19 @@ pub const KindId = union(Kinds) {
             .PTR => |*ptr| ptr.updatePtr(stm),
             .ARRAY => |*arr| arr.updateArray(stm),
             .FUNC => |*func| func.updateArgSize(stm),
-            .STRUCT => |*strct| strct.updateFields(stm),
-            .ENUM => |*enm| enm.updateVariants(stm),
+            .STRUCT => |*strct| strct.updateFields(stm, strct.name),
+            .ENUM => |*enm| enm.updateVariants(stm, enm.name),
             .USER_KIND => |name| {
                 const symbol = try stm.peakSymbol(name);
 
                 switch (symbol.kind) {
-                    .STRUCT, .ENUM => {
+                    .STRUCT => {
                         self.* = symbol.kind;
-                        return self.update(stm);
+                        return self.STRUCT.updateFields(stm, name);
+                    },
+                    .ENUM => {
+                        self.* = symbol.kind;
+                        return self.ENUM.updateVariants(stm, name);
                     },
                     else => return ScopeError.UndeclaredSymbol,
                 }
@@ -891,8 +918,8 @@ pub const Struct = struct {
     }
 
     /// Resolve the struct size of a user defined struct kind
-    pub fn updateFields(self: *Struct, stm: *SymbolTableManager) ScopeError!usize {
-        const symbol = try stm.getSymbol(self.name);
+    pub fn updateFields(self: *Struct, stm: *SymbolTableManager, name: []const u8) ScopeError!usize {
+        const symbol = try stm.getSymbol(name);
         if (symbol.kind != .STRUCT) return ScopeError.UndeclaredSymbol;
         self.fields = symbol.kind.STRUCT.fields;
         return self.fields.next_address + 8 - (self.fields.next_address % 8);
@@ -911,8 +938,8 @@ pub const Enum = struct {
     }
 
     /// Resolve the struct size of a user defined struct kind
-    pub fn updateVariants(self: *Enum, stm: *SymbolTableManager) ScopeError!usize {
-        const symbol = try stm.getSymbol(self.name);
+    pub fn updateVariants(self: *Enum, stm: *SymbolTableManager, name: []const u8) ScopeError!usize {
+        const symbol = try stm.getSymbol(name);
         if (symbol.kind != .ENUM) return ScopeError.UndeclaredSymbol;
         self.variants = symbol.kind.ENUM.variants;
         return 2;

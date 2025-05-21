@@ -12,6 +12,7 @@ const ExprNode = Expr.ExprNode;
 
 pub const StmtNode = union(enum) {
     MOD: *ModStmt,
+    USE: *UseStmt,
     GLOBAL: *GlobalStmt,
     MUTATE: *MutStmt,
     DECLARE: *DeclareStmt,
@@ -35,6 +36,17 @@ pub const StmtNode = union(enum) {
                     std.debug.print("pub ", .{});
                 }
                 std.debug.print("mod {s};\n", .{modStmt.module_name.lexeme});
+            },
+            .USE => |useStmt| {
+                if (useStmt.public) {
+                    std.debug.print("pub ", .{});
+                }
+                std.debug.print("use ", .{});
+                useStmt.scopes.display();
+                if (useStmt.rename) |name| {
+                    std.debug.print("as {s}", .{name.lexeme});
+                }
+                std.debug.print(";\n", .{});
             },
             .GLOBAL => |globalStmt| {
                 if (globalStmt.public) {
@@ -183,6 +195,26 @@ pub const ModStmt = struct {
             .public = public,
             .op = op,
             .module_name = module_name,
+        };
+    }
+};
+
+/// Bring symbol into a module scope
+///
+/// useStmt -> "use" ScopeExpr|IdExpr ("as" IDENTIFIER) ;
+pub const UseStmt = struct {
+    op: Token,
+    scopes: ExprNode,
+    rename: ?Token,
+    public: bool,
+    imported: bool = false,
+
+    pub fn init(op: Token, scopes: ExprNode, as_name: ?Token, is_public: bool) UseStmt {
+        return UseStmt{
+            .op = op,
+            .scopes = scopes,
+            .rename = as_name,
+            .public = is_public,
         };
     }
 };

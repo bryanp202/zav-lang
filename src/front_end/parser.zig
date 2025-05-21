@@ -287,7 +287,7 @@ fn reportError(self: *Parser, token: Token, msg: []const u8) SyntaxError {
     // Only display errors when not in panic mode
     if (!self.panic) {
         // Display message
-        stderr.print("Module <{s}>, Line {d}:{d}]", .{ self.current_module_name, token.line, token.column }) catch unreachable;
+        stderr.print("Module <root{s}>, Line {d}:{d}]", .{ self.current_module_name, token.line, token.column }) catch unreachable;
 
         // Change message based off of token type
         if (token.kind == TokenKind.EOF) {
@@ -394,6 +394,8 @@ fn global(self: *Parser) SyntaxError!StmtNode {
         return self.enumStmt(is_public);
     } else if (self.match(.{TokenKind.MOD})) {
         return self.modStmt(is_public);
+    } else if (self.match(.{TokenKind.USE})) {
+        return self.useStmt(is_public);
     }
     _ = self.advance();
     return self.errorAt("Expected global level declaration statement");
@@ -412,6 +414,55 @@ fn modStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 
     self.dependencies.append(new_stmt.*) catch unreachable;
     return StmtNode{ .MOD = new_stmt };
+}
+
+/// UseStmt -> "use" ScopeExpr|IdExpr ("as" IDENTIFIER)? ";"
+fn useStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
+    const use_token = self.previous;
+
+    const next_scope = self.advance();
+    const scope = get_scope: switch (next_scope.kind) {
+        .SCOPE => {
+            const scoper = self.previous;
+            const global_scope_token = Token{
+                .kind = .IDENTIFIER,
+                .lexeme = "",
+                .line = scoper.line,
+                .column = scoper.column,
+            };
+
+            break :get_scope try self.scopeExpr(global_scope_token, scoper);
+        },
+        .IDENTIFIER => {
+            const id_token: Token = self.previous;
+
+            if (self.match(.{TokenKind.SCOPE})) {
+                const first_scope_op = self.previous;
+                break :get_scope try self.scopeExpr(id_token, first_scope_op);
+            } else {
+                // Make new constant expression
+                const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+                identifier_expr.* = .{ .id = id_token, .lexical_scope = undefined };
+                const node = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
+                // Wrap in ExprResult
+                break :get_scope ExprResult.init(node, 0);
+            }
+        },
+        else => return self.reportError(self.previous, "Expected a scope expression after use keyword"),
+    };
+
+    var as_name: ?Token = null;
+    if (self.match(.{TokenKind.AS})) {
+        try self.consume(TokenKind.IDENTIFIER, "Expected identifier after use statement as keyword");
+        as_name = self.previous;
+    }
+
+    try self.consume(TokenKind.SEMICOLON, "Expected ';' after module name");
+
+    const new_stmt = self.allocator.create(Stmt.UseStmt) catch unreachable;
+    new_stmt.* = Stmt.UseStmt.init(use_token, scope.expr, as_name, is_public);
+
+    return StmtNode{ .USE = new_stmt };
 }
 
 /// Parse a global declaration stmt

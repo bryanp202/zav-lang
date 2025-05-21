@@ -1,7 +1,17 @@
 mod string;
 
+use ::string::String as StringRenamed;
+
 fn main(argc: i64, argv: **u8) i64 {
     const extern_struct = string::new("Hello world!\n");
 
     extern_struct.*.display();
+
+    var str1: StringRenamed = undefined;
+    str1.data = "Hello!";
+    str1.len = @len("Hello!");
+
+    str1.display();
+
+    @printf("Time to run: %f\n", @nanoTimestamp() / 1000000000.0);
 }

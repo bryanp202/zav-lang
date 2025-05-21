@@ -78,7 +78,23 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                 continue;
             };
         }
-        // If had error in enum names, return
+
+        for (module.useSlice()) |use| {
+            self.checkUse(use.USE) catch |err| switch (err) {
+                error.DuplicateDeclaration => {
+                    const name = use.USE.rename.?.lexeme;
+                    const old_symbol = self.stm.peakSymbol(name) catch unreachable;
+                    self.reportDuplicateError(
+                        use.USE.op,
+                        old_symbol.dcl_line,
+                        old_symbol.dcl_column,
+                    ) catch {};
+                },
+                else => continue,
+            };
+        }
+
+        // If had error in enum names or uses, return
         if (self.had_error) {
             return;
         }
@@ -98,6 +114,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                 continue;
             };
         }
+
         // If had error in struct names, return
         if (self.had_error) {
             return;
@@ -109,6 +126,15 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
     while (module_iter.next()) |entry| {
         const module = entry.value_ptr.*;
         self.setModule(module);
+
+        for (module.useSlice()) |use| {
+            self.checkUse(use.USE) catch |err| switch (err) {
+                error.InvalidScope => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.op, "Expected a valid scope") catch {},
+                error.SymbolNotPublic => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename.?, "Attempted to use a private symbol") catch {},
+                error.UndeclaredSymbol => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename.?, "Could not resolve used symbol") catch {},
+                else => unreachable,
+            };
+        }
 
         for (module.structSlice()) |strct| {
             // Get from stm
@@ -260,7 +286,7 @@ fn checkVarInScope(self: *TypeChecker) void {
         if (symbol.is_mutable and !symbol.has_mutated) {
             // Alert user
             stderr.print(
-                "[Module<{s}>, Declared on Line {d}] as \'{s}\': Var identifier was never mutated\n",
+                "[Module <root{s}>, Declared on Line {d}] as \'{s}\': Var identifier was never mutated\n",
                 .{ self.current_module_path, symbol.dcl_line, entry.key_ptr.* },
             ) catch unreachable;
             // Update had error
@@ -287,7 +313,7 @@ fn reportDuplicateError(self: *TypeChecker, duplicate_id: Token, dcl_line: u64, 
     if (!self.panic) {
         // Display message
         stderr.print(
-            "[Module<{s}>, Line {d}:{d}] at \'{s}\': Identifier already declared on [Line {d}:{d}]\n",
+            "[Module <root{s}>, Line {d}:{d}] at \'{s}\': Identifier already declared on [Line {d}:{d}]\n",
             .{ self.current_module_path, duplicate_id.line, duplicate_id.column, duplicate_id.lexeme, dcl_line, dcl_column },
         ) catch unreachable;
 
@@ -308,7 +334,7 @@ fn reportError(self: *TypeChecker, errorType: SemanticError, token: Token, msg: 
     if (!self.panic) {
         // Display message
         stderr.print(
-            "[Module<{s}>, Line {d}:{d}] at \'{s}\': {s}\n",
+            "[Module <root{s}>, Line {d}:{d}] at \'{s}\': {s}\n",
             .{ self.current_module_path, token.line, token.column, token.lexeme, msg },
         ) catch unreachable;
 
@@ -753,6 +779,27 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
 // Stmt anaylsis  methods //
 // ********************** //
 
+/// Import all uses from other modules
+fn checkUse(self: *TypeChecker, use_stmt: *Stmt.UseStmt) !void {
+    if (use_stmt.imported) return;
+
+    var current_scope = use_stmt.scopes;
+    while (current_scope.expr == .SCOPE) {
+        try self.stm.changeTargetScope(current_scope.expr.SCOPE.scope.lexeme);
+        current_scope = current_scope.expr.SCOPE.operand;
+    }
+
+    const import_name = use_stmt.rename orelse current_scope.expr.IDENTIFIER.id;
+    use_stmt.rename = import_name;
+
+    const symbol = try self.stm.getSymbol(current_scope.expr.IDENTIFIER.id.lexeme);
+
+    var new_symbol = symbol.*;
+    new_symbol.public = use_stmt.public;
+
+    try self.stm.importSymbol(new_symbol, import_name.lexeme);
+}
+
 /// Declare a enum type, checking if name has already been used
 fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void {
     const new_variants = self.allocator.create(std.StringHashMap(Symbol)) catch unreachable;
@@ -1074,7 +1121,7 @@ fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticErr
     // Check if declared with a kind
     if (maybe_declared_kind != null) {
         _ = globalStmt.kind.?.update(self.stm) catch {
-            return self.reportError(SemanticError.UnresolvableIdentifier, globalStmt.op, "Could not resolve type in declaration type");
+            return self.reportError(SemanticError.UnresolvableIdentifier, globalStmt.op, "Could not resolve type in global declaration type");
         };
 
         // Check if rhs has kind
@@ -1370,8 +1417,9 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
 fn visitScopeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const scope_expr = node.expr.SCOPE;
-    self.stm.changeTargetScope(scope_expr.scope.lexeme) catch {
-        return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Expected a valid scope target");
+    self.stm.changeTargetScope(scope_expr.scope.lexeme) catch |err| switch (err) {
+        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Attempted to access a non-public symbol from another module"),
+        else => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Expected a valid scope target"),
     };
 
     _ = try self.analyzeExpr(&scope_expr.operand);

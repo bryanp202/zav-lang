@@ -360,7 +360,17 @@ pub const Scanner = struct {
             switch (self.peek()) {
                 'a' => {
                     _ = self.advance();
-                    return self.checkKeyword("nd", TokenKind.AND);
+                    switch (self.peek()) {
+                        'n' => {
+                            _ = self.advance();
+                            return self.checkKeyword("d", TokenKind.AND);
+                        },
+                        's' => {
+                            _ = self.advance();
+                            return self.checkKeyword("", TokenKind.AS);
+                        },
+                        else => break :identifier_loop,
+                    }
                 },
                 'b' => {
                     _ = self.advance();
@@ -561,6 +571,10 @@ pub const Scanner = struct {
                             _ = self.advance();
                             return self.checkKeyword("defined", TokenKind.UNDEFINED);
                         },
+                        's' => {
+                            _ = self.advance();
+                            return self.checkKeyword("e", TokenKind.USE);
+                        },
                         else => break :identifier_loop,
                     }
                 },
@@ -689,6 +703,8 @@ pub const TokenKind = enum {
     NULLPTR,
     PUB,
     MOD,
+    USE,
+    AS,
 
     //// Parser Tokens ////
     ERROR,

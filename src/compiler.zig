@@ -284,20 +284,20 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
             module.kind,
             module.stm.extern_dependencies,
         ) catch {
-            std.debug.print("[Module<root{s}>] Failed to write file\n", .{module.path});
+            std.debug.print("[Module <root{s}>] Failed to write file\n", .{module.path});
             return false;
         };
 
-        std.debug.print("[Module<root{s}>] Generating assembly...\n", .{module.path});
+        std.debug.print("[Module <root{s}>] Generating assembly...\n", .{module.path});
         // Generate asm
         _ = generator.genModule(module.*) catch {
-            std.debug.print("[Module<root{s}>] Failed to write file\n", .{module.path});
+            std.debug.print("[Module <root{s}>] Failed to write file\n", .{module.path});
             return false;
         };
 
         // Close file
         generator.close() catch {
-            std.debug.print("[Module<root{s}>] Failed to close file\n", .{module.path});
+            std.debug.print("[Module <root{s}>] Failed to close file\n", .{module.path});
             return false;
         };
     }
