@@ -233,6 +233,11 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
             getOrPut.value_ptr.* = new_module;
             const sub_dependencies = parser.parse(new_module);
 
+            if (parser.hadError()) {
+                std.debug.print("Had Syntax Error\n", .{});
+                return false;
+            }
+
             requesting_module.add_dependency(
                 new_module,
                 module_name.lexeme,
