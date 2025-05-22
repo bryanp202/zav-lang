@@ -37,7 +37,7 @@ dependencies: std.ArrayList(Stmt.ModStmt),
 current_module_name: []const u8,
 
 /// Parser initializer
-pub fn init(allocator: std.mem.Allocator, scanner: *Scanner) Parser {
+pub fn init(allocator: std.mem.Allocator, scanner: *Scanner, module_name: []const u8) Parser {
     // Make a new parser
     const new_parser = Parser{
         .allocator = allocator,
@@ -47,7 +47,7 @@ pub fn init(allocator: std.mem.Allocator, scanner: *Scanner) Parser {
         .had_error = false,
         .panic = false,
         .dependencies = std.ArrayList(Stmt.ModStmt).init(allocator),
-        .current_module_name = undefined,
+        .current_module_name = module_name,
     };
     return new_parser;
 }
@@ -1131,7 +1131,7 @@ fn term(self: *Parser) SyntaxError!ExprResult {
 /// Parse a multiplication or division statement
 /// factor -> unary (("*"|"/"|"%") unary)*
 fn factor(self: *Parser) SyntaxError!ExprResult {
-    const lhs = try self.unary();
+    const lhs = try self.conversion();
     // Extract expression
     var expr = lhs.expr;
     // Extract precedence
@@ -1142,7 +1142,7 @@ fn factor(self: *Parser) SyntaxError!ExprResult {
         // Get operator
         const operator = self.previous;
         // Parse rhs
-        const rhs = try self.unary();
+        const rhs = try self.conversion();
 
         // Make new inner expression, with operator
         const new_expr = self.allocator.create(Expr.ArithExpr) catch unreachable;
@@ -1169,25 +1169,28 @@ fn factor(self: *Parser) SyntaxError!ExprResult {
 /// Sub type of unary
 /// conversion -> ('<' type '>')* unary
 fn conversion(self: *Parser) SyntaxError!ExprResult {
-    const op = self.previous;
-    const kind = try self.parseKind();
-    try self.consume(TokenKind.GREATER, "Expected '>' after type conversion");
-    // Parse operand
-    const operand = try self.unary();
+    const result = try self.unary();
+    var expr = result.expr;
 
-    // Make new inner expression, with operator
-    const new_expr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
-    new_expr.* = Expr.ConversionExpr.init(op, operand.expr);
-    const node = ExprNode{
-        .expr = ExprUnion{ .CONVERSION = new_expr },
-        .result_kind = kind,
-    };
+    while (self.match(.{TokenKind.AS})) {
+        const op = self.previous;
+        const kind = try self.parseKind();
+
+        // Make new inner expression, with operator
+        const new_expr = self.allocator.create(Expr.ConversionExpr) catch unreachable;
+        new_expr.* = Expr.ConversionExpr.init(op, expr);
+        expr = ExprNode{
+            .expr = ExprUnion{ .CONVERSION = new_expr },
+            .result_kind = kind,
+        };
+    }
+
     // Wrap in ExprResult
-    return ExprResult.init(node, operand.precedence);
+    return ExprResult.init(expr, result.precedence);
 }
 
 /// Parse a unary expression
-/// unary -> ("-"|"!") (unary | literal)
+/// unary -> ("-"|"!"|"&") (unary | literal)
 fn unary(self: *Parser) SyntaxError!ExprResult {
     // Recurse until no more '-' or '!' or '&'
     if (self.match(.{ TokenKind.MINUS, TokenKind.EXCLAMATION, TokenKind.AMPERSAND })) {
@@ -1203,10 +1206,7 @@ fn unary(self: *Parser) SyntaxError!ExprResult {
         // Wrap in ExprResult
         return ExprResult.init(node, operand.precedence);
     }
-    // Check if type conversion
-    if (self.match(.{TokenKind.LESS})) {
-        return self.conversion();
-    }
+
     // Fall through to Access/call/index
     return self.access();
 }

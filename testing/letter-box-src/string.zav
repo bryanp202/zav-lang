@@ -1,27 +1,60 @@
 pub struct String {
-    data: *const u8;
+    data: *u8;
     len: u64;
 
+    pub fn init(self: *String, str: *const u8) void {
+        const len = find_len(str);
+        const buf = @malloc(len) as *u8;
+        copy_nstr(len, str, buf);
+
+        self.*.data = buf;
+        self.*.len = len;
+    }
+
+    pub fn init_from(self: *String, other: *const String) void {
+        const len = other.*.len;
+        const buf = @malloc(len) as *u8;
+        copy_nstr(len, other.*.data, buf);
+
+        self.*.data = buf; // TROUBLE MAKER, TRY TO FIX ME PLEASE
+        self.*.len = len;
+    }
+
     pub fn display(self: *const String) void {
-        self.*.say_hello();
         @printf("%.*s\n", self.*.len, self.*.data);
     }
 
-    fn say_hello(self: *const String) void {
-        @printf("Hello!\n");
+    pub fn eql(self: *const String, other: *const String) bool {
+        const len = self.*.len;
+        if (len != other.*.len) return false;
+
+        const self_data = self.*.data;
+        const other_data = other.*.data;
+
+        var current = 0;
+        while (current < len) {
+            if (self_data[current] != other_data[current]) return false;
+
+            current += 1;
+        }
+
+        return true;
     }
-}
 
-pub fn new(data: *const u8) *String {
-    const new_str = <*String>@malloc(16);
+    pub fn hash(self: *const String) u32 {
+        var hash = 2166126261 as u32;
     
-    const len = find_len(data);
-    const new_data = <*u8>@malloc(len);
-    copy_nstr(len, data, new_data);
+        const data = self.*.data;
+        const len = self.*.len;
 
-    new_str.*.data = new_data;
-    new_str.*.len = len;
-    return new_str;
+        var index = 0;
+        while (index < len) {
+            hash ^= data[index];
+            hash *= 1677619 as u32;
+        } loop index += 1;
+
+        return hash;
+    }
 }
 
 // String helper methods
@@ -30,13 +63,13 @@ fn find_len(data: *const u8) u64 {
     while (current.* != 0) {
         current = &current[1];
     }
-    return <u64>(current - data);
+    return (current - data) as u64;
 }
 
 fn copy_nstr(len: u64, source: *const u8, buffer: *u8) void {
-    var current = <u64>0;
+    var current = 0 as u64;
     while (current < len) {
         buffer[current] = source[current];
-        current += <u64>1;
+        current += 1 as u64;
     }
 }

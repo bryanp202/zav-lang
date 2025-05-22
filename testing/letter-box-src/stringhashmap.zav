@@ -1,0 +1,99 @@
+use ::string::String;
+
+/*
+    A String key, String value pair hashmap
+
+    All inputted strings are cloned into owned values so external modifications do not effect this hashmap
+*/
+pub struct StringHashMap_string {
+    items: *Entry_string;
+    count: u64;
+    capacity: u64;
+    max_capacity: f64;
+
+    pub fn init(self: *StringHashMap_string) void {
+        self.*.items = @calloc(16, 8) as *Entry_string;
+        self.*.count = 0 as u64;
+        self.*.capacity = 8 as u64;
+        self.*.max_capacity = 0.75;
+    }
+
+    pub fn put(self: *StringHashMap_string, key: *String, value: *String) bool {
+        const capacity = self.*.capacity;
+        if ((self.*.count + 1) as f64 / capacity as f64 > self.*.max_capacity) {
+            self.*.resize();
+        }
+
+        const items = self.*.items;
+        var start = key.*.hash() % capacity;
+        var found_existing = items[start].key.eql(key);
+        while (!found_existing and items[start].key.data as u64 <= 1) {
+            start = (start + 1 as u64) % capacity;
+            found_existing = items[start].key.eql(key);
+        }
+
+        items[start].init(key, value);
+        self.*.count += 1 as u64;
+        return found_existing;
+    }
+
+    pub fn get_ref(self: *StringHashMap_string, key: *String, out: *String) bool {
+        const capacity = self.*.capacity;
+        const items = self.*.items;
+
+        var start = key.*.hash() % capacity;
+        var found_existing = items[start].key.eql(key);
+        while (!found_existing and items[start].key.data as u64 <= 1) {
+            start = (start + 1 as u64) % capacity;
+            found_existing = items[start].key.eql(key);
+        }
+
+        out.*.data = items[start].value.data;
+        out.*.len = items[start].value.len;
+    }
+
+    // Helper functions //
+
+    fn resize(self: *StringHashMap_string) void {
+        const old_capacity = self.*.capacity;
+        const new_capacity = old_capacity * 2;
+
+        const old_items = self.*.items;
+        self.*.items = @calloc(16, new_capacity) as *Entry_string;
+        self.*.capacity = new_capacity as u64;
+
+        var current = 0;
+        while (current < old_capacity) {
+            const entry_ptr = &old_items[current];
+            if (entry_ptr.*.key.data as u64 > 1 as u64) self.*.insert_no_check(entry_ptr);
+        } loop current += 1;
+    }
+
+    fn insert_no_check(self: *StringHashMap_string, entry_ptr: *Entry_string) void {
+        var start = entry_ptr.*.value.hash() % self.*.capacity;
+
+         while (self.*.items[start].key.data == nullptr) {
+            start = (start + 1 as u64) % self.*.capacity;
+         }
+
+         self.*.items[start].copy_from(&entry_ptr.*.key, &entry_ptr.*.value);
+         self.*.count += 1 as u64;
+    }
+}
+
+pub struct Entry_string {
+    key: String;
+    value: String;
+
+    pub fn init(self: *Entry_string, key_ptr: *const String, value_ptr: *const String) void {
+        self.*.key.init_from(key_ptr);
+        self.*.value.init_from(value_ptr);
+    }
+
+    pub fn copy_from(self: *Entry_string, key_ptr: *const String, value_ptr: *const String) void {
+        self.*.key.data = key_ptr.*.data;
+        self.*.key.len = key_ptr.*.len;
+        self.*.value.data = value_ptr.*.data;
+        self.*.value.len = value_ptr.*.len;
+    }
+}

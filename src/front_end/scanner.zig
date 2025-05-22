@@ -24,9 +24,9 @@ pub const Scanner = struct {
     }
 
     pub fn reset(self: *Scanner, source: []const u8) void {
-        self.column = 0;
-        self.line = 0;
-        self.column_start = 0;
+        self.column = 1;
+        self.line = 1;
+        self.column_start = 1;
         self.start = 0;
         self.current = 0;
         self.source = source;

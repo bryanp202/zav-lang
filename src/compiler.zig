@@ -174,7 +174,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     // Make a scanner
     var scanner = Scanner.init(self.allocator, source);
     // Make a parser
-    var parser = Parser.init(self.allocator, &scanner);
+    var parser = Parser.init(self.allocator, &scanner, "");
     // Make TypeChecker
     var type_checker = TypeChecker.init(self.allocator);
     // Make modules list and root module

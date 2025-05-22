@@ -1,17 +1,29 @@
-mod string;
+pub mod string;
+pub mod stringhashmap;
 
-use ::string::String as StringRenamed;
+use string::String;
+use stringhashmap::StringHashMap_string as Map;
 
 fn main(argc: i64, argv: **u8) i64 {
-    const extern_struct = string::new("Hello world!\n");
+    var dict: Map = undefined;
+    dict.init();
 
-    extern_struct.*.display();
+    var america: String = undefined;
+    america.init("United States of America");
+    var america_landmass: String = undefined;
+    america_landmass.init("3,800,000 mi^2");
+    var japan: String = undefined;
+    japan.init("Japan");
+    var japan_landmass: String =  undefined;
+    japan_landmass.init("145,937 mi^2");
 
-    var str1: StringRenamed = undefined;
-    str1.data = "Hello!";
-    str1.len = @len("Hello!");
+    dict.put(&america, &america_landmass);
+    dict.put(&japan, &japan_landmass);
 
-    str1.display();
-
-    @printf("Time to run: %f\n", @nanoTimestamp() / 1000000000.0);
+    var value: String = undefined;
+    if (dict.get_ref(&america, &value)) {
+        @printf("The landmass of \"%.*s\" is %.*s\n", america.len, america.data, value.len, value.data);
+    } else {
+        @printf("Did not find \"%.*s\"\n", america.len, america.data);
+    }
 }
