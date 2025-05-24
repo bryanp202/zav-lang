@@ -720,10 +720,10 @@ section .data
 
     ; Program Constants ;
     C0: dq 7e-1
-    C1: db `-- [StringHashMap, Entry: (Key: String, Value: String), Count: %lu, Capacity: %lu] --\n`, 0
-    C4: db `Entry: (Empty)\n`, 0
-    C2: db `-- [End of StringHashMap] --\n`, 0
     C3: db `Entry: (Key: \"%.*s\", Value: \"%.*s\")\n`, 0
+    C4: db `Entry: (Empty)\n`, 0
+    C1: db `-- [StringHashMap, Entry: (Key: String, Value: String), Count: %lu, Capacity: %lu] --\n`, 0
+    C2: db `-- [End of StringHashMap] --\n`, 0
 section .bss
     @CLOCK_START: resb 8
     @ARGC: resb 8

@@ -423,16 +423,16 @@ section .data
     extern printf
 
     ; Program Constants ;
-    C6: db `The landmass of \"%.*s\" is \"%.*s\"\n`, 0
-    C2: db `Japan`, 0
     C3: db `145,937 mi^2`, 0
-    C4: db `Canada`, 0
-    C5: db `3,855,100 mi^2`, 0
     C7: db `Did not find \"%.*s\"\n`, 0
+    C6: db `The landmass of \"%.*s\" is \"%.*s\"\n`, 0
+    C4: db `Canada`, 0
+    C1: db `3,800,000 mi^2`, 0
+    C2: db `Japan`, 0
+    C0: db `United States of America`, 0
+    C5: db `3,855,100 mi^2`, 0
     C8: db `Time to run: %f sec\n`, 0
     C9: dq 1e9
-    C0: db `United States of America`, 0
-    C1: db `3,800,000 mi^2`, 0
 section .bss
     @CLOCK_START: resb 8
     @ARGC: resb 8
