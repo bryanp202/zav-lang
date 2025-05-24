@@ -41,7 +41,7 @@ fn main(argc: i64, argv: **u8) i64 {
 
     const value = dict.get_ptr(&america);
     if (value != nullptr) {
-        @printf("The landmass of \"%.*s\" is \"%.*s\"\n", america.len, america.data, value.*.len, value.*.data);
+        @printf("The landmass of \"%.*s\" is \"%.*s\"\n", america.len, america.data, value.len, value.data);
     } else {
         @printf("Did not find \"%.*s\"\n", america.len, america.data);
     }

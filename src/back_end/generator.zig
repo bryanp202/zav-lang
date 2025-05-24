@@ -1730,7 +1730,11 @@ fn visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: 
 /// Generate asm for a FieldExpr
 fn visitFieldExprID(self: *Generator, fieldExpr: *Expr.FieldExpr) GenerationError!void {
     // Generate the lhs
-    try self.genIDExpr(fieldExpr.operand);
+    if (fieldExpr.operand.result_kind == .PTR) {
+        try self.genExpr(fieldExpr.operand);
+    } else {
+        try self.genIDExpr(fieldExpr.operand);   
+    }
     const source_reg = self.getCurrCPUReg();
     const offset = fieldExpr.stack_offset;
     // Generate the field offset access
@@ -1749,7 +1753,11 @@ fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: Kin
     }
 
     // Generate the lhs
-    try self.genIDExpr(fieldExpr.operand);
+    if (fieldExpr.operand.result_kind == .PTR) {
+        try self.genExpr(fieldExpr.operand);
+    } else {
+        try self.genIDExpr(fieldExpr.operand);   
+    }
     const source_reg = self.popCPUReg();
     const offset = fieldExpr.stack_offset;
 

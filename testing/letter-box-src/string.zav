@@ -7,34 +7,34 @@ pub struct String {
         const buf = @malloc(len) as *u8;
         copy_nstr(len, str, buf);
 
-        self.*.data = buf;
-        self.*.len = len;
+        self.data = buf;
+        self.len = len;
     }
 
     pub fn deinit(self: *String) void {
-        @free(self.*.data);
+        @free(self.data);
     }
 
-    pub fn init_from(self: *String, other: *const String) void { // SELF is wrong
-        const len = other.*.len;
+    pub fn init_from(self: *String, other: *const String) void {
+        const len = other.len;
         const buf = @malloc(len) as *u8;
 
-        copy_nstr(len, other.*.data, buf);
+        copy_nstr(len, other.data, buf);
 
-        self.*.data = buf;
-        self.*.len = len;
+        self.data = buf;
+        self.len = len;
     }
 
     pub fn display(self: *const String) void {
-        @printf("\"%.*s\"\n", self.*.len, self.*.data);
+        @printf("\"%.*s\"\n", self.len, self.data);
     }
 
     pub fn eql(self: *const String, other: *const String) bool {
-        const len = self.*.len;
-        if (len != other.*.len) return false;
+        const len = self.len;
+        if (len != other.len) return false;
 
-        const self_data = self.*.data;
-        const other_data = other.*.data;
+        const self_data = self.data;
+        const other_data = other.data;
 
         var current = 0;
         while (current < len) {
@@ -49,8 +49,8 @@ pub struct String {
     pub fn hash(self: *const String) u32 {
         var hash = 2166126261 as u32;
     
-        const data = self.*.data;
-        const len = self.*.len;
+        const data = self.data;
+        const len = self.len;
 
         var index = 0;
         while (index < len) {

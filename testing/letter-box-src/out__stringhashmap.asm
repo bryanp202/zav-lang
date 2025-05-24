@@ -54,6 +54,8 @@ __stringhashmap__StringHashMap_string__put:
     sub rsp, 16 ; Reserve locals space
     push rbp
     mov rbp, rsp
+    mov r8, 0 ; Load NULLPTR
+    mov r8, 0 ; Load NULLPTR
     mov r8, qword [rbp+32] ; Get Arg/Local
     mov r8, qword [r8+8] ; Field access
     mov r9, 1 ; Load INT
@@ -720,10 +722,10 @@ section .data
 
     ; Program Constants ;
     C0: dq 7e-1
-    C3: db `Entry: (Key: \"%.*s\", Value: \"%.*s\")\n`, 0
-    C4: db `Entry: (Empty)\n`, 0
     C1: db `-- [StringHashMap, Entry: (Key: String, Value: String), Count: %lu, Capacity: %lu] --\n`, 0
     C2: db `-- [End of StringHashMap] --\n`, 0
+    C3: db `Entry: (Key: \"%.*s\", Value: \"%.*s\")\n`, 0
+    C4: db `Entry: (Empty)\n`, 0
 section .bss
     @CLOCK_START: resb 8
     @ARGC: resb 8

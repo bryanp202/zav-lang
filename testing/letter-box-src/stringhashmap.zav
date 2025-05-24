@@ -14,55 +14,56 @@ pub struct StringHashMap_string {
     max_capacity: f64;
 
     pub fn init(self: *StringHashMap_string) void {
-        self.*.items = @calloc(SIZE_OF_STRING * 2, 8) as *Entry_string;
-        self.*.count = 0 as u64;
-        self.*.capacity = 8 as u64;
-        self.*.max_capacity = 0.7;
+        self.items = @calloc(SIZE_OF_STRING * 2, 8) as *Entry_string;
+        self.count = 0 as u64;
+        self.capacity = 8 as u64;
+        self.max_capacity = 0.7;
     }
 
     pub fn put(self: *StringHashMap_string, key: *String, value: *String) bool {
-        if ((self.*.count + 1) as f64 / self.*.capacity as f64 > self.*.max_capacity) {
-            self.*.resize();
+        nullptr;  nullptr;
+        if ((self.count + 1) as f64 / self.capacity as f64 > self.max_capacity) {
+            self.resize();
         }
 
         var entry_ptr: *Entry_string = undefined;
-        const found_existing = self.*.get_entry(key, &entry_ptr);
+        const found_existing = self.get_entry(key, &entry_ptr);
 
         if (found_existing) {
-            entry_ptr.*.deinit();
+            entry_ptr.deinit();
         } else {
-            self.*.count += 1 as u64;
+            self.count += 1 as u64;
         }
-        entry_ptr.*.init(key, value);
+        entry_ptr.init(key, value);
 
         return found_existing;
     }
 
     pub fn get_ptr(self: *StringHashMap_string, key: *String) *String {
         var entry_ptr: *Entry_string = undefined;
-        const found_existing = self.*.get_entry(key, &entry_ptr);
+        const found_existing = self.get_entry(key, &entry_ptr);
 
-        return (found_existing) ? &entry_ptr.*.value : nullptr;
+        return (found_existing) ? &entry_ptr.value : nullptr;
     }
 
     pub fn remove(self: *StringHashMap_string, key: *String) bool {
         var entry_ptr: *Entry_string = undefined;
-        const found_existing = self.*.get_entry(key, &entry_ptr);
+        const found_existing = self.get_entry(key, &entry_ptr);
 
         if (found_existing) {
-            entry_ptr.*.key.deinit();
-            entry_ptr.*.key.data = 1 as *u8;
-            entry_ptr.*.key.len = 0 as u64;
-            self.*.count -= 1 as u64;
+            entry_ptr.key.deinit();
+            entry_ptr.key.data = 1 as *u8;
+            entry_ptr.key.len = 0 as u64;
+            self.count -= 1 as u64;
         }
 
         return found_existing;
     }
 
     pub fn display(self: *const StringHashMap_string) void {
-        const items = self.*.items;
-        const capacity = self.*.capacity;
-        const count = self.*.count;
+        const items = self.items;
+        const capacity = self.capacity;
+        const count = self.count;
 
         @printf("-- [StringHashMap, Entry: (Key: String, Value: String), Count: %lu, Capacity: %lu] --\n", count, capacity);
 
@@ -77,17 +78,17 @@ pub struct StringHashMap_string {
     // Helper functions //
 
     fn resize(self: *StringHashMap_string) void {
-        const old_capacity = self.*.capacity;
+        const old_capacity = self.capacity;
         const new_capacity = old_capacity * 2;
 
-        const old_items = self.*.items;
-        self.*.items = @calloc(SIZE_OF_STRING * 2, new_capacity) as *Entry_string;
-        self.*.capacity = new_capacity as u64;
+        const old_items = self.items;
+        self.items = @calloc(SIZE_OF_STRING * 2, new_capacity) as *Entry_string;
+        self.capacity = new_capacity as u64;
 
         var current = 0;
         while (current < old_capacity) {
             const entry_ptr = &old_items[current];
-            if (entry_ptr.*.key.data as u64 > 1 as u64) self.*.insert_no_check(entry_ptr);
+            if (entry_ptr.key.data as u64 > 1 as u64) self.insert_no_check(entry_ptr);
         } loop current += 1;
 
         @free(old_items);
@@ -95,16 +96,16 @@ pub struct StringHashMap_string {
 
     fn insert_no_check(self: *StringHashMap_string, old_entry_ptr: *Entry_string) void {
         var new_entry_ptr: *Entry_string = undefined;
-        self.*.get_entry(&old_entry_ptr.*.key, &new_entry_ptr);
+        self.get_entry(&old_entry_ptr.key, &new_entry_ptr);
 
-        new_entry_ptr.*.copy_from(&old_entry_ptr.*.key, &old_entry_ptr.*.value);
+        new_entry_ptr.copy_from(&old_entry_ptr.key, &old_entry_ptr.value);
     }
 
     fn get_entry(self: *StringHashMap_string, key_ptr: *String, entry_ptr: **Entry_string) bool {
-        const capacity = self.*.capacity;
-        const items = self.*.items;
+        const capacity = self.capacity;
+        const items = self.items;
 
-        var start = key_ptr.*.hash() % capacity;
+        var start = key_ptr.hash() % capacity;
         var found_existing = items[start].key.eql(key_ptr);
         while (!found_existing and items[start].key.data as u64 >= 1 as u64) {
             start = (start + 1 as u64) % capacity;
@@ -121,23 +122,23 @@ struct Entry_string {
     value: String;
 
     pub fn init(self: *Entry_string, key_ptr: *const String, value_ptr: *const String) void {
-        self.*.key.init_from(key_ptr);
-        self.*.value.init_from(value_ptr);
+        self.key.init_from(key_ptr);
+        self.value.init_from(value_ptr);
     }
 
     pub fn deinit(self: *Entry_string) void {
-        self.*.key.deinit();
-        self.*.value.deinit();
+        self.key.deinit();
+        self.value.deinit();
     }
 
     pub fn copy_from(self: *Entry_string, key_ptr: *const String, value_ptr: *const String) void {
-        self.*.key = key_ptr.*;
-        self.*.value = value_ptr.*;
+        self.key = key_ptr.*;
+        self.value = value_ptr.*;
     }
 
     pub fn display(self: *const Entry_string) void {
-        if (self.*.key.data as u64 > 1 as u64 and self.*.value.data as u64 > 1 as u64) {
-            @printf("Entry: (Key: \"%.*s\", Value: \"%.*s\")\n", self.*.key.len, self.*.key.data, self.*.value.len, self.*.value.data);
+        if (self.key.data as u64 > 1 as u64 and self.value.data as u64 > 1 as u64) {
+            @printf("Entry: (Key: \"%.*s\", Value: \"%.*s\")\n", self.key.len, self.key.data, self.value.len, self.value.data);
         } else {
             @printf("Entry: (Empty)\n");
         }

@@ -1715,12 +1715,18 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Check if a method
     if (callExpr.caller_expr.expr == .FIELD) {
         const new_method_args = self.allocator.alloc(ExprNode, callExpr.args.len + 1) catch unreachable;
-        // Make new dereference node for first argument
-        const new_address = self.allocator.create(Expr.UnaryExpr) catch unreachable;
-        var ampersand_token = callExpr.caller_expr.expr.FIELD.op;
-        ampersand_token.kind = TokenKind.AMPERSAND;
-        new_address.* = Expr.UnaryExpr.init(callExpr.caller_expr.expr.FIELD.operand, ampersand_token);
-        const first_arg_node = ExprNode.init(Expr.ExprUnion{ .UNARY = new_address });
+        const first_arg_node = blk: {
+            // Make new dereference node for first argument, if not ptr
+            if (callExpr.caller_expr.expr.FIELD.operand.result_kind != .PTR) {
+                const new_address = self.allocator.create(Expr.UnaryExpr) catch unreachable;
+                var ampersand_token = callExpr.caller_expr.expr.FIELD.op;
+                ampersand_token.kind = TokenKind.AMPERSAND;
+                new_address.* = Expr.UnaryExpr.init(callExpr.caller_expr.expr.FIELD.operand, ampersand_token);
+                break :blk ExprNode.init(Expr.ExprUnion{ .UNARY = new_address });
+            } else {
+                break :blk callExpr.caller_expr.expr.FIELD.operand;
+            }
+        };
         new_method_args[0] = first_arg_node;
         std.mem.copyForwards(ExprNode, new_method_args[1..], callExpr.args);
         callExpr.args = new_method_args;
@@ -1777,7 +1783,7 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     const fieldExpr = node.expr.FIELD;
     // Analyze operand
     const operand_result = try self.analyzeIDExpr(&fieldExpr.operand, fieldExpr.op);
-    const operand_kind = operand_result.kind;
+    const operand_kind = if (operand_result.kind == .PTR) operand_result.kind.PTR.child.* else operand_result.kind;
 
     // Check if operand is a struct
     if (operand_kind != .STRUCT) {
@@ -1792,7 +1798,7 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     fieldExpr.stack_offset = field.mem_loc;
     node.result_kind = field.kind;
     // Check if mutable
-    const mutable = operand_result.mutable and field.scope != .FUNC;
+    const mutable = if (operand_result.kind == .PTR) !operand_result.kind.PTR.const_child else operand_result.mutable and field.scope != .FUNC;
     return IDResult{ .kind = field.kind, .mutable = mutable };
 }
 
@@ -1802,7 +1808,8 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
 fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const fieldExpr = node.expr.FIELD;
     // Analyze operand
-    const operand_kind = try self.analyzeExpr(&fieldExpr.operand);
+    const operand_result = try self.analyzeExpr(&fieldExpr.operand);
+    const operand_kind = if (operand_result == .PTR) operand_result.PTR.child.* else operand_result;
 
     // Check if operand is a struct
     if (operand_kind != .STRUCT) {
