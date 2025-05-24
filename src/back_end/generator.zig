@@ -1225,7 +1225,7 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
                 "    movsd {s}, {s} [{s}] ; Get Global\n",
                 .{ reg.name, size_keyword, path },
             );
-        } else if (result_kind == .ARRAY or result_kind == .STRUCT) {
+        } else if (result_kind == .STRUCT) {
             const reg = try self.getNextCPUReg();
             // Mov normally
             try self.print(

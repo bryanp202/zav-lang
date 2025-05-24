@@ -2,7 +2,7 @@ const DEFAULT_EXPORT_PATH = ".\\splicer_out.txt";
 const DEFAULT_DELIMITER = ' ';
 const MAX_DENSITY = 0.75;
 
-fn main(argc: i64, argv: **u8) i64 {
+pub fn main(argc: i64, argv: **u8) i64 {
     const a = 100;
     if (argc > 4 or argc < 2) {
         @printf("Usage: splicer.exe path/to/read/file [path/to/write/file] [delimiter]\n");
@@ -10,8 +10,10 @@ fn main(argc: i64, argv: **u8) i64 {
     }
 
     const filename = argv[1];
-    const export_path = argc == 3 ? argv[2] : DEFAULT_EXPORT_PATH;
+    const export_path = argc >= 3 ? argv[2] : DEFAULT_EXPORT_PATH; nullptr; nullptr;
     const delimiter = argc == 4 ? argv[3][0] : DEFAULT_DELIMITER;
+
+    @printf("export_path: %s\n", export_path);
 
     // Attempt to open the file
     const handle = @fopen(filename);
@@ -22,7 +24,7 @@ fn main(argc: i64, argv: **u8) i64 {
     @printf("Opened file: \"%s\"\n", filename);
 
     // Get size of file
-    var file_size = <u64>0;
+    var file_size = 0 as u64;
     const read_file_size_success = @fgetSize(handle, &file_size);
     if (!read_file_size_success) {
         @printf("Failed to get file size of file: \"%s\"\n", filename);
@@ -36,7 +38,7 @@ fn main(argc: i64, argv: **u8) i64 {
         return 0;
     }
 
-    const buffer = <*u8>@malloc(file_size);
+    const buffer = @malloc(file_size) as *u8;
     if (buffer == nullptr) {
         @printf("Failed to allocate read buffer of size %d bytes for file: \"%s\"\n", file_size, filename);
         @fclose(handle);
@@ -44,7 +46,7 @@ fn main(argc: i64, argv: **u8) i64 {
     }
 
     // Attempt to read the file
-    var bytes_read = <u64>0;
+    var bytes_read = 0 as u64;
     const read_success = @fread(handle, buffer, file_size, &bytes_read);
     if (!read_success or bytes_read != file_size) {
         @printf("Failed to read file: \"%s\"\n", filename);
@@ -62,7 +64,7 @@ fn main(argc: i64, argv: **u8) i64 {
     source.initLen(buffer, bytes_read);
 
     var line_splicer: Splicer = undefined;
-    line_splicer.init(&source, <u8>10);
+    line_splicer.init(&source, 10 as u8);
 
     var line: String = undefined;
 
@@ -105,56 +107,56 @@ struct String {
     len: u64;
 
     // Takes in a null terminated array, turns it into a string
-    fn init(self: *String, text: *const u8) void {
+    pub fn init(self: *String, text: *const u8) void {
         self.*.ptr = text;
 
         var current = text;
         while (current.* != 0) {
-            current = <*const u8>(current + 1);
+            current = (current + 1) as *const u8;
         }
 
-        self.*.len = <u64>(current - text);
+        self.*.len = (current - text) as u64;
     }
 
     // Init with a length
-    fn initLen(self: *String, text: *const u8, len: u64) void {
+    pub fn initLen(self: *String, text: *const u8, len: u64) void {
         self.*.ptr = text;
         self.*.len = len;
     }
 
-    fn eql(self: *const String, other: *const String) bool {
+    pub fn eql(self: *const String, other: *const String) bool {
         return self.*.ptr == other.*.ptr and self.*.len == other.*.len;
     }
 
-    fn cmp(self: *const String, other: *const String) bool {
+    pub fn cmp(self: *const String, other: *const String) bool {
         if (self.*.len != other.*.len) {
             return false;
         }
 
         var left_current = self.*.ptr;
         var right_current = other.*.ptr;
-        const end = <*const u8>(left_current + self.*.len);
-        while (<u64>left_current < <u64>end) {
+        const end = (left_current + self.*.len) as *const u8;
+        while (left_current as u64 < end as u64) {
             if (left_current.* != right_current.*) {
                 return false;
             }
-            left_current = <*const u8>(left_current + 1);
-            right_current = <*const u8>(right_current + 1);
+            left_current = (left_current + 1) as *const u8;
+            right_current = (right_current + 1) as *const u8;
         }
 
         return true;
     }
 
-    fn isEmpty(self: *const String) bool {
+    pub fn isEmpty(self: *const String) bool {
         return self.*.ptr == nullptr;
     }
 
-    fn isZeroLength(self: *const String) bool {
-        return self.*.len == <u64>0;
+    pub fn isZeroLength(self: *const String) bool {
+        return self.*.len == 0 as u64;
     }
 
-    fn hash(self: *const String) u64 {
-        var hash = <u32>2166126261;
+    pub fn hash(self: *const String) u64 {
+        var hash = 2166126261 as u32;
     
         const text = self.*.ptr;
         const len = self.*.len;
@@ -162,31 +164,31 @@ struct String {
         var index = 0;
         while (index < len) {
             hash ^= text[index];
-            hash *= <u32>1677619;
+            hash *= 1677619 as u32;
         } loop index += 1;
 
         return hash;
     }
 
-    fn trim(self: *String) void {
+    pub fn trim(self: *String) void {
         const len = self.*.len;
         const data = self.*.ptr;
 
         var start = 0;
-        while (start < len and data[start] == <u8>10 or data[start] == <u8>13) {
+        while (start < len and data[start] == 10 as u8 or data[start] == 13 as u8) {
             start += 1;
         }
 
         var end = self.*.len - 1;
-        while (end > 0 and data[end] == <u8>10 or data[end] == <u8>13) {
+        while (end > 0 and data[end] == 10 as u8 or data[end] == 13 as u8) {
             end -= 1;
         }
 
-        self.*.len = (end - start + 1 <= 0) ? <u64>0 : <u64>(end - start + 1);
+        self.*.len = (end - start + 1 <= 0) ? 0 as u64 : (end - start + 1) as u64;
         self.*.ptr = &self.*.ptr[start];
     }
 
-    fn display(self: *const String) void {
+    pub fn display(self: *const String) void {
         @printf("\"%.*s\"\n", self.*.len, self.*.ptr);
     }
 }
@@ -198,40 +200,40 @@ struct Splicer {
     current: *const u8;
     end: *const u8;
 
-    fn init(self: *Splicer, source: *String, delimiter: u8) void {
+    pub fn init(self: *Splicer, source: *String, delimiter: u8) void {
         self.*.source.ptr = source.*.ptr;
         self.*.source.len = source.*.len;
         self.*.delimiter = delimiter;
-        self.*.current = <*const u8>(source.*.ptr - 1);
-        self.*.end = <*const u8>(self.*.source.ptr + self.*.source.len);
+        self.*.current = (source.*.ptr - 1) as *const u8;
+        self.*.end = (self.*.source.ptr + self.*.source.len) as *const u8;
     }
 
-    fn next(self: *Splicer, str_ptr: *String) bool {
+    pub fn next(self: *Splicer, str_ptr: *String) bool {
         // Check if no more strings
         if (self.*.atEnd()) {
             str_ptr.*.ptr = nullptr;
-            str_ptr.*.len = <u64>0;
+            str_ptr.*.len = 0 as u64;
             return false;
         }
 
-        self.*.current = <*const u8>(self.*.current + 1);
+        self.*.current = (self.*.current + 1) as *const u8;
         const delimiter = self.*.delimiter;
         const start = self.*.current;
 
         // Go until delimiter or end
         while (!self.*.atEnd() and self.*.current.* != delimiter) {
-            self.*.current = <*const u8>(self.*.current + 1);
+            self.*.current = (self.*.current + 1) as *const u8;
         }
 
 
-        const len = <u64>(self.*.current - start);
+        const len = (self.*.current - start) as u64;
         str_ptr.*.initLen(start, len);
 
         return true;
     }
 
-    fn atEnd(self: *Splicer) bool {
-        return <u64>self.*.current >= <u64>self.*.end;
+    pub fn atEnd(self: *Splicer) bool {
+        return self.*.current as u64 >= self.*.end as u64;
     }
 }
 
@@ -251,19 +253,19 @@ struct Dictionary {
     capacity: i64;
     longest_key_len: u64;
 
-    fn init(self: *Dictionary) void {
-        self.*.items = <*Entry>@calloc(8, SIZEOF_ENTRY);
+    pub fn init(self: *Dictionary) void {
+        self.*.items = @calloc(8, SIZEOF_ENTRY) as *Entry;
         self.*.count = 0;
         self.*.capacity = 8;
-        self.*.longest_key_len = <u64>0;
+        self.*.longest_key_len = 0 as u64;
     }
 
-    fn resize(self: *Dictionary) void {
+    pub fn resize(self: *Dictionary) void {
         const old_items = self.*.items;
         const old_capacity = self.*.capacity;
 
         // Allocate new space
-        const new_items = <*Entry>@calloc(old_capacity * 2, SIZEOF_ENTRY);
+        const new_items = @calloc(old_capacity * 2, SIZEOF_ENTRY) as *Entry;
         self.*.items = new_items;
         self.*.capacity = old_capacity * 2;
         self.*.count = 0;
@@ -282,7 +284,7 @@ struct Dictionary {
     }
 
     // Move over a new entry when resizing
-    fn moveOverEntry(self: *Dictionary, key: *String, value: i64) void {
+    pub fn moveOverEntry(self: *Dictionary, key: *String, value: i64) void {
         // Extract self capacity
         const capacity = self.*.capacity;
 
@@ -306,9 +308,9 @@ struct Dictionary {
 
     // Add a new entry to the dictionary
     // Returns true if it replaced an old value
-    fn addEntry(self: *Dictionary, key: *String) bool {
+    pub fn addEntry(self: *Dictionary, key: *String) bool {
         // Check if density is okay
-        if (<f64>(1 + self.*.count) / self.*.capacity > MAX_DENSITY) {
+        if ((1 + self.*.count) as f64 / self.*.capacity > MAX_DENSITY) {
             //@printf("Resizing dictionary!\n");
             self.*.resize();
         }
@@ -345,7 +347,7 @@ struct Dictionary {
         }
     }
 
-    fn getEntry(self: *Dictionary, key: *String, value_ptr: *i64) bool {
+    pub fn getEntry(self: *Dictionary, key: *String, value_ptr: *i64) bool {
         // Extract self capacity
         const capacity = self.*.capacity;
 
@@ -365,7 +367,7 @@ struct Dictionary {
         return !curr_entry.*.key.isEmpty();
     }
 
-    fn display(self: *Dictionary) void {
+    pub fn display(self: *Dictionary) void {
         var index = 0;
         const capacity = self.*.capacity;
 
@@ -392,7 +394,7 @@ struct Dictionary {
         @printf("Key: '%.*s', Value: %i\n", most_common_entry.*.key.len, most_common_entry.*.key.ptr, most_common_entry.*.value);
     }
 
-    fn export(self: *Dictionary, filename: *const u8, bytes_wrote: *i64) bool {
+    pub fn export(self: *Dictionary, filename: *const u8, bytes_wrote: *i64) bool {
         var handle = @fcreate(filename);
         if (handle == -1) {
             handle = @fopen(filename);
@@ -402,7 +404,7 @@ struct Dictionary {
         }
 
         // Make buffer for value conversion 
-        const buffer = <*u8>@malloc(self.*.longest_key_len + 100);
+        const buffer = @malloc(self.*.longest_key_len + 100) as *u8;
         var write_size = 0;
 
         var index = 0;
@@ -416,7 +418,7 @@ struct Dictionary {
                 quote_splicer.init(&curr_entry.*.key, '"');
 
                 buffer[0] = '"';
-                var current_index = <u64>1;
+                var current_index = 1 as u64;
                 var slice: String = undefined;
 
                 // First slice
@@ -427,7 +429,7 @@ struct Dictionary {
                 while(quote_splicer.next(&slice)) {
                     buffer[current_index] = '\';
                     buffer[current_index + 1] = '"';
-                    current_index += <u64>2;
+                    current_index += 2 as u64;
                     @sprintf(&buffer[current_index], "%.*s", slice.len, slice.ptr);
                     current_index += slice.len;
                 }
@@ -450,7 +452,7 @@ struct Dictionary {
         return true;
     }
 
-    fn free(self: *Dictionary) void {
+    pub fn free(self: *Dictionary) void {
         @free(self.*.items);
     }
 }
