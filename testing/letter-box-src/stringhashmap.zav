@@ -59,7 +59,7 @@ pub struct StringHashMap_string {
         return found_existing;
     }
 
-    pub fn display(self: *StringHashMap_string) void {
+    pub fn display(self: *const StringHashMap_string) void {
         const items = self.*.items;
         const capacity = self.*.capacity;
         const count = self.*.count;
@@ -131,13 +131,11 @@ struct Entry_string {
     }
 
     pub fn copy_from(self: *Entry_string, key_ptr: *const String, value_ptr: *const String) void {
-        self.*.key.data = key_ptr.*.data;
-        self.*.key.len = key_ptr.*.len;
-        self.*.value.data = value_ptr.*.data;
-        self.*.value.len = value_ptr.*.len;
+        self.*.key = key_ptr.*;
+        self.*.value = value_ptr.*;
     }
 
-    pub fn display(self: *Entry_string) void {
+    pub fn display(self: *const Entry_string) void {
         if (self.*.key.data as u64 > 1 as u64 and self.*.value.data as u64 > 1 as u64) {
             @printf("Entry: (Key: \"%.*s\", Value: \"%.*s\")\n", self.*.key.len, self.*.key.data, self.*.value.len, self.*.value.data);
         } else {

@@ -4,7 +4,6 @@ global __SIZE_OF_STRING
 extern __stringhashmap__StringHashMap_string__display
 extern __string__data
 extern __string__String__init
-extern __stringhashmap__StringHashMap_string__remove
 extern __stringhashmap__StringHashMap_string__get_ptr
 extern __string__String
 extern __stringhashmap__StringHashMap_string
@@ -97,8 +96,8 @@ _start:
     pop qword [@CLOCK_START]
 
     ; Global Declarations
-    mov rsi, 16 ; Load INT
-    mov [__SIZE_OF_STRING], rsi ; Declare identifier
+    mov r8, 16 ; Load INT
+    mov [__SIZE_OF_STRING], r8 ; Declare identifier
 
     call __main ; Execute main
     add rsp, 16
@@ -115,251 +114,233 @@ _start:
 
     
 __main:
-    sub rsp, 136 ; Reserve locals space
+    sub rsp, 144 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    lea rsi, [__stringhashmap__StringHashMap_string__init] ; Method access
-    sub rsp, 8 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
+    lea r8, [__stringhashmap__StringHashMap_string__init] ; Method access
+    sub rsp, 16 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
-    add rsp, 8
-    mov rsi, rax
-    lea rsi, [__string__String__init] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+40] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [C0]
-    mov [rsp+16], rsi
+    add rsp, 16
+    mov r8, rax
+    lea r8, [__string__String__init] ; Method access
+    sub rsp, 16 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+40] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [C0]
+    mov [rsp+16], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__string__String__init] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+56] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [C1]
-    mov [rsp+16], rsi
+    add rsp, 16
+    mov r8, rax
+    lea r8, [__string__String__init] ; Method access
+    sub rsp, 16 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+56] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [C1]
+    mov [rsp+16], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__string__String__init] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+72] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [C2]
-    mov [rsp+16], rsi
+    add rsp, 16
+    mov r8, rax
+    lea r8, [__string__String__init] ; Method access
+    sub rsp, 16 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+72] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [C2]
+    mov [rsp+16], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__string__String__init] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [C3]
-    mov [rsp+16], rsi
+    add rsp, 16
+    mov r8, rax
+    lea r8, [__string__String__init] ; Method access
+    sub rsp, 16 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [C3]
+    mov [rsp+16], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__string__String__init] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+104] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [C4]
-    mov [rsp+16], rsi
+    add rsp, 16
+    mov r8, rax
+    lea r8, [__string__String__init] ; Method access
+    sub rsp, 16 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+104] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [C4]
+    mov [rsp+16], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__string__String__init] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+120] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [C5]
-    mov [rsp+16], rsi
+    add rsp, 16
+    mov r8, rax
+    lea r8, [__string__String__init] ; Method access
+    sub rsp, 16 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+120] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [C5]
+    mov [rsp+16], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__put] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+40] ; Get Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+56] ; Get Local
-    mov [rsp+24], rsi
+    add rsp, 16
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__put] ; Method access
+    sub rsp, 32 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+40] ; Get Local
+    mov [rsp+16], r8
+    lea r8, [rbp+56] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__put] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+40] ; Get Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+24], rsi
+    add rsp, 32
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__put] ; Method access
+    sub rsp, 32 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+40] ; Get Local
+    mov [rsp+16], r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__put] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+40] ; Get Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+56] ; Get Local
-    mov [rsp+24], rsi
+    add rsp, 32
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__put] ; Method access
+    sub rsp, 32 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+40] ; Get Local
+    mov [rsp+16], r8
+    lea r8, [rbp+56] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__put] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+72] ; Get Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+24], rsi
+    add rsp, 32
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__put] ; Method access
+    sub rsp, 32 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+72] ; Get Local
+    mov [rsp+16], r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__put] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+24], rsi
+    add rsp, 32
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__put] ; Method access
+    sub rsp, 32 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+16], r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__put] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+56] ; Get Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+24], rsi
+    add rsp, 32
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__put] ; Method access
+    sub rsp, 32 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+56] ; Get Local
+    mov [rsp+16], r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__put] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+104] ; Get Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+24], rsi
+    add rsp, 32
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__put] ; Method access
+    sub rsp, 32 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+104] ; Get Local
+    mov [rsp+16], r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__put] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+120] ; Get Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+24], rsi
+    add rsp, 32
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__put] ; Method access
+    sub rsp, 32 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+120] ; Get Local
+    mov [rsp+16], r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__display] ; Method access
-    sub rsp, 8 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
+    add rsp, 32
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__display] ; Get Function
+    mov [rbp + 136], r8 ; Declare identifier
+    mov r8, qword [rbp+136] ; Get Arg/Local
+    sub rsp, 16 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
-    add rsp, 8
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__remove] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+72] ; Get Local
-    mov [rsp+16], rsi
+    add rsp, 16
+    mov r8, rax
+    lea r8, [__stringhashmap__StringHashMap_string__get_ptr] ; Method access
+    sub rsp, 16 ; Reserve call arg space
+    push r8
+    lea r8, [rbp+8] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+40] ; Get Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
-    add rsp, 24
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__display] ; Method access
-    sub rsp, 8 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    pop rcx
-    call rcx
-    add rsp, 8
-    mov rsi, rax
-    lea rsi, [__stringhashmap__StringHashMap_string__get_ptr] ; Method access
-    sub rsp, 24 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+8] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+40] ; Get Local
-    mov [rsp+16], rsi
-    pop rcx
-    call rcx
-    add rsp, 24
-    mov rsi, rax
-    mov [rbp + 136], rsi ; Declare identifier
-    mov rsi, qword [rbp+136] ; Get Arg/Local
-    mov rdi, 0 ; Load NULLPTR
-    cmp rsi, rdi ; INT !=
+    add rsp, 16
+    mov r8, rax
+    mov [rbp + 144], r8 ; Declare identifier
+    mov r8, qword [rbp+144] ; Get Arg/Local
+    mov r9, 0 ; Load NULLPTR
+    cmp r8, r9 ; INT !=
     setne al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L1
-    sub rsp, 40 ; Make space for native args
-    lea rsi, [C6]
-    mov [rsp+0], rsi
-    lea rsi, [rbp+40] ; Get Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rsp+8], rsi
-    lea rsi, [rbp+40] ; Get Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rsp+16], rsi
-    mov rsi, qword [rbp+136] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rsp+24], rsi
-    mov rsi, qword [rbp+136] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rsp+32], rsi
+    sub rsp, 48 ; Make space for native args
+    lea r8, [C6]
+    mov [rsp+0], r8
+    lea r8, [rbp+40] ; Get Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rsp+8], r8
+    lea r8, [rbp+40] ; Get Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rsp+16], r8
+    mov r8, qword [rbp+144] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rsp+24], r8
+    mov r8, qword [rbp+144] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rsp+32], r8
     pop rcx
     pop rdx
     pop r8
@@ -367,36 +348,35 @@ __main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    add rsp, 8
-    mov rsi, rax
+    add rsp, 16
+    mov r8, rax
     jmp .L2
 .L1:
-    sub rsp, 32 ; Make space for native args
-    lea rsi, [C7]
-    mov [rsp+0], rsi
-    lea rsi, [rbp+40] ; Get Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rsp+8], rsi
-    lea rsi, [rbp+40] ; Get Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rsp+16], rsi
+    sub rsp, 24 ; Make space for native args
+    lea r8, [C7]
+    mov [rsp+0], r8
+    lea r8, [rbp+40] ; Get Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rsp+8], r8
+    lea r8, [rbp+40] ; Get Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rsp+16], r8
     pop rcx
     pop rdx
     pop r8
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    add rsp, 8
-    mov rsi, rax
+    mov r8, rax
 .L2:
-    sub rsp, 24 ; Make space for native args
-    lea rsi, [C8]
-    mov [rsp+0], rsi
+    sub rsp, 16 ; Make space for native args
+    lea r8, [C8]
+    mov [rsp+0], r8
     sub rsp, 8 ; Make space for native args
     call @nanoTimestamp
     add rsp, 8
-    mov rsi, rax
-    cvtsi2sd xmm0, rsi ; Non-floating point to F64
+    mov r8, rax
+    cvtsi2sd xmm0, r8 ; Non-floating point to F64
     movsd xmm1, [C9] ; Load F64
     divsd xmm0, xmm1 ; Float Div
     movsd [rsp+8], xmm0
@@ -405,12 +385,11 @@ __main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    add rsp, 8
-    mov rsi, rax
+    mov r8, rax
     xor eax, eax
 .L0:
     pop rbp
-    add rsp, 136
+    add rsp, 144
     ret
     
 ;-------------------------;
@@ -444,16 +423,16 @@ section .data
     extern printf
 
     ; Program Constants ;
+    C6: db `The landmass of \"%.*s\" is \"%.*s\"\n`, 0
+    C2: db `Japan`, 0
+    C3: db `145,937 mi^2`, 0
     C4: db `Canada`, 0
     C5: db `3,855,100 mi^2`, 0
-    C1: db `3,800,000 mi^2`, 0
-    C3: db `145,937 mi^2`, 0
-    C8: db `Time to run: %f sec\n`, 0
-    C0: db `United States of America`, 0
     C7: db `Did not find \"%.*s\"\n`, 0
-    C6: db `The landmass of \"%.*s\" is \"%.*s\"\n`, 0
+    C8: db `Time to run: %f sec\n`, 0
     C9: dq 1e9
-    C2: db `Japan`, 0
+    C0: db `United States of America`, 0
+    C1: db `3,800,000 mi^2`, 0
 section .bss
     @CLOCK_START: resb 8
     @ARGC: resb 8

@@ -130,6 +130,8 @@ fn parseArgs(args: [][:0]u8) ParsedArgs {
                     parsed_args.help = true;
                     break;
                 }
+            } else {
+                parsed_args.help = true;
             }
             continue;
         }

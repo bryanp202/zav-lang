@@ -199,6 +199,7 @@ pub const SymbolTableManager = struct {
     /// and Local scope variables use a relative stack location
     pub fn getSymbol(self: *SymbolTableManager, name: []const u8) !*Symbol {
         const current_scope_target = self.current_scope_target;
+
         if (current_scope_target) |target| {
             self.current_scope_target = null;
 

@@ -36,11 +36,11 @@ const DWORD_IMIN: i64 = -0x80000000;
 const DWORD_IMAX: i64 = 0x7FFFFFFF;
 const DWORD_UMAX: u64 = 0xFFFFFFFF;
 // Register names for cpu 64 bit
-const cpu_reg_names = [_][]const u8{ "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
+const cpu_reg_names = [_][]const u8{ "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
 // Alternate sized cpu register names
-pub const cpu_reg_names_32bit = [_][]const u8{ "esi", "edi", "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d" };
-pub const cpu_reg_names_16bit = [_][]const u8{ "si", "di", "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w" };
-pub const cpu_reg_names_8bit = [_][]const u8{ "sil", "dil", "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b" };
+pub const cpu_reg_names_32bit = [_][]const u8{ "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d" };
+pub const cpu_reg_names_16bit = [_][]const u8{ "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w" };
+pub const cpu_reg_names_8bit = [_][]const u8{ "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b" };
 // Floating point
 const sse_reg_names = [_][]const u8{ "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7" };
 
@@ -1855,6 +1855,7 @@ fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr, resu
     const source_reg = self.popCPUReg();
 
     switch (result_kind) {
+        .STRUCT, .FUNC => self.pushCPUReg(source_reg),
         .FLOAT32 => {
             const dest_reg = try self.getNextSSEReg();
             try self.print("    movss {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
@@ -2332,39 +2333,9 @@ fn visitIfExpr(self: *Generator, ifExpr: *Expr.IfExpr, result_kind: KindId) Gene
 
 // Helper functions for common patterns
 fn copy_struct(self: *Generator, output_reg: Register, input_reg: Register, struct_size: usize, offset: usize) GenerationError!void {
-    var amt_copied: usize = 0;
-
-    const output_8byte_reg = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 8);
-    while (amt_copied + 8 <= struct_size) {
-        const relative_offset = amt_copied + offset;
-        try self.print("    mov rax, [{s}+{d}]\n", .{input_reg.name, amt_copied});
-        try self.print("    mov [{s}+{d}], rax\n", .{output_8byte_reg, relative_offset});
-        amt_copied += 8;
-    }
-
-    if (amt_copied + 4 <= struct_size) {
-        const output_4byte_reg = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 4);
-        const relative_offset = amt_copied + offset;
-        try self.print("    mov eax, [{s}+{d}]\n", .{input_reg.name, amt_copied});
-        try self.print("    mov [{s}+{d}], eax\n", .{output_4byte_reg, relative_offset});
-        amt_copied += 4;
-    }
-
-    if (amt_copied + 2 <= struct_size) {
-        const output_2byte_reg = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 2);
-        const relative_offset = amt_copied + offset;
-        try self.print("    mov ax, [{s}+{d}]\n", .{input_reg.name, amt_copied});
-        try self.print("    mov [{s}+{d}], ax\n", .{output_2byte_reg, relative_offset});
-        amt_copied += 2;
-    }
-
-    if (amt_copied + 1 <= struct_size) {
-        const output_1byte_reg = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 1);
-        const relative_offset = amt_copied + offset;
-        try self.print("    mov ax, [{s}+{d}]\n", .{input_reg.name, amt_copied});
-        try self.print("    mov [{s}+{d}], ax\n", .{output_1byte_reg, relative_offset});
-        amt_copied += 1;
-    }
-
-    std.debug.assert(amt_copied == struct_size);
+    const output_name = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 8);
+    try self.print("    mov rsi, {s}\n", .{input_reg.name});
+    try self.print("    lea rdi, [{s}+{d}]\n", .{output_name, offset});
+    try self.print("    mov rcx, {d}\n", .{struct_size});
+    try self.write("    rep movsb\n");
 }

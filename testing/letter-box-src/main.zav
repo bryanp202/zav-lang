@@ -33,9 +33,11 @@ fn main(argc: i64, argv: **u8) i64 {
     dict.put(&canada, &japan_landmass);
     dict.put(&canada_landmass, &japan_landmass);
 
-    dict.display();
-    dict.remove(&japan);
-    dict.display();
+    // dict.display();
+    // dict.remove(&japan);
+    // dict.display();
+    const display = ::stringhashmap::StringHashMap_string::display;
+    display(&dict);
 
     const value = dict.get_ptr(&america);
     if (value != nullptr) {

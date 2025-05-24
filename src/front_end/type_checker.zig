@@ -1420,6 +1420,7 @@ const IDResult = struct {
 /// Analysis an ID expression
 fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!IDResult {
     switch (node.*.expr) {
+        .SCOPE => return self.visitScopeExprWrapped(node),
         .IDENTIFIER => return self.visitIdentifierExprWrapped(node),
         .INDEX => return self.visitIndexExprWrapped(node),
         .DEREFERENCE => return self.visitDereferenceExprWrapped(node),
@@ -1461,6 +1462,18 @@ fn visitScopeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     _ = try self.analyzeExpr(&scope_expr.operand);
     node.* = scope_expr.operand;
     return node.result_kind;
+}
+
+fn visitScopeExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
+    const scope_expr = node.expr.SCOPE;
+    self.stm.changeTargetScope(scope_expr.scope.lexeme) catch |err| switch (err) {
+        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Attempted to access a non-public symbol from another module"),
+        else => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Expected a valid scope target"),
+    };
+
+    const result = try self.analyzeIDExpr(&scope_expr.operand, scope_expr.op);
+    node.* = scope_expr.operand;
+    return result;
 }
 
 /// Visit a literal
@@ -1527,7 +1540,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
         const msg = switch (err) {
             error.InvalidScope => "Invalid scope target",
             error.SymbolNotPublic => "Attempted to access a non-public symbol from another module",
-            else => "Identifier is undeclared",
+            else => unreachable,// "Identifier is undeclared",
         };
         return self.reportError(SemanticError.UnresolvableIdentifier, token, msg);
     };
@@ -1542,7 +1555,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     switch (symbol.scope) {
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
-        .GLOBAL, .FUNC => undefined,
+        .GLOBAL, .FUNC => {},
         .STRUCT, .ENUM, .ENUM_VARIANT, .MODULE => return self.reportError(SemanticError.TypeMismatch, token, "Cannot modify kind values (enum and variants or structs)"),
     }
 
@@ -1929,13 +1942,12 @@ fn visitConvExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract unaryExpr
     const unaryExpr = node.expr.UNARY;
-    // Get kind of rhs
-    const rhs_kind = try self.analyzeExpr(&unaryExpr.operand);
 
     // Check type of this unary expr
     switch (unaryExpr.op.kind) {
         // Not Expression
         .EXCLAMATION => {
+            const rhs_kind = try self.analyzeExpr(&unaryExpr.operand);
             // Return rhs_kind if it is a boolean, else report type error
             switch (rhs_kind) {
                 .BOOL => {
@@ -1952,6 +1964,7 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         },
         // Not expression
         .MINUS => {
+            const rhs_kind = try self.analyzeExpr(&unaryExpr.operand);
             // Return rhs_kind if rhs_kind is a number, else report type error
             switch (rhs_kind) {
                 .UINT => {
