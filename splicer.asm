@@ -1,5 +1,6 @@
 default rel
 global _start
+global __main
 section .text
 _start:
     ; Setup main args
@@ -86,20 +87,20 @@ _start:
     pop qword [@CLOCK_START]
 
     ; Global Declarations
-    lea rsi, [C0]
-    mov [_DEFAULT_EXPORT_PATH], rsi ; Declare identifier
-    mov rsi, 32 ; Load UINT
-    mov [_DEFAULT_DELIMINATOR], sil ; Declare identifier
+    lea r8, [C0]
+    mov [__DEFAULT_EXPORT_PATH], r8 ; Declare identifier
+    mov r8, 32 ; Load UINT
+    mov [__DEFAULT_DELIMITER], r8b ; Declare identifier
     movsd xmm0, [C1] ; Load F64
-    movsd [_MAX_DENSITY], xmm0 ; Declare identifier
-    mov rsi, 16 ; Load INT
-    mov [_SIZEOF_STRING], rsi ; Declare identifier
-    mov rsi, qword [_SIZEOF_STRING] ; Get Global
-    mov rdi, 8 ; Load INT
-    add rsi, rdi ; (U)INT Add
-    mov [_SIZEOF_ENTRY], rsi ; Declare identifier
+    movsd [__MAX_DENSITY], xmm0 ; Declare identifier
+    mov r8, 16 ; Load INT
+    mov [__SIZEOF_STRING], r8 ; Declare identifier
+    mov r8, qword [__SIZEOF_STRING] ; Get Global
+    mov r9, 8 ; Load INT
+    add r8, r9 ; (U)INT Add
+    mov [__SIZEOF_ENTRY], r8 ; Declare identifier
 
-    call _main ; Execute main
+    call __main ; Execute main
     add rsp, 16
     push rax
 
@@ -113,47 +114,47 @@ _start:
     ret
 
     
-_String_init:
+__String__init:
     sub rsp, 8 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rbp + 8], rsi ; Declare identifier
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rsi, [rsi] ; Dereference Pointer
-    mov rdi, 0 ; Load INT
-    movzx rsi, sil
-    cmp rsi, rdi ; UINT !=
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rbp + 8], r8 ; Declare identifier
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r8, [r8] ; Dereference Pointer
+    mov r9, 0 ; Load INT
+    movzx r8, r8b
+    cmp r8, r9 ; UINT !=
     setne al
-    movzx rsi, al
-    test rsi, rsi ; Exit check
+    movzx r8, al
+    test r8, r8 ; Exit check
     jz .L1
 .L2:
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    add rsi, rdi ; (U)INT Add
-    lea rdi, [rbp+8] ; Get Local
-    mov [rdi], rsi ; Mutate
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    add r8, r9 ; (U)INT Add
+    lea r9, [rbp+8] ; Get Local
+    mov [r9], r8 ; Mutate
 .L3:
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rsi, [rsi] ; Dereference Pointer
-    mov rdi, 0 ; Load INT
-    movzx rsi, sil
-    cmp rsi, rdi ; UINT !=
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r8, [r8] ; Dereference Pointer
+    mov r9, 0 ; Load INT
+    movzx r8, r8b
+    cmp r8, r9 ; UINT !=
     setne al
-    movzx rsi, al
-    test rsi, rsi ; Loop check
+    movzx r8, al
+    test r8, r8 ; Loop check
     jnz .L2
 .L1:
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    sub rsi, rdi ; (U)INT  Sub
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    mov [rdi], rsi ; Mutate
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    sub r8, r9 ; (U)INT  Sub
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    mov [r9], r8 ; Mutate
     xor eax, eax
 .L0:
     xor eax, eax
@@ -161,121 +162,121 @@ _String_init:
     add rsp, 8
     ret
 
-_String_initLen:
+__String__initLen:
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    mov [rdi], rsi ; Mutate
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    mov [r9], r8 ; Mutate
     xor eax, eax
 .L4:
     xor eax, eax
     pop rbp
     ret
 
-_String_eql:
+__String__eql:
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    mov rdi, qword [rdi+0] ; Field access
-    cmp rsi, rdi ; INT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    mov r9, qword [r9+0] ; Field access
+    cmp r8, r9 ; INT ==
     sete al
-    movzx rsi, al
-    test rsi, rsi ; Logical AND
+    movzx r8, al
+    test r8, r8 ; Logical AND
     jz .L6
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    mov rdi, qword [rdi+8] ; Field access
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    mov r9, qword [r9+8] ; Field access
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
+    movzx r8, al
 .L6:
-    mov rax, rsi
+    mov rax, r8
     jmp .L5
     xor eax, eax
 .L5:
     pop rbp
     ret
 
-_String_cmp:
+__String__cmp:
     sub rsp, 24 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    mov rdi, qword [rdi+8] ; Field access
-    cmp rsi, rdi ; UINT !=
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    mov r9, qword [r9+8] ; Field access
+    cmp r8, r9 ; UINT !=
     setne al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L8
-    mov rsi, 0 ; Load BOOL
-    mov rax, rsi
+    mov r8, 0 ; Load BOOL
+    mov rax, r8
     jmp .L7
 .L8:
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rbp + 8], rsi ; Declare identifier
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rbp + 16], rsi ; Declare identifier
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, qword [rbp+40] ; Get Arg/Local
-    mov rdi, qword [rdi+8] ; Field access
-    add rsi, rdi ; (U)INT Add
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    cmp rsi, rdi ; UINT <
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rbp + 8], r8 ; Declare identifier
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rbp + 16], r8 ; Declare identifier
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, qword [rbp+40] ; Get Arg/Local
+    mov r9, qword [r9+8] ; Field access
+    add r8, r9 ; (U)INT Add
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    cmp r8, r9 ; UINT <
     setb al
-    movzx rsi, al
-    test rsi, rsi ; Exit check
+    movzx r8, al
+    test r8, r8 ; Exit check
     jz .L9
 .L10:
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rsi, [rsi] ; Dereference Pointer
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, [rdi] ; Dereference Pointer
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT !=
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r8, [r8] ; Dereference Pointer
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    mov r9, [r9] ; Dereference Pointer
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT !=
     setne al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L12
-    mov rsi, 0 ; Load BOOL
-    mov rax, rsi
+    mov r8, 0 ; Load BOOL
+    mov rax, r8
     jmp .L7
 .L12:
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    add rsi, rdi ; (U)INT Add
-    lea rdi, [rbp+8] ; Get Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    add rsi, rdi ; (U)INT Add
-    lea rdi, [rbp+16] ; Get Local
-    mov [rdi], rsi ; Mutate
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    add r8, r9 ; (U)INT Add
+    lea r9, [rbp+8] ; Get Local
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    add r8, r9 ; (U)INT Add
+    lea r9, [rbp+16] ; Get Local
+    mov [r9], r8 ; Mutate
 .L11:
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    cmp rsi, rdi ; UINT <
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    cmp r8, r9 ; UINT <
     setb al
-    movzx rsi, al
-    test rsi, rsi ; Loop check
+    movzx r8, al
+    test r8, r8 ; Loop check
     jnz .L10
 .L9:
-    mov rsi, 1 ; Load BOOL
-    mov rax, rsi
+    mov r8, 1 ; Load BOOL
+    mov rax, r8
     jmp .L7
     xor eax, eax
 .L7:
@@ -283,86 +284,86 @@ _String_cmp:
     add rsp, 24
     ret
 
-_String_isEmpty:
+__String__isEmpty:
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, 0 ; Load NULLPTR
-    cmp rsi, rdi ; INT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, 0 ; Load NULLPTR
+    cmp r8, r9 ; INT ==
     sete al
-    movzx rsi, al
-    mov rax, rsi
+    movzx r8, al
+    mov rax, r8
     jmp .L13
     xor eax, eax
 .L13:
     pop rbp
     ret
 
-_String_isZeroLength:
+__String__isZeroLength:
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov rdi, 0 ; Load INT
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov r9, 0 ; Load INT
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
-    mov rax, rsi
+    movzx r8, al
+    mov rax, r8
     jmp .L14
     xor eax, eax
 .L14:
     pop rbp
     ret
 
-_String_hash:
+__String__hash:
     sub rsp, 32 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, 2166126261 ; Load INT
-    mov [rbp + 8], esi ; Declare identifier
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rbp + 16], rsi ; Declare identifier
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, 0 ; Load INT
-    mov [rbp + 32], rsi ; Declare identifier
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, 2166126261 ; Load INT
+    mov [rbp + 8], r8d ; Declare identifier
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rbp + 16], r8 ; Declare identifier
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, 0 ; Load INT
+    mov [rbp + 32], r8 ; Declare identifier
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Exit check
+    movzx r8, al
+    test r8, r8 ; Exit check
     jz .L16
 .L17:
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
-    lea rdi, [rbp+8] ; Get Local
-    xor [rdi], esi ; Mutate
-    mov rsi, 1677619 ; Load INT
-    lea rdi, [rbp+8] ; Get Local
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
+    lea r9, [rbp+8] ; Get Local
+    xor [r9], r8d ; Mutate
+    mov r8, 1677619 ; Load INT
+    lea r9, [rbp+8] ; Get Local
     xor rax, rax ; Mutate    
-    mov eax, dword [rdi]
-    imul esi, eax
-    mov [rdi], esi
+    mov eax, dword [r9]
+    imul r8d, eax
+    mov [r9], r8d
 .L18:
-    mov rsi, 1 ; Load INT
-    lea rdi, [rbp+32] ; Get Local
-    add [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, 1 ; Load INT
+    lea r9, [rbp+32] ; Get Local
+    add [r9], r8 ; Mutate
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Loop check
+    movzx r8, al
+    test r8, r8 ; Loop check
     jnz .L17
 .L16:
-    mov esi, dword [rbp+8] ; Get Arg/Local
-    mov rax, rsi
+    mov r8d, dword [rbp+8] ; Get Arg/Local
+    mov rax, r8
     jmp .L15
     xor eax, eax
 .L15:
@@ -370,197 +371,197 @@ _String_hash:
     add rsp, 32
     ret
 
-_String_trim:
+__String__trim:
     sub rsp, 32 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rbp + 8], rsi ; Declare identifier
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rbp + 16], rsi ; Declare identifier
-    mov rsi, 0 ; Load INT
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rdi, qword [rbp+8] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rbp + 8], r8 ; Declare identifier
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rbp + 16], r8 ; Declare identifier
+    mov r8, 0 ; Load INT
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r9, qword [rbp+8] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Logical AND
+    movzx r8, al
+    test r8, r8 ; Logical AND
     jz .L21
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
-    mov rdi, 10 ; Load INT
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
+    mov r9, 10 ; Load INT
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
+    movzx r8, al
 .L21:
-    test rsi, rsi ; Logical OR
+    test r8, r8 ; Logical OR
     jnz .L22
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
-    mov rdi, 13 ; Load INT
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
+    mov r9, 13 ; Load INT
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
+    movzx r8, al
 .L22:
-    test rsi, rsi ; Exit check
+    test r8, r8 ; Exit check
     jz .L20
 .L23:
-    mov rsi, 1 ; Load INT
-    lea rdi, [rbp+24] ; Get Local
-    add [rdi], rsi ; Mutate
+    mov r8, 1 ; Load INT
+    lea r9, [rbp+24] ; Get Local
+    add [r9], r8 ; Mutate
 .L24:
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rdi, qword [rbp+8] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r9, qword [rbp+8] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Logical AND
+    movzx r8, al
+    test r8, r8 ; Logical AND
     jz .L25
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
-    mov rdi, 10 ; Load INT
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
+    mov r9, 10 ; Load INT
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
+    movzx r8, al
 .L25:
-    test rsi, rsi ; Logical OR
+    test r8, r8 ; Logical OR
     jnz .L26
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
-    mov rdi, 13 ; Load INT
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
+    mov r9, 13 ; Load INT
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
+    movzx r8, al
 .L26:
-    test rsi, rsi ; Loop check
+    test r8, r8 ; Loop check
     jnz .L23
 .L20:
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov rdi, 1 ; Load INT
-    sub rsi, rdi ; (U)INT  Sub
-    mov [rbp + 32], rsi ; Declare identifier
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, 0 ; Load INT
-    cmp rsi, rdi ; INT >
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov r9, 1 ; Load INT
+    sub r8, r9 ; (U)INT  Sub
+    mov [rbp + 32], r8 ; Declare identifier
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, 0 ; Load INT
+    cmp r8, r9 ; INT >
     setg al
-    movzx rsi, al
-    test rsi, rsi ; Logical AND
+    movzx r8, al
+    test r8, r8 ; Logical AND
     jz .L28
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
-    mov rdi, 10 ; Load INT
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
+    mov r9, 10 ; Load INT
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
+    movzx r8, al
 .L28:
-    test rsi, rsi ; Logical OR
+    test r8, r8 ; Logical OR
     jnz .L29
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
-    mov rdi, 13 ; Load INT
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
+    mov r9, 13 ; Load INT
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
+    movzx r8, al
 .L29:
-    test rsi, rsi ; Exit check
+    test r8, r8 ; Exit check
     jz .L27
 .L30:
-    mov rsi, 1 ; Load INT
-    lea rdi, [rbp+32] ; Get Local
-    sub [rdi], rsi ; Mutate
+    mov r8, 1 ; Load INT
+    lea r9, [rbp+32] ; Get Local
+    sub [r9], r8 ; Mutate
 .L31:
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, 0 ; Load INT
-    cmp rsi, rdi ; INT >
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, 0 ; Load INT
+    cmp r8, r9 ; INT >
     setg al
-    movzx rsi, al
-    test rsi, rsi ; Logical AND
+    movzx r8, al
+    test r8, r8 ; Logical AND
     jz .L32
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
-    mov rdi, 10 ; Load INT
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
+    mov r9, 10 ; Load INT
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
+    movzx r8, al
 .L32:
-    test rsi, rsi ; Logical OR
+    test r8, r8 ; Logical OR
     jnz .L33
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
-    mov rdi, 13 ; Load INT
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
+    mov r9, 13 ; Load INT
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
+    movzx r8, al
 .L33:
-    test rsi, rsi ; Loop check
+    test r8, r8 ; Loop check
     jnz .L30
 .L27:
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    sub rsi, rdi ; (U)INT  Sub
-    mov rdi, 1 ; Load INT
-    add rsi, rdi ; (U)INT Add
-    mov rdi, 0 ; Load INT
-    cmp rsi, rdi ; INT <=
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    sub r8, r9 ; (U)INT  Sub
+    mov r9, 1 ; Load INT
+    add r8, r9 ; (U)INT Add
+    mov r9, 0 ; Load INT
+    cmp r8, r9 ; INT <=
     setle al
-    movzx rsi, al
-    test rsi, rsi ; If Expr
+    movzx r8, al
+    test r8, r8 ; If Expr
     jz .L34
-    mov rsi, 0 ; Load INT
+    mov r8, 0 ; Load INT
     jmp .L35
 .L34:
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    sub rsi, rdi ; (U)INT  Sub
-    mov rdi, 1 ; Load INT
-    add rsi, rdi ; (U)INT Add
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    sub r8, r9 ; (U)INT  Sub
+    mov r9, 1 ; Load INT
+    add r8, r9 ; (U)INT Add
 .L35: ; End of If Expr
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 1
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 1
+    lea r8, [r8+r9] ; Ptr Index
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
     xor eax, eax
 .L19:
     xor eax, eax
@@ -568,185 +569,185 @@ _String_trim:
     add rsp, 32
     ret
 
-_String_display:
+__String__display:
     push rbp
     mov rbp, rsp
     sub rsp, 24 ; Make space for native args
-    lea rsi, [C2]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rsp+16], rsi
+    lea r8, [C2]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rsp+8], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rsp+16], r8
     pop rcx
     pop rdx
     pop r8
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     xor eax, eax
 .L36:
     xor eax, eax
     pop rbp
     ret
 
-_Splicer_init:
+__Splicer__init:
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    mov [rdi], rsi ; Mutate
-    movzx rsi, byte [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    lea rdi, [rdi+16] ; Field access
-    mov [rdi], sil ; Mutate
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, 1 ; Load INT
-    sub rsi, rdi ; (U)INT  Sub
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    lea rdi, [rdi+24] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rdi+8] ; Field access
-    add rsi, rdi ; (U)INT Add
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    lea rdi, [rdi+32] ; Field access
-    mov [rdi], rsi ; Mutate
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    mov [r9], r8 ; Mutate
+    movzx r8, byte [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    lea r9, [r9+16] ; Field access
+    mov [r9], r8b ; Mutate
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, 1 ; Load INT
+    sub r8, r9 ; (U)INT  Sub
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    lea r9, [r9+24] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [r9+8] ; Field access
+    add r8, r9 ; (U)INT Add
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    lea r9, [r9+32] ; Field access
+    mov [r9], r8 ; Mutate
     xor eax, eax
 .L37:
     xor eax, eax
     pop rbp
     ret
 
-_Splicer_next:
+__Splicer__next:
     sub rsp, 24 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    lea rsi, [_Splicer_atEnd] ; Method access
+    lea r8, [__Splicer__atEnd] ; Method access
     sub rsp, 8 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 8
-    mov rsi, rax
-    test rsi, rsi
+    mov r8, rax
+    test r8, r8
     jz .L39
-    mov rsi, 0 ; Load NULLPTR
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, 0 ; Load INT
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, 0 ; Load BOOL
-    mov rax, rsi
+    mov r8, 0 ; Load NULLPTR
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
+    mov r8, 0 ; Load INT
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, 0 ; Load BOOL
+    mov rax, r8
     jmp .L38
 .L39:
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+24] ; Field access
-    mov rdi, 1 ; Load INT
-    add rsi, rdi ; (U)INT Add
-    mov rdi, qword [rbp+40] ; Get Arg/Local
-    lea rdi, [rdi+24] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    movzx rsi, byte [rsi+16] ; Field access
-    mov [rbp + 8], sil ; Declare identifier
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+24] ; Field access
-    mov [rbp + 16], rsi ; Declare identifier
-    lea rsi, [_Splicer_atEnd] ; Method access
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+24] ; Field access
+    mov r9, 1 ; Load INT
+    add r8, r9 ; (U)INT Add
+    mov r9, qword [rbp+40] ; Get Arg/Local
+    lea r9, [r9+24] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    movzx r8, byte [r8+16] ; Field access
+    mov [rbp + 8], r8b ; Declare identifier
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+24] ; Field access
+    mov [rbp + 16], r8 ; Declare identifier
+    lea r8, [__Splicer__atEnd] ; Method access
     sub rsp, 8 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 8
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi ; Logical AND
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8 ; Logical AND
     jz .L41
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+24] ; Field access
-    mov rsi, [rsi] ; Dereference Pointer
-    movzx rdi, byte [rbp+8] ; Get Arg/Local
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT !=
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+24] ; Field access
+    mov r8, [r8] ; Dereference Pointer
+    movzx r9, byte [rbp+8] ; Get Arg/Local
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT !=
     setne al
-    movzx rsi, al
+    movzx r8, al
 .L41:
-    test rsi, rsi ; Exit check
+    test r8, r8 ; Exit check
     jz .L40
 .L42:
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+24] ; Field access
-    mov rdi, 1 ; Load INT
-    add rsi, rdi ; (U)INT Add
-    mov rdi, qword [rbp+40] ; Get Arg/Local
-    lea rdi, [rdi+24] ; Field access
-    mov [rdi], rsi ; Mutate
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+24] ; Field access
+    mov r9, 1 ; Load INT
+    add r8, r9 ; (U)INT Add
+    mov r9, qword [rbp+40] ; Get Arg/Local
+    lea r9, [r9+24] ; Field access
+    mov [r9], r8 ; Mutate
 .L43:
-    lea rsi, [_Splicer_atEnd] ; Method access
+    lea r8, [__Splicer__atEnd] ; Method access
     sub rsp, 8 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 8
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi ; Logical AND
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8 ; Logical AND
     jz .L44
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+24] ; Field access
-    mov rsi, [rsi] ; Dereference Pointer
-    movzx rdi, byte [rbp+8] ; Get Arg/Local
-    movzx rsi, sil
-    movzx rdi, dil
-    cmp rsi, rdi ; UINT !=
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+24] ; Field access
+    mov r8, [r8] ; Dereference Pointer
+    movzx r9, byte [rbp+8] ; Get Arg/Local
+    movzx r8, r8b
+    movzx r9, r9b
+    cmp r8, r9 ; UINT !=
     setne al
-    movzx rsi, al
+    movzx r8, al
 .L44:
-    test rsi, rsi ; Loop check
+    test r8, r8 ; Loop check
     jnz .L42
 .L40:
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+24] ; Field access
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    sub rsi, rdi ; (U)INT  Sub
-    mov [rbp + 24], rsi ; Declare identifier
-    lea rsi, [_String_initLen] ; Method access
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+24] ; Field access
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    sub r8, r9 ; (U)INT  Sub
+    mov [rbp + 24], r8 ; Declare identifier
+    lea r8, [__String__initLen] ; Method access
     sub rsp, 24 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+16], rsi
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov [rsp+24], rsi
+    push r8
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+16], r8
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
     add rsp, 24
-    mov rsi, rax
-    mov rsi, 1 ; Load BOOL
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 1 ; Load BOOL
+    mov rax, r8
     jmp .L38
     xor eax, eax
 .L38:
@@ -754,158 +755,158 @@ _Splicer_next:
     add rsp, 24
     ret
 
-_Splicer_atEnd:
+__Splicer__atEnd:
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rsi, qword [rsi+24] ; Field access
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rdi+32] ; Field access
-    cmp rsi, rdi ; UINT >=
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r8, qword [r8+24] ; Field access
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [r9+32] ; Field access
+    cmp r8, r9 ; UINT >=
     setae al
-    movzx rsi, al
-    mov rax, rsi
+    movzx r8, al
+    mov rax, r8
     jmp .L45
     xor eax, eax
 .L45:
     pop rbp
     ret
 
-_Dictionary_init:
+__Dictionary__init:
     push rbp
     mov rbp, rsp
     sub rsp, 16 ; Make space for native args
-    mov rsi, 8 ; Load INT
-    mov [rsp+0], rsi
-    mov rsi, qword [_SIZEOF_ENTRY] ; Get Global
-    mov [rsp+8], rsi
+    mov r8, 8 ; Load INT
+    mov [rsp+0], r8
+    mov r8, qword [__SIZEOF_ENTRY] ; Get Global
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline calloc call
     call calloc
     add rsp, 32
-    mov rsi, rax
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, 0 ; Load INT
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, 8 ; Load INT
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    lea rdi, [rdi+16] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, 0 ; Load INT
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    lea rdi, [rdi+24] ; Field access
-    mov [rdi], rsi ; Mutate
+    mov r8, rax
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
+    mov r8, 0 ; Load INT
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, 8 ; Load INT
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    lea r9, [r9+16] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, 0 ; Load INT
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    lea r9, [r9+24] ; Field access
+    mov [r9], r8 ; Mutate
     xor eax, eax
 .L46:
     xor eax, eax
     pop rbp
     ret
 
-_Dictionary_resize:
+__Dictionary__resize:
     sub rsp, 40 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rbp + 8], rsi ; Declare identifier
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rbp + 16], rsi ; Declare identifier
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rbp + 8], r8 ; Declare identifier
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rbp + 16], r8 ; Declare identifier
     sub rsp, 24 ; Make space for native args
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, 2 ; Load INT
-    imul rsi, rdi ; (U)INT Mul
-    mov [rsp+0], rsi
-    mov rsi, qword [_SIZEOF_ENTRY] ; Get Global
-    mov [rsp+8], rsi
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, 2 ; Load INT
+    imul r8, r9 ; (U)INT Mul
+    mov [rsp+0], r8
+    mov r8, qword [__SIZEOF_ENTRY] ; Get Global
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline calloc call
     call calloc
     add rsp, 32
     add rsp, 8
-    mov rsi, rax
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rdi, qword [rbp+56] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, 2 ; Load INT
-    imul rsi, rdi ; (U)INT Mul
-    mov rdi, qword [rbp+56] ; Get Arg/Local
-    lea rdi, [rdi+16] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, 0 ; Load INT
-    mov rdi, qword [rbp+56] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, 0 ; Load INT
-    mov [rbp + 32], rsi ; Declare identifier
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, rax
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r9, qword [rbp+56] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, 2 ; Load INT
+    imul r8, r9 ; (U)INT Mul
+    mov r9, qword [rbp+56] ; Get Arg/Local
+    lea r9, [r9+16] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, 0 ; Load INT
+    mov r9, qword [rbp+56] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, 0 ; Load INT
+    mov [rbp + 32], r8 ; Declare identifier
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Exit check
+    movzx r8, al
+    test r8, r8 ; Exit check
     jz .L48
 .L49:
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rbp + 40], rsi ; Declare identifier
-    lea rsi, [_String_isEmpty] ; Method access
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rbp + 40], r8 ; Declare identifier
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 8 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 8
-    mov rsi, rax
-    test rsi, rsi
+    mov r8, rax
+    test r8, r8
     jz .L51
     jmp .L50
 .L51:
-    lea rsi, [_Dictionary_moveOverEntry] ; Method access
+    lea r8, [__Dictionary__moveOverEntry] ; Method access
     sub rsp, 24 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+16], rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rsp+24], rsi
+    push r8
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+16], r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rsp+24], r8
     pop rcx
     call rcx
     add rsp, 24
-    mov rsi, rax
+    mov r8, rax
 .L50:
-    mov rsi, 1 ; Load INT
-    lea rdi, [rbp+32] ; Get Local
-    add [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, 1 ; Load INT
+    lea r9, [rbp+32] ; Get Local
+    add [r9], r8 ; Mutate
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Loop check
+    movzx r8, al
+    test r8, r8 ; Loop check
     jnz .L49
 .L48:
     sub rsp, 16 ; Make space for native args
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
     add rsp, 8
-    mov rsi, rax
+    mov r8, rax
     xor eax, eax
 .L47:
     xor eax, eax
@@ -913,95 +914,95 @@ _Dictionary_resize:
     add rsp, 40
     ret
 
-_Dictionary_moveOverEntry:
+__Dictionary__moveOverEntry:
     sub rsp, 32 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rbp + 8], rsi ; Declare identifier
-    lea rsi, [_String_hash] ; Method access
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rbp + 8], r8 ; Declare identifier
+    lea r8, [__String__hash] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    mov [rbp + 16], rsi ; Declare identifier
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+8] ; Get Arg/Local
-    mov rax, rsi ; (U)INT Mod
+    mov r8, rax
+    mov [rbp + 16], r8 ; Declare identifier
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+8] ; Get Arg/Local
+    mov rax, r8 ; (U)INT Mod
     xor edx, edx
-    idiv rdi
-    mov rsi, rdx
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rbp + 32], rsi ; Declare identifier
-    lea rsi, [_String_isEmpty] ; Method access
+    idiv r9
+    mov r8, rdx
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rbp + 32], r8 ; Declare identifier
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi ; Exit check
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8 ; Exit check
     jz .L53
 .L54:
-    mov rsi, 1 ; Load INT
-    lea rdi, [rbp+24] ; Get Local
-    add [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    sub rsi, rdi ; (U)INT  Sub
-    lea rdi, [rbp+24] ; Get Local
-    and [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    lea rdi, [rbp+32] ; Get Local
-    mov [rdi], rsi ; Mutate
+    mov r8, 1 ; Load INT
+    lea r9, [rbp+24] ; Get Local
+    add [r9], r8 ; Mutate
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    sub r8, r9 ; (U)INT  Sub
+    lea r9, [rbp+24] ; Get Local
+    and [r9], r8 ; Mutate
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    lea r9, [rbp+32] ; Get Local
+    mov [r9], r8 ; Mutate
 .L55:
-    lea rsi, [_String_isEmpty] ; Method access
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi ; Loop check
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8 ; Loop check
     jnz .L54
 .L53:
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+64] ; Get Arg/Local
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    lea rdi, [rdi+16] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, 1 ; Load INT
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    add [rdi], rsi ; Mutate
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+64] ; Get Arg/Local
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    lea r9, [r9+16] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, 1 ; Load INT
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    add [r9], r8 ; Mutate
     xor eax, eax
 .L52:
     xor eax, eax
@@ -1009,187 +1010,187 @@ _Dictionary_moveOverEntry:
     add rsp, 32
     ret
 
-_Dictionary_addEntry:
+__Dictionary__addEntry:
     sub rsp, 32 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, 1 ; Load INT
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    mov rdi, qword [rdi+8] ; Field access
-    add rsi, rdi ; (U)INT Add
-    cvtsi2sd xmm0, rsi ; Non-floating point to F64
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    cvtsi2sd xmm1, rsi ; Non-floating point to F64
+    mov r8, 1 ; Load INT
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    mov r9, qword [r9+8] ; Field access
+    add r8, r9 ; (U)INT Add
+    cvtsi2sd xmm0, r8 ; Non-floating point to F64
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    cvtsi2sd xmm1, r8 ; Non-floating point to F64
     divsd xmm0, xmm1 ; Float Div
-    movsd xmm1, qword [_MAX_DENSITY] ; Get Global
+    movsd xmm1, qword [__MAX_DENSITY] ; Get Global
     comisd xmm0, xmm1 ; Float >
     seta al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L57
-    lea rsi, [_Dictionary_resize] ; Method access
+    lea r8, [__Dictionary__resize] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
+    mov r8, rax
 .L57:
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+24] ; Field access
-    mov rdi, qword [rbp+56] ; Get Arg/Local
-    mov rdi, qword [rdi+8] ; Field access
-    cmp rsi, rdi ; UINT <
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+24] ; Field access
+    mov r9, qword [rbp+56] ; Get Arg/Local
+    mov r9, qword [r9+8] ; Field access
+    cmp r8, r9 ; UINT <
     setb al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L58
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    lea rdi, [rdi+24] ; Field access
-    mov [rdi], rsi ; Mutate
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    lea r9, [r9+24] ; Field access
+    mov [r9], r8 ; Mutate
 .L58:
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rbp + 8], rsi ; Declare identifier
-    lea rsi, [_String_hash] ; Method access
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rbp + 8], r8 ; Declare identifier
+    lea r8, [__String__hash] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    mov [rbp + 16], rsi ; Declare identifier
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+8] ; Get Arg/Local
-    mov rax, rsi ; (U)INT Mod
+    mov r8, rax
+    mov [rbp + 16], r8 ; Declare identifier
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+8] ; Get Arg/Local
+    mov rax, r8 ; (U)INT Mod
     xor edx, edx
-    idiv rdi
-    mov rsi, rdx
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rbp + 32], rsi ; Declare identifier
-    lea rsi, [_String_isEmpty] ; Method access
+    idiv r9
+    mov r8, rdx
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rbp + 32], r8 ; Declare identifier
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi ; Logical AND
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8 ; Logical AND
     jz .L60
-    lea rsi, [_String_cmp] ; Method access
+    lea r8, [__String__cmp] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+16], rsi
+    push r8
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
+    mov r8, rax
+    xor r8, 1 ; Bool not
 .L60:
-    test rsi, rsi ; Exit check
+    test r8, r8 ; Exit check
     jz .L59
 .L61:
-    mov rsi, 1 ; Load INT
-    lea rdi, [rbp+24] ; Get Local
-    add [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    sub rsi, rdi ; (U)INT  Sub
-    lea rdi, [rbp+24] ; Get Local
-    and [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    lea rdi, [rbp+32] ; Get Local
-    mov [rdi], rsi ; Mutate
+    mov r8, 1 ; Load INT
+    lea r9, [rbp+24] ; Get Local
+    add [r9], r8 ; Mutate
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    sub r8, r9 ; (U)INT  Sub
+    lea r9, [rbp+24] ; Get Local
+    and [r9], r8 ; Mutate
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    lea r9, [rbp+32] ; Get Local
+    mov [r9], r8 ; Mutate
 .L62:
-    lea rsi, [_String_isEmpty] ; Method access
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi ; Logical AND
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8 ; Logical AND
     jz .L63
-    lea rsi, [_String_cmp] ; Method access
+    lea r8, [__String__cmp] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+16], rsi
+    push r8
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
+    mov r8, rax
+    xor r8, 1 ; Bool not
 .L63:
-    test rsi, rsi ; Loop check
+    test r8, r8 ; Loop check
     jnz .L61
 .L59:
-    lea rsi, [_String_isEmpty] ; Method access
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    test rsi, rsi
+    mov r8, rax
+    test r8, r8
     jz .L64
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, 1 ; Load INT
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    lea rdi, [rdi+16] ; Field access
-    mov [rdi], rsi ; Mutate
-    mov rsi, 1 ; Load INT
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    lea rdi, [rdi+8] ; Field access
-    add [rdi], rsi ; Mutate
-    mov rsi, 0 ; Load BOOL
-    mov rax, rsi
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, 1 ; Load INT
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    lea r9, [r9+16] ; Field access
+    mov [r9], r8 ; Mutate
+    mov r8, 1 ; Load INT
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    lea r9, [r9+8] ; Field access
+    add [r9], r8 ; Mutate
+    mov r8, 0 ; Load BOOL
+    mov rax, r8
     jmp .L56
     jmp .L65
 .L64:
-    mov rsi, 1 ; Load INT
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    lea rdi, [rdi+16] ; Field access
-    add [rdi], rsi ; Mutate
-    mov rsi, 1 ; Load BOOL
-    mov rax, rsi
+    mov r8, 1 ; Load INT
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    lea r9, [r9+16] ; Field access
+    add [r9], r8 ; Mutate
+    mov r8, 1 ; Load BOOL
+    mov rax, r8
     jmp .L56
 .L65:
     xor eax, eax
@@ -1198,125 +1199,125 @@ _Dictionary_addEntry:
     add rsp, 32
     ret
 
-_Dictionary_getEntry:
+__Dictionary__getEntry:
     sub rsp, 32 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rbp + 8], rsi ; Declare identifier
-    lea rsi, [_String_hash] ; Method access
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rbp + 8], r8 ; Declare identifier
+    lea r8, [__String__hash] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    mov [rbp + 16], rsi ; Declare identifier
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+8] ; Get Arg/Local
-    mov rax, rsi ; (U)INT Mod
+    mov r8, rax
+    mov [rbp + 16], r8 ; Declare identifier
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+8] ; Get Arg/Local
+    mov rax, r8 ; (U)INT Mod
     xor edx, edx
-    idiv rdi
-    mov rsi, rdx
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rbp + 32], rsi ; Declare identifier
-    lea rsi, [_String_isEmpty] ; Method access
+    idiv r9
+    mov r8, rdx
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rbp + 32], r8 ; Declare identifier
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi ; Logical AND
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8 ; Logical AND
     jz .L68
-    lea rsi, [_String_cmp] ; Method access
+    lea r8, [__String__cmp] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+16], rsi
+    push r8
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
+    mov r8, rax
+    xor r8, 1 ; Bool not
 .L68:
-    test rsi, rsi ; Exit check
+    test r8, r8 ; Exit check
     jz .L67
 .L69:
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    add rsi, rdi ; (U)INT Add
-    mov rdi, qword [rbp+8] ; Get Arg/Local
-    mov rax, rsi ; (U)INT Mod
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    add r8, r9 ; (U)INT Add
+    mov r9, qword [rbp+8] ; Get Arg/Local
+    mov rax, r8 ; (U)INT Mod
     xor edx, edx
-    idiv rdi
-    mov rsi, rdx
-    lea rdi, [rbp+24] ; Get Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    lea rdi, [rbp+32] ; Get Local
-    mov [rdi], rsi ; Mutate
+    idiv r9
+    mov r8, rdx
+    lea r9, [rbp+24] ; Get Local
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    lea r9, [rbp+32] ; Get Local
+    mov [r9], r8 ; Mutate
 .L70:
-    lea rsi, [_String_isEmpty] ; Method access
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi ; Logical AND
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8 ; Logical AND
     jz .L71
-    lea rsi, [_String_cmp] ; Method access
+    lea r8, [__String__cmp] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+16], rsi
+    push r8
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
+    mov r8, rax
+    xor r8, 1 ; Bool not
 .L71:
-    test rsi, rsi ; Loop check
+    test r8, r8 ; Loop check
     jnz .L69
 .L67:
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov rdi, qword [rbp+64] ; Get Arg/Local
-    mov [rdi], rsi ; Mutate
-    lea rsi, [_String_isEmpty] ; Method access
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov r9, qword [rbp+64] ; Get Arg/Local
+    mov [r9], r8 ; Mutate
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    mov rax, rsi
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    mov rax, r8
     jmp .L66
     xor eax, eax
 .L66:
@@ -1324,71 +1325,71 @@ _Dictionary_getEntry:
     add rsp, 32
     ret
 
-_Dictionary_display:
+__Dictionary__display:
     sub rsp, 40 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, 0 ; Load INT
-    mov [rbp + 8], rsi ; Declare identifier
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rbp + 16], rsi ; Declare identifier
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, 0 ; Load INT
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, 0 ; Load INT
-    mov [rbp + 32], rsi ; Declare identifier
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, 0 ; Load INT
+    mov [rbp + 8], r8 ; Declare identifier
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rbp + 16], r8 ; Declare identifier
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, 0 ; Load INT
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, 0 ; Load INT
+    mov [rbp + 32], r8 ; Declare identifier
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Exit check
+    movzx r8, al
+    test r8, r8 ; Exit check
     jz .L73
 .L74:
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+8] ; Get Arg/Local
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rbp + 40], rsi ; Declare identifier
-    lea rsi, [_String_isEmpty] ; Method access
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+8] ; Get Arg/Local
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rbp + 40], r8 ; Declare identifier
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 8 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 8
-    mov rsi, rax
-    test rsi, rsi
+    mov r8, rax
+    test r8, r8
     jz .L76
     sub rsp, 16 ; Make space for native args
-    lea rsi, [C3]
-    mov [rsp+0], rsi
+    lea r8, [C3]
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
     add rsp, 8
-    mov rsi, rax
+    mov r8, rax
     jmp .L77
 .L76:
     sub rsp, 40 ; Make space for native args
-    lea rsi, [C4]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rsp+16], rsi
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rsp+24], rsi
+    lea r8, [C4]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rsp+8], r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rsp+16], r8
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rsp+24], r8
     pop rcx
     pop rdx
     pop r8
@@ -1397,83 +1398,83 @@ _Dictionary_display:
     call printf
     add rsp, 32
     add rsp, 8
-    mov rsi, rax
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov rdi, qword [rbp+24] ; Get Arg/Local
-    mov rdi, qword [rdi+16] ; Field access
-    cmp rsi, rdi ; INT >
+    mov r8, rax
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov r9, qword [rbp+24] ; Get Arg/Local
+    mov r9, qword [r9+16] ; Field access
+    cmp r8, r9 ; INT >
     setg al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L78
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    lea rdi, [rbp+24] ; Get Local
-    mov [rdi], rsi ; Mutate
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    lea r9, [rbp+24] ; Get Local
+    mov [r9], r8 ; Mutate
 .L78:
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    lea rdi, [rbp+32] ; Get Local
-    add [rdi], rsi ; Mutate
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    lea r9, [rbp+32] ; Get Local
+    add [r9], r8 ; Mutate
 .L77:
 .L75:
-    mov rsi, 1 ; Load INT
-    lea rdi, [rbp+8] ; Get Local
-    add [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, 1 ; Load INT
+    lea r9, [rbp+8] ; Get Local
+    add [r9], r8 ; Mutate
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Loop check
+    movzx r8, al
+    test r8, r8 ; Loop check
     jnz .L74
 .L73:
     sub rsp, 24 ; Make space for native args
-    lea rsi, [C5]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov [rsp+8], rsi
+    lea r8, [C5]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
     add rsp, 8
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 24 ; Make space for native args
-    lea rsi, [C6]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+56] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rsp+8], rsi
+    lea r8, [C6]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+56] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
     add rsp, 8
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 16 ; Make space for native args
-    lea rsi, [C7]
-    mov [rsp+0], rsi
+    lea r8, [C7]
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
     add rsp, 8
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 40 ; Make space for native args
-    lea rsi, [C4]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rsp+16], rsi
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rsp+24], rsi
+    lea r8, [C4]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rsp+8], r8
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rsp+16], r8
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rsp+24], r8
     pop rcx
     pop rdx
     pop r8
@@ -1482,7 +1483,7 @@ _Dictionary_display:
     call printf
     add rsp, 32
     add rsp, 8
-    mov rsi, rax
+    mov r8, rax
     xor eax, eax
 .L72:
     xor eax, eax
@@ -1490,13 +1491,13 @@ _Dictionary_display:
     add rsp, 40
     ret
 
-_Dictionary_export:
+__Dictionary__export:
     sub rsp, 112 ; Reserve locals space
     push rbp
     mov rbp, rsp
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+136] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+136] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     mov rdx, 0xC0000000
     mov r8, 3
@@ -1508,19 +1509,19 @@ _Dictionary_export:
     sub rsp, 32 ; Open file call
     call CreateFileA
     add rsp, 64
-    mov rsi, rax
-    mov [rbp + 8], rsi ; Declare identifier
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    neg rdi ; (U)INT negate
-    cmp rsi, rdi ; INT ==
+    mov r8, rax
+    mov [rbp + 8], r8 ; Declare identifier
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    neg r9 ; (U)INT negate
+    cmp r8, r9 ; INT ==
     sete al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L80
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+136] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+136] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     mov rdx, 0xC0000000
     mov r8, 3
@@ -1532,113 +1533,113 @@ _Dictionary_export:
     sub rsp, 32 ; Open file call
     call CreateFileA
     add rsp, 64
-    mov rsi, rax
-    lea rdi, [rbp+8] ; Get Local
-    mov [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    neg rdi ; (U)INT negate
-    cmp rsi, rdi ; INT ==
+    mov r8, rax
+    lea r9, [rbp+8] ; Get Local
+    mov [r9], r8 ; Mutate
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    neg r9 ; (U)INT negate
+    cmp r8, r9 ; INT ==
     sete al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L81
-    mov rsi, 0 ; Load BOOL
-    mov rax, rsi
+    mov r8, 0 ; Load BOOL
+    mov rax, r8
     jmp .L79
 .L81:
 .L80:
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+128] ; Get Arg/Local
-    mov rsi, qword [rsi+24] ; Field access
-    mov rdi, 100 ; Load INT
-    add rsi, rdi ; (U)INT Add
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+128] ; Get Arg/Local
+    mov r8, qword [r8+24] ; Field access
+    mov r9, 100 ; Load INT
+    add r8, r9 ; (U)INT Add
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline malloc call
     call malloc
     add rsp, 32
-    mov rsi, rax
-    mov [rbp + 16], rsi ; Declare identifier
-    mov rsi, 0 ; Load INT
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, 0 ; Load INT
-    mov [rbp + 32], rsi ; Declare identifier
-    mov rsi, qword [rbp+128] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rbp + 40], rsi ; Declare identifier
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+40] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, rax
+    mov [rbp + 16], r8 ; Declare identifier
+    mov r8, 0 ; Load INT
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, 0 ; Load INT
+    mov [rbp + 32], r8 ; Declare identifier
+    mov r8, qword [rbp+128] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rbp + 40], r8 ; Declare identifier
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+40] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Exit check
+    movzx r8, al
+    test r8, r8 ; Exit check
     jz .L82
 .L83:
-    mov rsi, qword [rbp+128] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov rdi, qword [rbp+32] ; Get Arg/Local
-    imul rdi, 24
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rbp + 48], rsi ; Declare identifier
-    lea rsi, [_String_isEmpty] ; Method access
+    mov r8, qword [rbp+128] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov r9, qword [rbp+32] ; Get Arg/Local
+    imul r9, 24
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rbp + 48], r8 ; Declare identifier
+    lea r8, [__String__isEmpty] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov [rsp+8], rsi
+    push r8
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8
     jz .L85
-    lea rsi, [_Splicer_init] ; Method access
+    lea r8, [__Splicer__init] ; Method access
     sub rsp, 32 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+56] ; Get Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov [rsp+16], rsi
-    mov rsi, 34 ; Load UINT
-    mov [rsp+24], sil
+    push r8
+    lea r8, [rbp+56] ; Get Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov [rsp+16], r8
+    mov r8, 34 ; Load UINT
+    mov [rsp+24], r8b
     pop rcx
     call rcx
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 34 ; Load UINT
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    mov r8, 0 ; Load INT
-    imul r8, 1
-    lea rdi, [rdi+r8] ; Ptr Index
-    mov [rdi], sil ; Mutate
-    mov rsi, 1 ; Load INT
-    mov [rbp + 96], rsi ; Declare identifier
-    lea rsi, [_Splicer_next] ; Method access
+    mov r8, rax
+    mov r8, 34 ; Load UINT
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    mov r10, 0 ; Load INT
+    imul r10, 1
+    lea r9, [r9+r10] ; Ptr Index
+    mov [r9], r8b ; Mutate
+    mov r8, 1 ; Load INT
+    mov [rbp + 96], r8 ; Declare identifier
+    lea r8, [__Splicer__next] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+56] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+104] ; Get Local
-    mov [rsp+16], rsi
+    push r8
+    lea r8, [rbp+56] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+104] ; Get Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 32 ; Make space for native args
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+96] ; Get Arg/Local
-    imul rdi, 1
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rsp+0], rsi
-    lea rsi, [C8]
-    mov [rsp+8], rsi
-    lea rsi, [rbp+104] ; Get Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rsp+16], rsi
-    lea rsi, [rbp+104] ; Get Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rsp+24], rsi
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+96] ; Get Arg/Local
+    imul r9, 1
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rsp+0], r8
+    lea r8, [C8]
+    mov [rsp+8], r8
+    lea r8, [rbp+104] ; Get Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rsp+16], r8
+    lea r8, [rbp+104] ; Get Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rsp+24], r8
     pop rcx
     pop rdx
     pop r8
@@ -1646,56 +1647,56 @@ _Dictionary_export:
     sub rsp, 32 ; Inline sprintf call
     call sprintf
     add rsp, 32
-    mov rsi, rax
-    lea rsi, [rbp+104] ; Get Local
-    mov rsi, qword [rsi+8] ; Field access
-    lea rdi, [rbp+96] ; Get Local
-    add [rdi], rsi ; Mutate
-    lea rsi, [_Splicer_next] ; Method access
+    mov r8, rax
+    lea r8, [rbp+104] ; Get Local
+    mov r8, qword [r8+8] ; Field access
+    lea r9, [rbp+96] ; Get Local
+    add [r9], r8 ; Mutate
+    lea r8, [__Splicer__next] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+56] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+104] ; Get Local
-    mov [rsp+16], rsi
+    push r8
+    lea r8, [rbp+56] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+104] ; Get Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    test rsi, rsi ; Exit check
+    mov r8, rax
+    test r8, r8 ; Exit check
     jz .L86
 .L87:
-    mov rsi, 92 ; Load UINT
-    mov rdi, qword [rbp+16] ; Get Arg/Local
-    mov r8, qword [rbp+96] ; Get Arg/Local
-    imul r8, 1
-    lea rdi, [rdi+r8] ; Ptr Index
-    mov [rdi], sil ; Mutate
-    mov rsi, 34 ; Load UINT
-    mov rdi, qword [rbp+96] ; Get Arg/Local
-    mov r8, 1 ; Load INT
-    add rdi, r8 ; (U)INT Add
-    mov r8, qword [rbp+16] ; Get Arg/Local
-    imul rdi, 1
-    lea r8, [r8+rdi] ; Ptr Index
-    mov [r8], sil ; Mutate
-    mov rsi, 2 ; Load INT
-    lea rdi, [rbp+96] ; Get Local
-    add [rdi], rsi ; Mutate
+    mov r8, 92 ; Load UINT
+    mov r9, qword [rbp+16] ; Get Arg/Local
+    mov r10, qword [rbp+96] ; Get Arg/Local
+    imul r10, 1
+    lea r9, [r9+r10] ; Ptr Index
+    mov [r9], r8b ; Mutate
+    mov r8, 34 ; Load UINT
+    mov r9, qword [rbp+96] ; Get Arg/Local
+    mov r10, 1 ; Load INT
+    add r9, r10 ; (U)INT Add
+    mov r10, qword [rbp+16] ; Get Arg/Local
+    imul r9, 1
+    lea r10, [r10+r9] ; Ptr Index
+    mov [r10], r8b ; Mutate
+    mov r8, 2 ; Load INT
+    lea r9, [rbp+96] ; Get Local
+    add [r9], r8 ; Mutate
     sub rsp, 32 ; Make space for native args
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+96] ; Get Arg/Local
-    imul rdi, 1
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rsp+0], rsi
-    lea rsi, [C8]
-    mov [rsp+8], rsi
-    lea rsi, [rbp+104] ; Get Local
-    mov rsi, qword [rsi+8] ; Field access
-    mov [rsp+16], rsi
-    lea rsi, [rbp+104] ; Get Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rsp+24], rsi
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+96] ; Get Arg/Local
+    imul r9, 1
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rsp+0], r8
+    lea r8, [C8]
+    mov [rsp+8], r8
+    lea r8, [rbp+104] ; Get Local
+    mov r8, qword [r8+8] ; Field access
+    mov [rsp+16], r8
+    lea r8, [rbp+104] ; Get Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rsp+24], r8
     pop rcx
     pop rdx
     pop r8
@@ -1703,55 +1704,55 @@ _Dictionary_export:
     sub rsp, 32 ; Inline sprintf call
     call sprintf
     add rsp, 32
-    mov rsi, rax
-    lea rsi, [rbp+104] ; Get Local
-    mov rsi, qword [rsi+8] ; Field access
-    lea rdi, [rbp+96] ; Get Local
-    add [rdi], rsi ; Mutate
+    mov r8, rax
+    lea r8, [rbp+104] ; Get Local
+    mov r8, qword [r8+8] ; Field access
+    lea r9, [rbp+96] ; Get Local
+    add [r9], r8 ; Mutate
 .L88:
-    lea rsi, [_Splicer_next] ; Method access
+    lea r8, [__Splicer__next] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+56] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+104] ; Get Local
-    mov [rsp+16], rsi
+    push r8
+    lea r8, [rbp+56] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+104] ; Get Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    test rsi, rsi ; Loop check
+    mov r8, rax
+    test r8, r8 ; Loop check
     jnz .L87
 .L86:
     sub rsp, 24 ; Make space for native args
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rdi, qword [rbp+96] ; Get Arg/Local
-    imul rdi, 1
-    lea rsi, [rsi+rdi] ; Ptr Index
-    mov [rsp+0], rsi
-    lea rsi, [C9]
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rsi, qword [rsi+16] ; Field access
-    mov [rsp+16], rsi
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r9, qword [rbp+96] ; Get Arg/Local
+    imul r9, 1
+    lea r8, [r8+r9] ; Ptr Index
+    mov [rsp+0], r8
+    lea r8, [C9]
+    mov [rsp+8], r8
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r8, qword [r8+16] ; Field access
+    mov [rsp+16], r8
     pop rcx
     pop rdx
     pop r8
     sub rsp, 32 ; Inline sprintf call
     call sprintf
     add rsp, 32
-    mov rsi, rax
-    lea rdi, [rbp+96] ; Get Local
-    add [rdi], rsi ; Mutate
+    mov r8, rax
+    lea r9, [rbp+96] ; Get Local
+    add [r9], r8 ; Mutate
     sub rsp, 32 ; Make space for native args
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+96] ; Get Arg/Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+24] ; Get Local
-    mov [rsp+24], rsi
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov [rsp+0], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+96] ; Get Arg/Local
+    mov [rsp+16], r8
+    lea r8, [rbp+24] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     pop rdx
     pop r8
@@ -1761,56 +1762,56 @@ _Dictionary_export:
     sub rsp, 32 ; Write call
     call WriteFile
     add rsp, 48
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8
     jz .L89
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 0 ; Load BOOL
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 0 ; Load BOOL
+    mov rax, r8
     jmp .L79
 .L89:
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov rdi, qword [rbp+144] ; Get Arg/Local
-    add [rdi], rsi ; Mutate
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov r9, qword [rbp+144] ; Get Arg/Local
+    add [r9], r8 ; Mutate
 .L85:
 .L84:
-    mov rsi, 1 ; Load INT
-    lea rdi, [rbp+32] ; Get Local
-    add [rdi], rsi ; Mutate
-    mov rsi, qword [rbp+32] ; Get Arg/Local
-    mov rdi, qword [rbp+40] ; Get Arg/Local
-    cmp rsi, rdi ; INT <
+    mov r8, 1 ; Load INT
+    lea r9, [rbp+32] ; Get Local
+    add [r9], r8 ; Mutate
+    mov r8, qword [rbp+32] ; Get Arg/Local
+    mov r9, qword [rbp+40] ; Get Arg/Local
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
-    test rsi, rsi ; Loop check
+    movzx r8, al
+    test r8, r8 ; Loop check
     jnz .L83
 .L82:
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+8] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+8] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 1 ; Load BOOL
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 1 ; Load BOOL
+    mov rax, r8
     jmp .L79
     xor eax, eax
 .L79:
@@ -1818,100 +1819,113 @@ _Dictionary_export:
     add rsp, 112
     ret
 
-_Dictionary_free:
+__Dictionary__free:
     push rbp
     mov rbp, rsp
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov rsi, qword [rsi+0] ; Field access
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov r8, qword [r8+0] ; Field access
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     xor eax, eax
 .L90:
     xor eax, eax
     pop rbp
     ret
 
-_main:
+__main:
     sub rsp, 256 ; Reserve locals space
     push rbp
     mov rbp, rsp
-    mov rsi, 100 ; Load INT
-    mov [rbp + 8], rsi ; Declare identifier
-    mov rsi, qword [rbp+272] ; Get Arg/Local
-    mov rdi, 4 ; Load INT
-    cmp rsi, rdi ; INT >
+    mov r8, 100 ; Load INT
+    mov [rbp + 8], r8 ; Declare identifier
+    mov r8, qword [rbp+272] ; Get Arg/Local
+    mov r9, 4 ; Load INT
+    cmp r8, r9 ; INT >
     setg al
-    movzx rsi, al
-    test rsi, rsi ; Logical OR
+    movzx r8, al
+    test r8, r8 ; Logical OR
     jnz .L92
-    mov rsi, qword [rbp+272] ; Get Arg/Local
-    mov rdi, 2 ; Load INT
-    cmp rsi, rdi ; INT <
+    mov r8, qword [rbp+272] ; Get Arg/Local
+    mov r9, 2 ; Load INT
+    cmp r8, r9 ; INT <
     setl al
-    movzx rsi, al
+    movzx r8, al
 .L92:
-    test rsi, rsi
+    test r8, r8
     jz .L93
     sub rsp, 8 ; Make space for native args
-    lea rsi, [C10]
-    mov [rsp+0], rsi
+    lea r8, [C10]
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 1 ; Load INT
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 1 ; Load INT
+    mov rax, r8
     jmp .L91
 .L93:
-    mov rsi, qword [rbp+280] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    imul rdi, 8
-    mov rsi, [rsi+rdi] ; Ptr Index
-    mov [rbp + 16], rsi ; Declare identifier
-    mov rsi, qword [rbp+272] ; Get Arg/Local
-    mov rdi, 3 ; Load INT
-    cmp rsi, rdi ; INT ==
-    sete al
-    movzx rsi, al
-    test rsi, rsi ; If Expr
+    mov r8, qword [rbp+280] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    imul r9, 8
+    mov r8, [r8+r9] ; Ptr Index
+    mov [rbp + 16], r8 ; Declare identifier
+    mov r8, qword [rbp+272] ; Get Arg/Local
+    mov r9, 3 ; Load INT
+    cmp r8, r9 ; INT >=
+    setge al
+    movzx r8, al
+    test r8, r8 ; If Expr
     jz .L94
-    mov rsi, qword [rbp+280] ; Get Arg/Local
-    mov rdi, 2 ; Load INT
-    imul rdi, 8
-    mov rsi, [rsi+rdi] ; Ptr Index
+    mov r8, qword [rbp+280] ; Get Arg/Local
+    mov r9, 2 ; Load INT
+    imul r9, 8
+    mov r8, [r8+r9] ; Ptr Index
     jmp .L95
 .L94:
-    mov rsi, qword [_DEFAULT_EXPORT_PATH] ; Get Global
+    mov r8, qword [__DEFAULT_EXPORT_PATH] ; Get Global
 .L95: ; End of If Expr
-    mov [rbp + 24], rsi ; Declare identifier
-    mov rsi, qword [rbp+272] ; Get Arg/Local
-    mov rdi, 4 ; Load INT
-    cmp rsi, rdi ; INT ==
+    mov [rbp + 24], r8 ; Declare identifier
+    mov r8, 0 ; Load NULLPTR
+    mov r8, 0 ; Load NULLPTR
+    mov r8, qword [rbp+272] ; Get Arg/Local
+    mov r9, 4 ; Load INT
+    cmp r8, r9 ; INT ==
     sete al
-    movzx rsi, al
-    test rsi, rsi ; If Expr
+    movzx r8, al
+    test r8, r8 ; If Expr
     jz .L96
-    mov rsi, qword [rbp+280] ; Get Arg/Local
-    mov rdi, 3 ; Load INT
-    imul rdi, 8
-    mov rsi, [rsi+rdi] ; Ptr Index
-    mov rdi, 0 ; Load INT
-    imul rdi, 1
-    movzx rsi, byte [rsi+rdi] ; Ptr Index
+    mov r8, qword [rbp+280] ; Get Arg/Local
+    mov r9, 3 ; Load INT
+    imul r9, 8
+    mov r8, [r8+r9] ; Ptr Index
+    mov r9, 0 ; Load INT
+    imul r9, 1
+    movzx r8, byte [r8+r9] ; Ptr Index
     jmp .L97
 .L96:
-    movzx rsi, byte [_DEFAULT_DELIMINATOR] ; Get Global
+    movzx r8, byte [__DEFAULT_DELIMITER] ; Get Global
 .L97: ; End of If Expr
-    mov [rbp + 32], sil ; Declare identifier
+    mov [rbp + 32], r8b ; Declare identifier
+    sub rsp, 16 ; Make space for native args
+    lea r8, [C11]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov [rsp+8], r8
+    pop rcx
+    pop rdx
+    sub rsp, 32 ; Inline printf call
+    call printf
+    add rsp, 32
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     mov rdx, 0xC0000000
     mov r8, 3
@@ -1923,166 +1937,166 @@ _main:
     sub rsp, 32 ; Open file call
     call CreateFileA
     add rsp, 64
-    mov rsi, rax
-    mov [rbp + 40], rsi ; Declare identifier
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov rdi, 1 ; Load INT
-    neg rdi ; (U)INT negate
-    cmp rsi, rdi ; INT ==
+    mov r8, rax
+    mov [rbp + 40], r8 ; Declare identifier
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov r9, 1 ; Load INT
+    neg r9 ; (U)INT negate
+    cmp r8, r9 ; INT ==
     sete al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L98
     sub rsp, 16 ; Make space for native args
-    lea rsi, [C11]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+8], rsi
+    lea r8, [C12]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 1 ; Load INT
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 1 ; Load INT
+    mov rax, r8
     jmp .L91
 .L98:
     sub rsp, 16 ; Make space for native args
-    lea rsi, [C12]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+8], rsi
+    lea r8, [C13]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 0 ; Load INT
-    mov [rbp + 48], rsi ; Declare identifier
+    mov r8, rax
+    mov r8, 0 ; Load INT
+    mov [rbp + 48], r8 ; Declare identifier
     sub rsp, 16 ; Make space for native args
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+0], rsi
-    lea rsi, [rbp+48] ; Get Local
-    mov [rsp+8], rsi
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+0], r8
+    lea r8, [rbp+48] ; Get Local
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Get size of file call
     call GetFileSizeEx
     add rsp, 32
-    mov rsi, rax
-    mov [rbp + 56], sil ; Declare identifier
-    movzx rsi, byte [rbp+56] ; Get Arg/Local
-    xor rsi, 1 ; Bool not
-    test rsi, rsi
+    mov r8, rax
+    mov [rbp + 56], r8b ; Declare identifier
+    movzx r8, byte [rbp+56] ; Get Arg/Local
+    xor r8, 1 ; Bool not
+    test r8, r8
     jz .L99
     sub rsp, 16 ; Make space for native args
-    lea rsi, [C13]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+8], rsi
+    lea r8, [C14]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 1 ; Load INT
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 1 ; Load INT
+    mov rax, r8
     jmp .L91
 .L99:
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov rdi, 0 ; Load INT
-    cmp rsi, rdi ; UINT ==
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov r9, 0 ; Load INT
+    cmp r8, r9 ; UINT ==
     sete al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L100
     sub rsp, 16 ; Make space for native args
-    lea rsi, [C14]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+8], rsi
+    lea r8, [C15]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 0 ; Load INT
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 0 ; Load INT
+    mov rax, r8
     jmp .L91
 .L100:
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline malloc call
     call malloc
     add rsp, 32
-    mov rsi, rax
-    mov [rbp + 64], rsi ; Declare identifier
-    mov rsi, qword [rbp+64] ; Get Arg/Local
-    mov rdi, 0 ; Load NULLPTR
-    cmp rsi, rdi ; INT ==
+    mov r8, rax
+    mov [rbp + 64], r8 ; Declare identifier
+    mov r8, qword [rbp+64] ; Get Arg/Local
+    mov r9, 0 ; Load NULLPTR
+    cmp r8, r9 ; INT ==
     sete al
-    movzx rsi, al
-    test rsi, rsi
+    movzx r8, al
+    test r8, r8
     jz .L101
     sub rsp, 24 ; Make space for native args
-    lea rsi, [C15]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+16], rsi
+    lea r8, [C16]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+16], r8
     pop rcx
     pop rdx
     pop r8
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 1 ; Load INT
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 1 ; Load INT
+    mov rax, r8
     jmp .L91
 .L101:
-    mov rsi, 0 ; Load INT
-    mov [rbp + 72], rsi ; Declare identifier
+    mov r8, 0 ; Load INT
+    mov [rbp + 72], r8 ; Declare identifier
     sub rsp, 32 ; Make space for native args
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+64] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+48] ; Get Arg/Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+72] ; Get Local
-    mov [rsp+24], rsi
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+0], r8
+    mov r8, qword [rbp+64] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+48] ; Get Arg/Local
+    mov [rsp+16], r8
+    lea r8, [rbp+72] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     pop rdx
     pop r8
@@ -2092,293 +2106,293 @@ _main:
     sub rsp, 32 ; Read call
     call ReadFile
     add rsp, 48
-    mov rsi, rax
-    mov [rbp + 80], sil ; Declare identifier
-    movzx rsi, byte [rbp+80] ; Get Arg/Local
-    xor rsi, 1 ; Bool not
-    test rsi, rsi ; Logical OR
+    mov r8, rax
+    mov [rbp + 80], r8b ; Declare identifier
+    movzx r8, byte [rbp+80] ; Get Arg/Local
+    xor r8, 1 ; Bool not
+    test r8, r8 ; Logical OR
     jnz .L102
-    mov rsi, qword [rbp+72] ; Get Arg/Local
-    mov rdi, qword [rbp+48] ; Get Arg/Local
-    cmp rsi, rdi ; UINT !=
+    mov r8, qword [rbp+72] ; Get Arg/Local
+    mov r9, qword [rbp+48] ; Get Arg/Local
+    cmp r8, r9 ; UINT !=
     setne al
-    movzx rsi, al
+    movzx r8, al
 .L102:
-    test rsi, rsi
+    test r8, r8
     jz .L103
     sub rsp, 16 ; Make space for native args
-    lea rsi, [C16]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+8], rsi
+    lea r8, [C17]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+64] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+64] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 1 ; Load INT
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 1 ; Load INT
+    mov rax, r8
     jmp .L91
 .L103:
     sub rsp, 24 ; Make space for native args
-    lea rsi, [C17]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+72] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+16] ; Get Arg/Local
-    mov [rsp+16], rsi
+    lea r8, [C18]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+72] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+16] ; Get Arg/Local
+    mov [rsp+16], r8
     pop rcx
     pop rdx
     pop r8
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
-    lea rsi, [_Dictionary_init] ; Method access
+    mov r8, rax
+    lea r8, [__Dictionary__init] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+8], rsi
+    push r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    lea rsi, [_String_initLen] ; Method access
+    mov r8, rax
+    lea r8, [__String__initLen] ; Method access
     sub rsp, 32 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+120] ; Get Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+64] ; Get Arg/Local
-    mov [rsp+16], rsi
-    mov rsi, qword [rbp+72] ; Get Arg/Local
-    mov [rsp+24], rsi
+    push r8
+    lea r8, [rbp+120] ; Get Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+64] ; Get Arg/Local
+    mov [rsp+16], r8
+    mov r8, qword [rbp+72] ; Get Arg/Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
     add rsp, 32
-    mov rsi, rax
-    lea rsi, [_Splicer_init] ; Method access
+    mov r8, rax
+    lea r8, [__Splicer__init] ; Method access
     sub rsp, 32 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+136] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+120] ; Get Local
-    mov [rsp+16], rsi
-    mov rsi, 10 ; Load INT
-    mov [rsp+24], sil
+    push r8
+    lea r8, [rbp+136] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+120] ; Get Local
+    mov [rsp+16], r8
+    mov r8, 10 ; Load INT
+    mov [rsp+24], r8b
     pop rcx
     call rcx
     add rsp, 32
-    mov rsi, rax
-    lea rsi, [_Splicer_next] ; Method access
+    mov r8, rax
+    lea r8, [__Splicer__next] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+136] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+176] ; Get Local
-    mov [rsp+16], rsi
+    push r8
+    lea r8, [rbp+136] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+176] ; Get Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    test rsi, rsi ; Exit check
+    mov r8, rax
+    test r8, r8 ; Exit check
     jz .L104
 .L105:
-    lea rsi, [_Splicer_init] ; Method access
+    lea r8, [__Splicer__init] ; Method access
     sub rsp, 32 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+192] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+176] ; Get Local
-    mov [rsp+16], rsi
-    movzx rsi, byte [rbp+32] ; Get Arg/Local
-    mov [rsp+24], sil
+    push r8
+    lea r8, [rbp+192] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+176] ; Get Local
+    mov [rsp+16], r8
+    movzx r8, byte [rbp+32] ; Get Arg/Local
+    mov [rsp+24], r8b
     pop rcx
     call rcx
     add rsp, 32
-    mov rsi, rax
-    lea rsi, [_Splicer_next] ; Method access
+    mov r8, rax
+    lea r8, [__Splicer__next] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+192] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+232] ; Get Local
-    mov [rsp+16], rsi
+    push r8
+    lea r8, [rbp+192] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+232] ; Get Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    test rsi, rsi ; Exit check
+    mov r8, rax
+    test r8, r8 ; Exit check
     jz .L107
 .L108:
-    lea rsi, [_String_trim] ; Method access
+    lea r8, [__String__trim] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+232] ; Get Local
-    mov [rsp+8], rsi
+    push r8
+    lea r8, [rbp+232] ; Get Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    lea rsi, [_String_isZeroLength] ; Method access
+    mov r8, rax
+    lea r8, [__String__isZeroLength] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+232] ; Get Local
-    mov [rsp+8], rsi
+    push r8
+    lea r8, [rbp+232] ; Get Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8
     jz .L110
-    lea rsi, [_Dictionary_addEntry] ; Method access
+    lea r8, [__Dictionary__addEntry] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+232] ; Get Local
-    mov [rsp+16], rsi
+    push r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+232] ; Get Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
+    mov r8, rax
 .L110:
 .L109:
-    lea rsi, [_Splicer_next] ; Method access
+    lea r8, [__Splicer__next] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+192] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+232] ; Get Local
-    mov [rsp+16], rsi
+    push r8
+    lea r8, [rbp+192] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+232] ; Get Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    test rsi, rsi ; Loop check
+    mov r8, rax
+    test r8, r8 ; Loop check
     jnz .L108
 .L107:
 .L106:
-    lea rsi, [_Splicer_next] ; Method access
+    lea r8, [__Splicer__next] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+136] ; Get Local
-    mov [rsp+8], rsi
-    lea rsi, [rbp+176] ; Get Local
-    mov [rsp+16], rsi
+    push r8
+    lea r8, [rbp+136] ; Get Local
+    mov [rsp+8], r8
+    lea r8, [rbp+176] ; Get Local
+    mov [rsp+16], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
-    test rsi, rsi ; Loop check
+    mov r8, rax
+    test r8, r8 ; Loop check
     jnz .L105
 .L104:
-    mov rsi, 0 ; Load INT
-    mov [rbp + 248], rsi ; Declare identifier
-    lea rsi, [_Dictionary_export] ; Method access
+    mov r8, 0 ; Load INT
+    mov [rbp + 248], r8 ; Declare identifier
+    lea r8, [__Dictionary__export] ; Method access
     sub rsp, 32 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov [rsp+16], rsi
-    lea rsi, [rbp+248] ; Get Local
-    mov [rsp+24], rsi
+    push r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov [rsp+16], r8
+    lea r8, [rbp+248] ; Get Local
+    mov [rsp+24], r8
     pop rcx
     call rcx
     add rsp, 32
-    mov rsi, rax
-    xor rsi, 1 ; Bool not
-    test rsi, rsi
+    mov r8, rax
+    xor r8, 1 ; Bool not
+    test r8, r8
     jz .L111
     sub rsp, 16 ; Make space for native args
-    lea rsi, [C18]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov [rsp+8], rsi
+    lea r8, [C19]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov [rsp+8], r8
     pop rcx
     pop rdx
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+64] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+64] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
-    mov rsi, rax
-    mov rsi, 1 ; Load INT
-    mov rax, rsi
+    mov r8, rax
+    mov r8, 1 ; Load INT
+    mov rax, r8
     jmp .L91
 .L111:
     sub rsp, 24 ; Make space for native args
-    lea rsi, [C19]
-    mov [rsp+0], rsi
-    mov rsi, qword [rbp+248] ; Get Arg/Local
-    mov [rsp+8], rsi
-    mov rsi, qword [rbp+24] ; Get Arg/Local
-    mov [rsp+16], rsi
+    lea r8, [C20]
+    mov [rsp+0], r8
+    mov r8, qword [rbp+248] ; Get Arg/Local
+    mov [rsp+8], r8
+    mov r8, qword [rbp+24] ; Get Arg/Local
+    mov [rsp+16], r8
     pop rcx
     pop rdx
     pop r8
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
-    lea rsi, [_Dictionary_free] ; Method access
+    mov r8, rax
+    lea r8, [__Dictionary__free] ; Method access
     sub rsp, 16 ; Reserve call arg space
-    push rsi
-    lea rsi, [rbp+88] ; Get Local
-    mov [rsp+8], rsi
+    push r8
+    lea r8, [rbp+88] ; Get Local
+    mov [rsp+8], r8
     pop rcx
     call rcx
     add rsp, 16
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+64] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+64] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Inline free call
     call free
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     sub rsp, 8 ; Make space for native args
-    mov rsi, qword [rbp+40] ; Get Arg/Local
-    mov [rsp+0], rsi
+    mov r8, qword [rbp+40] ; Get Arg/Local
+    mov [rsp+0], r8
     pop rcx
     sub rsp, 32 ; Close handle call
     call CloseHandle
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     call @nanoTimestamp
-    mov rsi, rax
-    cvtsi2sd xmm0, rsi ; Non-floating point to F64
-    movsd xmm1, [C20] ; Load F64
+    mov r8, rax
+    cvtsi2sd xmm0, r8 ; Non-floating point to F64
+    movsd xmm1, [C21] ; Load F64
     divsd xmm0, xmm1 ; Float Div
     movsd [rbp + 256], xmm0 ; Declare identifier
     sub rsp, 16 ; Make space for native args
-    lea rsi, [C21]
-    mov [rsp+0], rsi
+    lea r8, [C22]
+    mov [rsp+0], r8
     movsd xmm0, qword [rbp+256] ; Get Arg/Local
     movsd [rsp+8], xmm0
     pop rcx
@@ -2386,7 +2400,7 @@ _main:
     sub rsp, 32 ; Inline printf call
     call printf
     add rsp, 32
-    mov rsi, rax
+    mov r8, rax
     xor eax, eax
 .L91:
     pop rbp
@@ -2432,28 +2446,29 @@ section .data
     extern GetFileSizeEx
 
     ; Program Constants ;
-    C6: db `Total unique entries: %d\n`, 0
-    C13: db `Failed to get file size of file: \"%s\"\n`, 0
-    C1: dq 7.5e-1
-    C4: db `Key: '%.*s', Value: %i\n`, 0
-    C12: db `Opened file: \"%s\"\n`, 0
-    C16: db `Failed to read file: \"%s\"\n`, 0
-    C2: db `\"%.*s\"\n`, 0
-    C20: dq 1e9
-    C18: db `Could not export dictionary to \"%s\"\n`, 0
-    C11: db `Failed to open file: \"%s\"\n`, 0
-    C14: db `File is isEmpty: \"%s\"\n`, 0
-    C10: db `Usage: splicer.exe path/to/read/file [path/to/write/file] [deliminator]\n`, 0
-    C17: db `Read %d bytes from file: \"%s\"\n`, 0
-    C19: db `Exported %d bytes to file: \"%s\"\n`, 0
-    C0: db `.\\splicer_out.txt`, 0
-    C21: db `Time to run: %f s\n`, 0
-    C7: db `Most common entry: `, 0
-    C3: db `<Empty>\n`, 0
-    C9: db `\" : %i,\n`, 0
+    C18: db `Read %d bytes from file: \"%s\"\n`, 0
     C5: db `Total entries: %d\n`, 0
+    C12: db `Failed to open file: \"%s\"\n`, 0
+    C11: db `export_path: %s\n`, 0
+    C20: db `Exported %d bytes to file: \"%s\"\n`, 0
+    C10: db `Usage: splicer.exe path/to/read/file [path/to/write/file] [delimiter]\n`, 0
+    C17: db `Failed to read file: \"%s\"\n`, 0
+    C14: db `Failed to get file size of file: \"%s\"\n`, 0
+    C1: dq 7.5e-1
+    C21: dq 1e9
+    C19: db `Could not export dictionary to \"%s\"\n`, 0
+    C7: db `Most common entry: `, 0
+    C0: db `.\\splicer_out.txt`, 0
+    C13: db `Opened file: \"%s\"\n`, 0
+    C4: db `Key: '%.*s', Value: %i\n`, 0
+    C2: db `\"%.*s\"\n`, 0
+    C22: db `Time to run: %f s\n`, 0
+    C3: db `<Empty>\n`, 0
     C8: db `%.*s`, 0
-    C15: db `Failed to allocate read buffer of size %d bytes for file: \"%s\"\n`, 0
+    C9: db `\" : %i,\n`, 0
+    C15: db `File is empty: \"%s\"\n`, 0
+    C6: db `Total unique entries: %d\n`, 0
+    C16: db `Failed to allocate read buffer of size %d bytes for file: \"%s\"\n`, 0
 section .bss
     @CLOCK_START: resb 8
     @ARGC: resb 8
@@ -2461,8 +2476,8 @@ section .bss
     @ARG_BUFFER: resb 8
 
     ; Program Globals ;
-    _MAX_DENSITY: resb 8
-    _DEFAULT_DELIMINATOR: resb 1
-    _SIZEOF_ENTRY: resb 8
-    _SIZEOF_STRING: resb 8
-    _DEFAULT_EXPORT_PATH: resb 8
+    __MAX_DENSITY: resb 8
+    __SIZEOF_ENTRY: resb 8
+    __DEFAULT_DELIMITER: resb 1
+    __SIZEOF_STRING: resb 8
+    __DEFAULT_EXPORT_PATH: resb 8
