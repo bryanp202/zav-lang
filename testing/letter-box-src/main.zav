@@ -2,10 +2,13 @@ pub mod string;
 pub mod stringhashmap;
 
 use string::String;
-use stringhashmap::StringHashMap_string as Map;
+use stringhashmap::StringHashMap_string as Dict;
+
+pub const SIZE_OF_STRING = 16 as u64;
+pub const SIZE_OF_ENTRY_STRING = SIZE_OF_STRING * 2;
 
 fn main(argc: i64, argv: **u8) i64 {
-    var dict: Map = undefined;
+    var dict: Dict = undefined;
     dict.init();
 
     var america: String = undefined;
@@ -16,14 +19,30 @@ fn main(argc: i64, argv: **u8) i64 {
     japan.init("Japan");
     var japan_landmass: String =  undefined;
     japan_landmass.init("145,937 mi^2");
+    var canada: String = undefined;
+    canada.init("Canada");
+    var canada_landmass: String = undefined;
+    canada_landmass.init("3,855,100 mi^2");
 
     dict.put(&america, &america_landmass);
+    dict.put(&america, &japan_landmass);
+    dict.put(&america, &america_landmass);
     dict.put(&japan, &japan_landmass);
+    dict.put(&japan_landmass, &japan_landmass);
+    dict.put(&america_landmass, &japan_landmass);
+    dict.put(&canada, &japan_landmass);
+    dict.put(&canada_landmass, &japan_landmass);
 
-    var value: String = undefined;
-    if (dict.get_ref(&america, &value)) {
-        @printf("The landmass of \"%.*s\" is %.*s\n", america.len, america.data, value.len, value.data);
+    dict.display();
+    dict.remove(&japan);
+    dict.display();
+
+    const value = dict.get_ptr(&america);
+    if (value != nullptr) {
+        @printf("The landmass of \"%.*s\" is \"%.*s\"\n", america.len, america.data, value.*.len, value.*.data);
     } else {
         @printf("Did not find \"%.*s\"\n", america.len, america.data);
     }
+
+    @printf("Time to run: %f sec\n", @nanoTimestamp() / 1000000000.0);
 }

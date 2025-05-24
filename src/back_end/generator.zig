@@ -336,8 +336,8 @@ pub fn close(self: Generator) GenerationError!void {
         // Extract global
         const global = global_entry.value_ptr;
         // Write to file if not function and used
-        if (global.scope == .GLOBAL and global.used) {
-            try self.print("    _{s}: resb {d}\n", .{ global.name, global.size });
+        if (global.scope == .GLOBAL and global.used and self.stm.parent_module == global.source_module) {
+            try self.print("    {s}: resb {d}\n", .{ global.name, global.size });
         }
     }
 
@@ -573,22 +573,32 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
 
         // Pop register based on result type
         const result_kind = define_expr.result_kind;
-        if (result_kind == .FLOAT32) {
-            const reg = self.popSSEReg();
-            try self.print("    movss [_{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
-        } else if (result_kind == .FLOAT64) {
-            const reg = self.popSSEReg();
-            try self.print("    movsd [_{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
-        } else {
-            // Get size and size keyword
-            const size = globalStmt.kind.?.size_runtime();
-            // Get register
-            const reg = self.popCPUReg();
-            // Get properly sized register
-            const sized_reg = getSizedCPUReg(reg.index, size);
+        switch (result_kind) {
+            .FLOAT32 => {
+                const reg = self.popSSEReg();
+                try self.print("    movss [{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
+            },
+            .FLOAT64 => {
+                const reg = self.popSSEReg();
+                try self.print("    movsd [{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
+            },
+            .STRUCT => {
+                const reg = self.popCPUReg();
+                const struct_size = globalStmt.kind.?.size();
+                const global_reg = Register{.name = identifier.name, .index = cpu_reg_names.len + 1};
+                try self.copy_struct(global_reg, reg, struct_size, 0);
+            },
+            else => {
+                // Get size and size keyword
+                const size = globalStmt.kind.?.size_runtime();
+                // Get register
+                const reg = self.popCPUReg();
+                // Get properly sized register
+                const sized_reg = getSizedCPUReg(reg.index, size);
 
-            // Write assignment
-            try self.print("    mov [_{s}], {s} ; Declare identifier\n", .{ identifier.name, sized_reg });
+                // Write assignment
+                try self.print("    mov [{s}], {s} ; Declare identifier\n", .{ identifier.name, sized_reg });
+            },
         }
     }
 }
@@ -662,22 +672,33 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
 
         // Pop register based on result type
         const result_kind = define_expr.result_kind;
-        if (result_kind == .FLOAT32) {
-            const reg = self.popSSEReg();
-            try self.print("    movss [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
-        } else if (result_kind == .FLOAT64) {
-            const reg = self.popSSEReg();
-            try self.print("    movsd [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
-        } else {
-            // Get size and size keyword
-            const size = declareStmt.kind.?.size_runtime();
-            // Get register
-            const reg = self.popCPUReg();
-            // Get properly sized register
-            const sized_reg = getSizedCPUReg(reg.index, size);
 
-            // Write assignment
-            try self.print("    mov [rbp + {d}], {s} ; Declare identifier\n", .{ offset, sized_reg });
+        switch (result_kind) {
+            .FLOAT32 => {
+                const reg = self.popSSEReg();
+                try self.print("    movss [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
+            },
+            .FLOAT64 => {
+                const reg = self.popSSEReg();
+                try self.print("    movsd [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
+            },
+            .STRUCT => {
+                const expr_reg = self.popCPUReg();
+                const struct_size = result_kind.size();
+                const rbp_reg = Register{.name = "rbp", .index = cpu_reg_names.len + 1};
+                try self.copy_struct(rbp_reg, expr_reg, struct_size, offset);
+            },
+            else => {
+                // Get size and size keyword
+                const size = declareStmt.kind.?.size_runtime();
+                // Get register
+                const reg = self.popCPUReg();
+                // Get properly sized register
+                const sized_reg = getSizedCPUReg(reg.index, size);
+
+                // Write assignment
+                try self.print("    mov [rbp + {d}], {s} ; Declare identifier\n", .{ offset, sized_reg });
+            },
         }
     }
 }
@@ -848,6 +869,10 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                 else => unreachable,
             }
         }
+    } else if (mutStmt.id_kind == .STRUCT) {
+        const expr_reg = self.popCPUReg();
+        const struct_size = mutStmt.id_kind.size();
+        try self.copy_struct(id_reg, expr_reg, struct_size, 0);
     } else {
         // Get register
         const expr_reg = self.popCPUReg();
@@ -1137,7 +1162,7 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
                 "    movsd {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
                 .{ reg.name, size_keyword, offset },
             );
-        } else if (result_kind == .ARRAY) {
+        } else if (result_kind == .ARRAY or result_kind == .STRUCT) {
             const reg = try self.getNextCPUReg();
             // Mov normally
             try self.print(
@@ -1198,6 +1223,13 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
             // Mov normally
             try self.print(
                 "    movsd {s}, {s} [{s}] ; Get Global\n",
+                .{ reg.name, size_keyword, path },
+            );
+        } else if (result_kind == .ARRAY or result_kind == .STRUCT) {
+            const reg = try self.getNextCPUReg();
+            // Mov normally
+            try self.print(
+                "    lea {s}, {s} [{s}] ; Get Global\n",
                 .{ reg.name, size_keyword, path },
             );
         } else {
@@ -2296,4 +2328,43 @@ fn visitIfExpr(self: *Generator, ifExpr: *Expr.IfExpr, result_kind: KindId) Gene
     try self.genExpr(ifExpr.else_branch);
     // Write the asm for jump to end label
     try self.print(".L{d}: ; End of If Expr\n", .{label_c2});
+}
+
+// Helper functions for common patterns
+fn copy_struct(self: *Generator, output_reg: Register, input_reg: Register, struct_size: usize, offset: usize) GenerationError!void {
+    var amt_copied: usize = 0;
+
+    const output_8byte_reg = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 8);
+    while (amt_copied + 8 <= struct_size) {
+        const relative_offset = amt_copied + offset;
+        try self.print("    mov rax, [{s}+{d}]\n", .{input_reg.name, amt_copied});
+        try self.print("    mov [{s}+{d}], rax\n", .{output_8byte_reg, relative_offset});
+        amt_copied += 8;
+    }
+
+    if (amt_copied + 4 <= struct_size) {
+        const output_4byte_reg = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 4);
+        const relative_offset = amt_copied + offset;
+        try self.print("    mov eax, [{s}+{d}]\n", .{input_reg.name, amt_copied});
+        try self.print("    mov [{s}+{d}], eax\n", .{output_4byte_reg, relative_offset});
+        amt_copied += 4;
+    }
+
+    if (amt_copied + 2 <= struct_size) {
+        const output_2byte_reg = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 2);
+        const relative_offset = amt_copied + offset;
+        try self.print("    mov ax, [{s}+{d}]\n", .{input_reg.name, amt_copied});
+        try self.print("    mov [{s}+{d}], ax\n", .{output_2byte_reg, relative_offset});
+        amt_copied += 2;
+    }
+
+    if (amt_copied + 1 <= struct_size) {
+        const output_1byte_reg = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 1);
+        const relative_offset = amt_copied + offset;
+        try self.print("    mov ax, [{s}+{d}]\n", .{input_reg.name, amt_copied});
+        try self.print("    mov [{s}+{d}], ax\n", .{output_1byte_reg, relative_offset});
+        amt_copied += 1;
+    }
+
+    std.debug.assert(amt_copied == struct_size);
 }

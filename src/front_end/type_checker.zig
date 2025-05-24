@@ -129,10 +129,16 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
 
         for (module.useSlice()) |use| {
             self.checkUse(use.USE) catch |err| switch (err) {
-                error.InvalidScope => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.op, "Expected a valid scope") catch {},
-                error.SymbolNotPublic => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename.?, "Attempted to use a private symbol") catch {},
-                error.UndeclaredSymbol => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename.?, "Could not resolve used symbol") catch {},
-                else => unreachable,
+                error.DuplicateDeclaration => {
+                    const name = use.USE.rename.?.lexeme;
+                    const old_symbol = self.stm.peakSymbol(name) catch unreachable;
+                    self.reportDuplicateError(
+                        use.USE.op,
+                        old_symbol.dcl_line,
+                        old_symbol.dcl_column,
+                    ) catch {};
+                },
+                else => continue,
             };
         }
 
@@ -175,6 +181,24 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             };
         }
 
+        for (module.useSlice()) |use| {
+            self.checkUse(use.USE) catch |err| switch (err) {
+                error.DuplicateDeclaration => {
+                    const name = use.USE.rename.?.lexeme;
+                    const old_symbol = self.stm.peakSymbol(name) catch unreachable;
+                    self.reportDuplicateError(
+                        use.USE.op,
+                        old_symbol.dcl_line,
+                        old_symbol.dcl_column,
+                    ) catch {};
+                },
+                error.InvalidScope => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.op, "Expected a valid scope") catch {},
+                error.SymbolNotPublic => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename.?, "Attempted to use a private symbol") catch {},
+                error.UndeclaredSymbol => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename.?, "Could not resolve used symbol") catch {},
+                else => unreachable,
+            };
+        }
+
         // Look for function called main and make sure it has proper arguments
         if (module.kind == .ROOT) {
             self.checkForMain() catch {
@@ -183,7 +207,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             };
         }
 
-        // If had error in delcarations return
+        // If had error in declarations return
         if (self.had_error) {
             return;
         }
@@ -798,6 +822,7 @@ fn checkUse(self: *TypeChecker, use_stmt: *Stmt.UseStmt) !void {
     new_symbol.public = use_stmt.public;
 
     try self.stm.importSymbol(new_symbol, import_name.lexeme);
+    use_stmt.imported = true;
 }
 
 /// Declare a enum type, checking if name has already been used
@@ -948,6 +973,9 @@ fn declareStruct(
 
     // Add each method to the struct, but do not analyze body yet
     for (structStmt.methods) |*method| {
+        _ = method.return_kind.update(self.stm) catch {
+            return self.reportError(SemanticError.UnresolvableIdentifier, method.name, "Could not resolve method return type");
+        };
         // Make KindId
         var new_func = KindId.newFunc(self.allocator, method.arg_kinds, false, method.return_kind);
 
@@ -1253,6 +1281,14 @@ fn visitMutateStmt(self: *TypeChecker, mutStmt: *Stmt.MutStmt) SemanticError!voi
             SemanticError.TypeMismatch,
             mutStmt.op,
             "Floating point numbers do not support the modulo operator",
+        );
+    }
+
+    if (id_kind == .STRUCT and mutStmt.op.kind != .EQUAL) {
+        return self.reportError(
+            SemanticError.TypeMismatch,
+            mutStmt.op,
+            "Structs only support mutations with '==' operator",
         );
     }
 

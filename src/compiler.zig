@@ -121,7 +121,7 @@ pub fn compile(self: *Compiler, source: []const u8) void {
             self.output_name,
         }) catch unreachable;
         std.debug.print("Outputting to: {s}\n", .{output_path});
-        var base_link_args = [_][]const u8{ "gcc", "-s", "-nostartfiles", "-static", "-o", output_path };
+        var base_link_args = [_][]const u8{ "gcc", "-nostartfiles", "-static", "-o", output_path };
 
         // Concat with obj file args
         const link_args = std.mem.concat(self.allocator, []const u8, &[_][][]const u8{

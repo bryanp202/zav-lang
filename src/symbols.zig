@@ -498,11 +498,7 @@ pub const StructScope = struct {
 
     /// Calculate the size of this scope
     pub fn size(self: StructScope) u64 {
-        const alignment = 8 - self.next_address % 8;
-        if (alignment == 8) {
-            return self.next_address;
-        }
-        return self.next_address + alignment;
+        return self.next_address;
     }
 };
 

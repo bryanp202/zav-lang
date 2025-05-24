@@ -11,17 +11,22 @@ pub struct String {
         self.*.len = len;
     }
 
-    pub fn init_from(self: *String, other: *const String) void {
+    pub fn deinit(self: *String) void {
+        @free(self.*.data);
+    }
+
+    pub fn init_from(self: *String, other: *const String) void { // SELF is wrong
         const len = other.*.len;
         const buf = @malloc(len) as *u8;
+
         copy_nstr(len, other.*.data, buf);
 
-        self.*.data = buf; // TROUBLE MAKER, TRY TO FIX ME PLEASE
+        self.*.data = buf;
         self.*.len = len;
     }
 
     pub fn display(self: *const String) void {
-        @printf("%.*s\n", self.*.len, self.*.data);
+        @printf("\"%.*s\"\n", self.*.len, self.*.data);
     }
 
     pub fn eql(self: *const String, other: *const String) bool {
@@ -59,17 +64,17 @@ pub struct String {
 
 // String helper methods
 fn find_len(data: *const u8) u64 {
-    var current = data;
-    while (current.* != 0) {
-        current = &current[1];
+    var current = 0 as u64;
+    while (data[current] != 0) {
+        current += 1 as u64;
     }
-    return (current - data) as u64;
+    return current;
 }
 
-fn copy_nstr(len: u64, source: *const u8, buffer: *u8) void {
+fn copy_nstr(len: u64, source: *const u8, buf: *u8) void {
     var current = 0 as u64;
     while (current < len) {
-        buffer[current] = source[current];
+        buf[current] = source[current];
         current += 1 as u64;
     }
 }

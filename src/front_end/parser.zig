@@ -233,11 +233,11 @@ fn parseFuncKind(self: *Parser) SyntaxError!KindId {
 /// ArrayKind -> '[' integer ']' Kind
 fn parseArrayKind(self: *Parser) SyntaxError!KindId {
     // Consume integer
-    try self.consume(TokenKind.INTEGER, "Expected a positive integer for array length");
+    try self.consume(TokenKind.INTEGER, "Expected a 64 bit unsigned integer for array length");
     const length_token = self.previous;
     // Parse into usize
     const length = std.fmt.parseInt(usize, length_token.lexeme, 10) catch {
-        return self.errorAt("Expected a positive integer for array length");
+        return self.errorAt("Expected a 64 bit unsigned integer for array length");
     };
     try self.consume(TokenKind.RIGHT_SQUARE, "Expected ']' after array length");
 
