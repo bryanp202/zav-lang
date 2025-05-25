@@ -1543,8 +1543,8 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
             node.result_kind = KindId.FLOAT64;
         },
         .STRING => {
-            const strVal = literal_expr.value.as.string;
-            node.result_kind = KindId.newArr(self.allocator, KindId.newUInt(8), strVal.data.len, true, true);
+            //const strVal = literal_expr.value.as.string;
+            node.result_kind = KindId.newPtr(self.allocator, KindId.newUInt(8), true);
         },
         .ARRAY => {
             // Get array value
@@ -1573,7 +1573,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
         const msg = switch (err) {
             error.InvalidScope => "Invalid scope target",
             error.SymbolNotPublic => "Attempted to access a non-public symbol from another module",
-            else => unreachable,// "Identifier is undeclared",
+            else => unreachable, // "Identifier is undeclared",
         };
         return self.reportError(SemanticError.UnresolvableIdentifier, token, msg);
     };

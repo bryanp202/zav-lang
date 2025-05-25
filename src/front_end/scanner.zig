@@ -125,7 +125,6 @@ pub const Scanner = struct {
                 return self.emitToken(kind);
             },
             '=' => {
-
                 const kind = if (self.match('=')) TokenKind.EQUAL_EQUAL else if (self.match('>')) TokenKind.ARROW else TokenKind.EQUAL;
                 return self.emitToken(kind);
             },
@@ -542,7 +541,7 @@ pub const Scanner = struct {
                             _ = self.advance();
                             return self.checkKeyword("en", TokenKind.THEN);
                         },
-                        'u' => {
+                        'r' => {
                             _ = self.advance();
                             return self.checkKeyword("ue", TokenKind.TRUE);
                         },

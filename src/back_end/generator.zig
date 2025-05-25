@@ -586,7 +586,7 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
             .STRUCT => {
                 const reg = self.popCPUReg();
                 const struct_size = globalStmt.kind.?.size();
-                const global_reg = Register{.name = identifier.name, .index = cpu_reg_names.len + 1};
+                const global_reg = Register{ .name = identifier.name, .index = cpu_reg_names.len + 1 };
                 try self.copy_struct(global_reg, reg, struct_size, 0);
             },
             else => {
@@ -686,7 +686,7 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
             .STRUCT => {
                 const expr_reg = self.popCPUReg();
                 const struct_size = result_kind.size();
-                const rbp_reg = Register{.name = "rbp", .index = cpu_reg_names.len + 1};
+                const rbp_reg = Register{ .name = "rbp", .index = cpu_reg_names.len + 1 };
                 try self.copy_struct(rbp_reg, expr_reg, struct_size, offset);
             },
             else => {
@@ -1010,7 +1010,7 @@ fn visitSwitchStmt(self: *Generator, switchStmt: Stmt.SwitchStmt) GenerationErro
     self.label_count += switchStmt.literal_branch_values.len;
     for (switchStmt.literal_branch_values, 0..) |values, i| {
         const branch_label = branch_label_start + i;
-        
+
         for (values) |value| {
             try self.print("    cmp {s}, ", .{value_reg.name});
 
@@ -1745,52 +1745,80 @@ fn visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: 
     // Generate self
     switch (operand_type) {
         // Converting FROM FLOAT32
-        .FLOAT32 => {
-            switch (result_kind) {
-                // Converting to FLOAT64
-                .FLOAT64 => {
-                    // Get register name
-                    const src_reg = self.getCurrSSEReg();
-                    try self.print("    cvtss2sd {s}, {s} ; F32 to F64\n", .{ src_reg.name, src_reg.name });
-                },
-                else => undefined,
-            }
+        .FLOAT32 => switch (result_kind) {
+            // Converting to FLOAT64
+            .FLOAT64 => {
+                // Get register name
+                const src_reg = self.getCurrSSEReg();
+                try self.print("    cvtss2sd {s}, {s}\n", .{ src_reg.name, src_reg.name });
+            },
+            // Converting to signed integer
+            .INT, .UINT => {
+                const src_reg = self.popSSEReg();
+                const dest_reg = try self.getNextCPUReg();
+                try self.print("    cvtss2si {s}, {s}\n", .{ src_reg.name, dest_reg.name });
+            },
+            else => {
+                const src_reg = self.popSSEReg();
+                const dest_reg = try self.getNextCPUReg();
+                const sized_dest_reg = getSizedCPUReg(dest_reg.index, 4);
+                try self.print("    movd {s}, {s}\n", .{ sized_dest_reg, src_reg.name });
+            },
         },
         // Converting FROM FLOAT64
-        .FLOAT64 => {
-            switch (result_kind) {
-                // Converting to FLOAT32 from FLOAT64
-                .FLOAT32 => {
-                    // Get register name
-                    const src_reg = self.getCurrSSEReg();
-                    try self.print("    cvtsd2ss {s}, {s} ; F64 to F32\n", .{ src_reg.name, src_reg.name });
-                },
-                else => undefined,
-            }
+        .FLOAT64 => switch (result_kind) {
+            // Converting to FLOAT32 from FLOAT64
+            .FLOAT32 => {
+                // Get register name
+                const src_reg = self.getCurrSSEReg();
+                try self.print("    cvtsd2ss {s}, {s}\n", .{ src_reg.name, src_reg.name });
+            },
+            // Converting to signed integer
+            .INT, .UINT => {
+                const src_reg = self.popSSEReg();
+                const dest_reg = try self.getNextCPUReg();
+                try self.print("    cvtsd2si {s}, {s}\n", .{ src_reg.name, dest_reg.name });
+            },
+            else => {
+                const src_reg = self.popSSEReg();
+                const dest_reg = try self.getNextCPUReg();
+                try self.print("    movq {s}, {s}\n", .{ dest_reg.name, src_reg.name });
+            },
         },
         // Non floating point source
-        .BOOL, .UINT, .INT => {
-            switch (result_kind) {
-                // Converting to FLOAT64
-                .FLOAT32 => {
-                    // Get register name
-                    const src_reg = self.popCPUReg();
-                    // Get new F64 register
-                    const target_reg = try self.getNextSSEReg();
-                    try self.print("    cvtsi2ss {s}, {s} ; Non-floating point to F32\n", .{ target_reg.name, src_reg.name });
-                },
-                // Converting to FLOAT64
-                .FLOAT64 => {
-                    // Get register name
-                    const src_reg = self.popCPUReg();
-                    // Get new F64 register
-                    const target_reg = try self.getNextSSEReg();
-                    try self.print("    cvtsi2sd {s}, {s} ; Non-floating point to F64\n", .{ target_reg.name, src_reg.name });
-                },
-                else => undefined,
-            }
+        .BOOL, .UINT, .INT => switch (result_kind) {
+            // Converting to FLOAT64
+            .FLOAT32 => {
+                // Get register name
+                const src_reg = self.popCPUReg();
+                // Get new F64 register
+                const target_reg = try self.getNextSSEReg();
+                try self.print("    cvtsi2ss {s}, {s}\n", .{ target_reg.name, src_reg.name });
+            },
+            // Converting to FLOAT64
+            .FLOAT64 => {
+                // Get register name
+                const src_reg = self.popCPUReg();
+                // Get new F64 register
+                const target_reg = try self.getNextSSEReg();
+                try self.print("    cvtsi2sd {s}, {s} ; Non-floating point to F64\n", .{ target_reg.name, src_reg.name });
+            },
+            else => undefined,
         },
-        else => undefined,
+        else => switch (result_kind) {
+            .FLOAT32 => {
+                const src_reg = self.popCPUReg();
+                const sized_reg_name = getSizedCPUReg(src_reg.index, 4);
+                const dest_reg = try self.getNextSSEReg();
+                try self.print("    movd {s}, {s}\n", .{ dest_reg.name, sized_reg_name });
+            },
+            .FLOAT64 => {
+                const src_reg = self.popCPUReg();
+                const dest_reg = try self.getNextSSEReg();
+                try self.print("    movq {s}, {s}\n", .{ dest_reg.name, src_reg.name });
+            },
+            else => undefined,
+        },
     }
 }
 
@@ -1800,7 +1828,7 @@ fn visitFieldExprID(self: *Generator, fieldExpr: *Expr.FieldExpr) GenerationErro
     if (fieldExpr.operand.result_kind == .PTR) {
         try self.genExpr(fieldExpr.operand);
     } else {
-        try self.genIDExpr(fieldExpr.operand);   
+        try self.genIDExpr(fieldExpr.operand);
     }
     const source_reg = self.getCurrCPUReg();
     const offset = fieldExpr.stack_offset;
@@ -1823,7 +1851,7 @@ fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: Kin
     if (fieldExpr.operand.result_kind == .PTR) {
         try self.genExpr(fieldExpr.operand);
     } else {
-        try self.genIDExpr(fieldExpr.operand);   
+        try self.genIDExpr(fieldExpr.operand);
     }
     const source_reg = self.popCPUReg();
     const offset = fieldExpr.stack_offset;
@@ -2410,7 +2438,7 @@ fn visitIfExpr(self: *Generator, ifExpr: *Expr.IfExpr, result_kind: KindId) Gene
 fn copy_struct(self: *Generator, output_reg: Register, input_reg: Register, struct_size: usize, offset: usize) GenerationError!void {
     const output_name = if (output_reg.index > cpu_reg_names.len) output_reg.name else getSizedCPUReg(output_reg.index, 8);
     try self.print("    mov rsi, {s}\n", .{input_reg.name});
-    try self.print("    lea rdi, [{s}+{d}]\n", .{output_name, offset});
+    try self.print("    lea rdi, [{s}+{d}]\n", .{ output_name, offset });
     try self.print("    mov rcx, {d}\n", .{struct_size});
     try self.write("    rep movsb\n");
 }

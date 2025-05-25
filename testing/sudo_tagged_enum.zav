@@ -1,0 +1,30 @@
+fn main(argc: i64, argv: **u8) void {
+    var num1: Number = undefined;
+    num1.init(NumberType::Integer, 1 as *void);
+    num1.display();
+
+    const str = "Hello!";
+    @printf("%c\n", str[4]);
+}
+
+struct Number {
+    type: NumberType;
+    value: *void;
+
+    pub fn init(self: *Number, type: NumberType, value: *void) void {
+        self.type = type;
+        self.value = value;
+    }
+
+    pub fn display(self: *Number) void {
+        switch (self.type) {
+            NumberType::Float => @printf("%f", self.value as f64);
+            NumberType::Integer => @printf("%d", self.value as i64);
+        }
+    }
+}
+
+enum NumberType {
+    Float,
+    Integer
+}
