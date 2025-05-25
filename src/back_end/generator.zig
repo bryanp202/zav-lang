@@ -549,6 +549,7 @@ fn genStmt(self: *Generator, stmt: StmtNode) GenerationError!void {
         .DECLARE => |declareStmt| try self.visitDeclareStmt(declareStmt.*),
         .MUTATE => |mutStmt| try self.visitMutateStmt(mutStmt.*),
         .WHILE => |whileStmt| try self.visitWhileStmt(whileStmt.*),
+        .SWITCH => |switchStmt| try self.visitSwitchStmt(switchStmt.*),
         .IF => |ifStmt| try self.visitIfStmt(ifStmt.*),
         .RETURN => |returnStmt| try self.visitReturnStmt(returnStmt.*),
         .BLOCK => |blockStmt| try self.visitBlockStmt(blockStmt.*),
@@ -989,6 +990,72 @@ fn visitWhileStmt(self: *Generator, whileStmt: Stmt.WhileStmt) GenerationError!v
     // Set break label and continue label to old on
     self.break_label = old_break_label;
     self.continue_label = old_cont_label;
+}
+
+fn visitSwitchStmt(self: *Generator, switchStmt: Stmt.SwitchStmt) GenerationError!void {
+    // Store old break label
+    const old_break_label = self.break_label;
+    // Get new label for end of switch
+    const exit_label = self.label_count;
+    self.label_count += 1;
+    // Update break label
+    self.break_label = exit_label;
+
+    try self.genExpr(switchStmt.value);
+    const value_reg = self.popCPUReg();
+    self.pushCPUReg(value_reg);
+
+    // Pre-allocate labels for each literal branch
+    const branch_label_start = self.label_count;
+    self.label_count += switchStmt.literal_branch_values.len;
+    for (switchStmt.literal_branch_values, 0..) |values, i| {
+        const branch_label = branch_label_start + i;
+        
+        for (values) |value| {
+            try self.print("    cmp {s}, ", .{value_reg.name});
+
+            const litExpr = value.expr.LITERAL;
+            switch (litExpr.value.kind) {
+                .UINT => {
+                    const lit_val = litExpr.value.as.uint.data;
+                    try self.print("{d}", .{lit_val});
+                },
+                .INT => {
+                    const lit_val = litExpr.value.as.int.data;
+                    try self.print("{d}", .{lit_val});
+                },
+                else => unreachable,
+            }
+
+            try self.print("\n    je .L{d}\n", .{branch_label});
+        }
+    }
+
+    if (switchStmt.else_branch) |else_branch| {
+        try self.genStmt(else_branch);
+    }
+    try self.print("    jmp .L{d}\n", .{exit_label});
+
+    const literal_branch_end_label = if (switchStmt.then_branch != null) blk: {
+        const end_label = self.label_count;
+        self.label_count += 1;
+        break :blk end_label;
+    } else exit_label;
+
+    for (switchStmt.literal_branch_stmts, 0..) |stmt, i| {
+        const branch_label = branch_label_start + i;
+        try self.print(".L{d}:\n", .{branch_label});
+        try self.genStmt(stmt);
+        try self.print("    jmp .L{d}\n", .{literal_branch_end_label});
+    }
+
+    if (switchStmt.then_branch) |then_branch| {
+        try self.print(".L{d}:\n", .{literal_branch_end_label});
+        try self.genStmt(then_branch);
+    }
+    try self.print(".L{d}:\n", .{exit_label});
+
+    self.break_label = old_break_label;
 }
 
 /// Generate an if statement

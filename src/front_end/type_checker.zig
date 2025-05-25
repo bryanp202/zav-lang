@@ -1196,6 +1196,7 @@ fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
         .EXPRESSION => |exprStmt| self.visitExprStmt(exprStmt),
         .MUTATE => |mutStmt| self.visitMutateStmt(mutStmt),
         .WHILE => |whileStmt| self.visitWhileStmt(whileStmt),
+        .SWITCH => |switchStmt| self.visitSwitchStmt(switchStmt),
         .IF => |ifStmt| self.visitIfStmt(ifStmt),
         .BLOCK => |blockStmt| self.visitBlockStmt(blockStmt),
         .RETURN => |returnStmt| self.visitReturnStmt(returnStmt),
@@ -1332,6 +1333,38 @@ fn visitWhileStmt(self: *TypeChecker, whileStmt: *Stmt.WhileStmt) SemanticError!
     }
     // Exit loop
     self.loop_depth -= 1;
+}
+
+fn visitSwitchStmt(self: *TypeChecker, switchStmt: *Stmt.SwitchStmt) SemanticError!void {
+    const value_kind = try self.analyzeExpr(&switchStmt.value);
+    if (value_kind != .ENUM and value_kind != .INT and value_kind != .UINT) {
+        return self.reportError(SemanticError.TypeMismatch, switchStmt.op, "Expected an integer or enum value for switch value");
+    }
+    self.switch_depth += 1;
+
+    for (switchStmt.literal_branch_values, switchStmt.arrows, switchStmt.literal_branch_stmts) |values, arrow, *stmt| {
+        for (values) |*value| {
+            const branch_value_kind = try self.analyzeExpr(value);
+            // Check if comptime known type
+            if (value.expr != .LITERAL) {
+                return self.reportError(SemanticError.TypeMismatch, arrow, "Expected a literal value for switch branch value");
+            }
+            if (!value_kind.equal(branch_value_kind)) {
+                return self.reportError(SemanticError.TypeMismatch, arrow, "Switch branch value must match switch value");
+            }
+        }
+        try self.analyzeStmt(stmt);
+    }
+
+    if (switchStmt.then_branch) |*then_branch| {
+        try self.analyzeStmt(then_branch);
+    }
+
+    if (switchStmt.else_branch) |*else_branch| {
+        try self.analyzeStmt(else_branch);
+    }
+
+    self.switch_depth -= 1;
 }
 
 /// Analyze the types of an ifStmt

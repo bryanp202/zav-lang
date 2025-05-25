@@ -1,0 +1,30 @@
+enum Days {
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+    Sunday
+}
+
+fn check_the_day(day: Days) void {
+    switch (day) {
+        Days::Monday => @printf("Time for another week\n");
+        Days::Wednesday => @printf("Humpday\n");
+        Days::Friday => @printf("Almost the weekend!\n");
+        Days::Saturday | Days::Sunday => @printf("Its the weekend!\n");
+        else => @printf("Just another day\n");
+        then => @printf("    Interesting day!\n");
+    }
+}
+
+fn main(argc: i64, argv: **u8) i64 {
+    check_the_day(Days::Monday);
+    check_the_day(Days::Tuesday);
+    check_the_day(Days::Wednesday);
+    check_the_day(Days::Thursday);
+    check_the_day(Days::Friday);
+    check_the_day(Days::Saturday);
+    check_the_day(Days::Sunday);
+}

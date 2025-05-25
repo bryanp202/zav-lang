@@ -125,7 +125,8 @@ pub const Scanner = struct {
                 return self.emitToken(kind);
             },
             '=' => {
-                const kind = if (self.match('=')) TokenKind.EQUAL_EQUAL else TokenKind.EQUAL;
+
+                const kind = if (self.match('=')) TokenKind.EQUAL_EQUAL else if (self.match('>')) TokenKind.ARROW else TokenKind.EQUAL;
                 return self.emitToken(kind);
             },
             // Indexing and Array type
@@ -536,7 +537,17 @@ pub const Scanner = struct {
                 },
                 't' => {
                     _ = self.advance();
-                    return self.checkKeyword("rue", TokenKind.TRUE);
+                    switch (self.peek()) {
+                        'h' => {
+                            _ = self.advance();
+                            return self.checkKeyword("en", TokenKind.THEN);
+                        },
+                        'u' => {
+                            _ = self.advance();
+                            return self.checkKeyword("ue", TokenKind.TRUE);
+                        },
+                        else => break :identifier_loop,
+                    }
                 },
                 'u' => {
                     _ = self.advance();
@@ -705,6 +716,8 @@ pub const TokenKind = enum {
     MOD,
     USE,
     AS,
+    ARROW,
+    THEN,
 
     //// Parser Tokens ////
     ERROR,

@@ -743,6 +743,8 @@ fn statement(self: *Parser) SyntaxError!StmtNode {
         return self.breakStmt();
     } else if (self.match(.{TokenKind.CONTINUE})) {
         return self.continueStmt();
+    } else if (self.match(.{TokenKind.SWITCH})) {
+        return self.switchStmt();
     } else { // ExprStmt or MutStmt fall through
         const expr = try self.expression();
         if (self.match(.{
@@ -760,6 +762,78 @@ fn statement(self: *Parser) SyntaxError!StmtNode {
         }
         // Fall through to expr stmt
         return self.exprStmt(expr);
+    }
+}
+
+fn switchStmt(self: *Parser) SyntaxError!StmtNode {
+    const op = self.previous;
+
+    // Consume '('
+    try self.consume(TokenKind.LEFT_PAREN, "Expected '(' before switch value");
+    // Get value expr
+    const value_result = try self.expression();
+    const value = value_result.expr;
+    // Consume ')'
+    try self.consume(TokenKind.RIGHT_PAREN, "Expected ')' after switch value");
+
+    try self.consume(TokenKind.LEFT_BRACE, "Expected '{' before switch body");
+
+    const Branch = struct {
+        value: []ExprNode,
+        arrow: Token,
+        stmt: StmtNode,
+    };
+    var lit_branch_list = std.MultiArrayList(Branch){};
+    var else_branch: ?StmtNode = null;
+    var then_branch: ?StmtNode = null;
+    try self.switchBranch(Branch, &lit_branch_list, &else_branch, &then_branch);
+
+    while (!self.match(.{TokenKind.RIGHT_BRACE})) {
+        try self.switchBranch(Branch, &lit_branch_list, &else_branch, &then_branch);
+    }
+
+    // Make new stmt node
+    const new_stmt = self.allocator.create(Stmt.SwitchStmt) catch unreachable;
+    new_stmt.* = Stmt.SwitchStmt.init(
+        op,
+        value,
+        lit_branch_list.items(.value),
+        lit_branch_list.items(.arrow),
+        lit_branch_list.items(.stmt),
+        else_branch,
+        then_branch,
+    );
+    // Return new stmt node
+    return StmtNode{ .SWITCH = new_stmt };
+}
+
+fn switchBranch(self: *Parser, Branch: type, lit_branch_list: *std.MultiArrayList(Branch), else_branch: *?StmtNode, then_branch: *?StmtNode) SyntaxError!void {
+    if (self.match(.{TokenKind.ELSE})) {
+        if (else_branch.* != null) {
+            return self.errorAt("Duplicate else branch detected in switch body");
+        }
+        try self.consume(TokenKind.ARROW, "Expected '=>' after switch else branch");
+        else_branch.* = try self.statement();
+    } else if (self.match(.{TokenKind.THEN})) {
+        if (then_branch.* != null) {
+            return self.errorAt("Duplicate then branch detected in switch body");
+        }
+        try self.consume(TokenKind.ARROW, "Expected '=>' after switch then branch");
+        then_branch.* = try self.statement();
+    } else {
+        var value_list = std.ArrayList(ExprNode).init(self.allocator);
+        
+        const first_value = try self.literal();
+        value_list.append(first_value.expr) catch unreachable;
+        while (!self.match(.{TokenKind.ARROW})) {
+            try self.consume(TokenKind.PIPE, "Expected '|' between values for a switch branch");
+            const value = try self.literal();
+            value_list.append(value.expr) catch unreachable;
+        }
+
+        const arrow = self.previous;
+        const stmt = try self.statement();
+        lit_branch_list.append(self.allocator, .{.value = value_list.items, .arrow = arrow, .stmt = stmt}) catch unreachable;
     }
 }
 

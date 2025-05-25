@@ -26,6 +26,7 @@ pub const StmtNode = union(enum) {
     RETURN: *ReturnStmt,
     STRUCT: *StructStmt,
     ENUM: *EnumStmt,
+    SWITCH: *SwitchStmt,
 
     /// Display a stmt
     pub fn display(self: StmtNode) void {
@@ -172,6 +173,30 @@ pub const StmtNode = union(enum) {
                 std.debug.print("enum {s} {{\n", .{enumStmt.id.lexeme});
                 for (enumStmt.variant_names) |variant| {
                     std.debug.print("    {s},\n", .{variant.lexeme});
+                }
+                std.debug.print("}}\n", .{});
+            },
+            .SWITCH => |switchStmt| {
+                std.debug.print("switch (", .{});
+                switchStmt.value.display();
+                std.debug.print(") {{\n", .{});
+                for (switchStmt.literal_branch_values, switchStmt.literal_branch_stmts) |values, stmt| {
+                    std.debug.print("    ", .{});
+                    values[0].display();
+                    for (values[1..]) |val| {
+                        std.debug.print(" | ", .{});
+                        val.display();
+                    }
+                    std.debug.print(" => ", .{});
+                    stmt.display();
+                }
+                if (switchStmt.else_branch) |stmt| {
+                    std.debug.print("    else => ", .{});
+                    stmt.display();
+                }
+                if (switchStmt.then_branch) |stmt| {
+                    std.debug.print("    then => ", .{});
+                    stmt.display();
                 }
                 std.debug.print("}}\n", .{});
             },
@@ -466,6 +491,37 @@ pub const EnumStmt = struct {
             .public = public,
             .id = id,
             .variant_names = variants,
+        };
+    }
+};
+
+/// Used to check integers and enums
+/// 
+/// Does not check for exhaustiveness
+/// 
+/// - switchStmt -> switch ( expr ) { branch (,branch)? }
+/// - branch -> literalBranch | elseBranch | finalBranch
+/// - literalBranch -> (Literal | EnumVariant) ("|" (Literal | EnumVariant))? => stmt
+/// - elseBranch -> else => stmt,
+/// - finalBranch -> final => stmt,
+pub const SwitchStmt = struct {
+    op: Token,
+    value: ExprNode,
+    literal_branch_values: [][]ExprNode,
+    arrows: []Token,
+    literal_branch_stmts: []StmtNode,
+    else_branch: ?StmtNode,
+    then_branch: ?StmtNode,
+
+    pub fn init(op: Token, value: ExprNode, literal_branch_values: [][]ExprNode, arrows: []Token, literal_branch_stmts: []StmtNode, else_branch: ?StmtNode, then_branch: ?StmtNode) SwitchStmt {
+        return SwitchStmt{
+            .op = op,
+            .value = value,
+            .literal_branch_values = literal_branch_values,
+            .arrows = arrows,
+            .literal_branch_stmts = literal_branch_stmts,
+            .else_branch = else_branch,
+            .then_branch = then_branch,
         };
     }
 };

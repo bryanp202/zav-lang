@@ -36,6 +36,7 @@ fn main(argc: i64, argv: **u8) i64 {
     // dict.display();
     // dict.remove(&japan);
     // dict.display();
+
     const display = ::stringhashmap::StringHashMap_string::display;
     display(&dict);
 
