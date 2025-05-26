@@ -496,9 +496,9 @@ pub const EnumStmt = struct {
 };
 
 /// Used to check integers and enums
-/// 
+///
 /// Does not check for exhaustiveness
-/// 
+///
 /// - switchStmt -> switch ( expr ) { branch (,branch)? }
 /// - branch -> literalBranch | elseBranch | finalBranch
 /// - literalBranch -> (Literal | EnumVariant) ("|" (Literal | EnumVariant))? => stmt

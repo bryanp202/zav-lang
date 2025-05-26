@@ -1,0 +1,60 @@
+enum TriangleFnState {
+    Rise,
+    Fall
+}
+
+struct TriangleFn {
+    state: TriangleFnState;
+    amplitude: f64;
+    step: f64;
+    dc: f64;
+    val: f64;
+
+    pub fn init(self: *TriangleFn, amplitude: f64, period: f64, dc: f64) void {
+        self.state = TriangleFnState::Rise;
+        self.amplitude = amplitude;
+        self.step = amplitude / period;
+        self.dc = dc;
+        self.val = 0.0;
+    }
+
+    pub fn next(self: *TriangleFn) f64 {
+        switch (self.state) {
+            TriangleFnState::Rise => {
+                self.val += self.step;
+                if (self.val >= self.amplitude) self.state = TriangleFnState::Fall;
+            }
+            TriangleFnState::Fall => {
+                self.val -= self.step;
+                if (self.val <= 0) self.state = TriangleFnState::Rise;
+            }
+        }
+        return self.val + self.dc;
+    }
+}
+
+fn f64mod(lhs: f64, rhs: f64) f64 {
+    if (rhs == 0.0) return 0.0;
+
+    const quotient = lhs / rhs;
+    const truncated = quotient as i64;
+
+    const n = (quotient - truncated < 0) ? truncated - 1 : truncated;
+
+    return lhs - n * rhs;
+}
+
+fn wait(loops: u64) void {
+    var curr = 0;
+    while (curr < loops) curr += 1;
+}
+
+pub fn main(argc: i64, argv: **u8) i64 {
+    var triangle1: TriangleFn = undefined;
+    triangle1.init(100, 13.33333333333333333, 0);
+
+    while (true) {
+        @printf("Val: %f\r", triangle1.next());
+        wait(90000000 as u64);
+    }
+}

@@ -271,7 +271,7 @@ fn checkForMain(self: *TypeChecker) SemanticError!void {
     const stderr = std.io.getStdErr().writer();
     // Search for symbol
     const main_func = self.stm.getSymbol("main") catch {
-        _ = stderr.write("Expected 'main' function with args (argc: u64, argv: **u8)\n") catch unreachable;
+        _ = stderr.write("Expected 'main' function with args (argc: i64, argv: **u8)\n") catch unreachable;
         return SemanticError.InvalidMainFunction;
     };
 

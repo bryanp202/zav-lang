@@ -7,7 +7,7 @@ use stringhashmap::StringHashMap_string as Dict;
 pub const SIZE_OF_STRING = 16 as u64;
 pub const SIZE_OF_ENTRY_STRING = SIZE_OF_STRING * 2;
 
-fn main(argc: i64, argv: **u8) i64 {
+fn main(argc: u64, argv: **u8) i64 {
     var dict: Dict = undefined;
     dict.init();
 

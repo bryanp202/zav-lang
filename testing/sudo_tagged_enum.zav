@@ -1,4 +1,4 @@
-fn main(argc: i64, argv: **u8) void {
+fn main(argc: u64, argv: **u8) void {
     var num1: Number = undefined;
     num1.init(NumberType::Integer, 1 as *void);
     num1.display();

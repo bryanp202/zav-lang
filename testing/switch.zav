@@ -19,7 +19,7 @@ fn check_the_day(day: Days) void {
     }
 }
 
-fn main(argc: i64, argv: **u8) i64 {
+fn main(argc: u64, argv: **u8) i64 {
     check_the_day(Days::Monday);
     check_the_day(Days::Tuesday);
     check_the_day(Days::Wednesday);

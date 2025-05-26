@@ -756,6 +756,7 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                 },
                 .MINUS_EQUAL => {
                     try self.print("    subss {s}, [{s}] ; Mutate\n", .{ expr_reg.name, id_reg.name });
+                    try self.print("    xorps {s}, oword [@SS_SIGN_BIT]\n", .{expr_reg.name});
                     try self.print("    movd [{s}], {s}\n", .{ id_reg.name, expr_reg.name });
                 },
                 .STAR_EQUAL => {
@@ -821,6 +822,7 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                 },
                 .MINUS_EQUAL => {
                     try self.print("    subsd {s}, [{s}] ; Mutate\n", .{ expr_reg.name, id_reg.name });
+                    try self.print("    xorps {s}, oword [@SD_SIGN_BIT]\n", .{expr_reg.name});
                     try self.print("    movq [{s}], {s}\n", .{ id_reg.name, expr_reg.name });
                 },
                 .STAR_EQUAL => {
@@ -1756,7 +1758,7 @@ fn visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: 
             .INT, .UINT => {
                 const src_reg = self.popSSEReg();
                 const dest_reg = try self.getNextCPUReg();
-                try self.print("    cvtss2si {s}, {s}\n", .{ src_reg.name, dest_reg.name });
+                try self.print("    cvtss2si {s}, {s}\n", .{ dest_reg.name, src_reg.name });
             },
             else => {
                 const src_reg = self.popSSEReg();
@@ -1777,7 +1779,7 @@ fn visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: 
             .INT, .UINT => {
                 const src_reg = self.popSSEReg();
                 const dest_reg = try self.getNextCPUReg();
-                try self.print("    cvtsd2si {s}, {s}\n", .{ src_reg.name, dest_reg.name });
+                try self.print("    cvtsd2si {s}, {s}\n", .{ dest_reg.name, src_reg.name });
             },
             else => {
                 const src_reg = self.popSSEReg();
