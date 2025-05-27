@@ -10,6 +10,7 @@ pub const SIZE_OF_ENTRY_STRING = SIZE_OF_STRING * 2;
 fn main(argc: i64, argv: **u8) i64 {
     var dict: Dict = undefined;
     dict.init();
+    defer dict.deinit();
 
     var america: String = undefined;
     america.init("United States of America");

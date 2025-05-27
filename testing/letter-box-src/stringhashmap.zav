@@ -20,6 +20,15 @@ pub struct StringHashMap_string {
         self.max_capacity = 0.7;
     }
 
+    pub fn deinit(self: *StringHashMap_string) void {
+        var i = 0;
+        while (i < self.count) {
+            self.items[i].key.deinit();
+            self.items[i].value.deinit();
+        } loop i += 1;
+        @free(self.items);
+    }
+
     pub fn put(self: *StringHashMap_string, key: *String, value: *String) bool {
         nullptr;  nullptr;
         if ((self.count + 1) as f64 / self.capacity as f64 > self.max_capacity) {
@@ -52,6 +61,7 @@ pub struct StringHashMap_string {
 
         if (found_existing) {
             entry_ptr.key.deinit();
+            entry_ptr.value.deinit();
             entry_ptr.key.data = 1 as *u8;
             entry_ptr.key.len = 0 as u64;
             self.count -= 1 as u64;
