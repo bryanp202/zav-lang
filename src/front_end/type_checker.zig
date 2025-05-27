@@ -1191,6 +1191,7 @@ fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
         .EXPRESSION => |exprStmt| self.visitExprStmt(exprStmt),
         .MUTATE => |mutStmt| self.visitMutateStmt(mutStmt),
         .WHILE => |whileStmt| self.visitWhileStmt(whileStmt),
+        .FOR => |forStmt| self.visitForStmt(forStmt),
         .SWITCH => |switchStmt| self.visitSwitchStmt(switchStmt),
         .IF => |ifStmt| self.visitIfStmt(ifStmt),
         .BLOCK => |blockStmt| self.visitBlockStmt(blockStmt),
@@ -1333,6 +1334,77 @@ fn visitWhileStmt(self: *TypeChecker, whileStmt: *Stmt.WhileStmt) SemanticError!
     }
     // Exit loop
     self.loop_depth -= 1;
+}
+
+fn visitForStmt(self: *TypeChecker, forStmt: *Stmt.ForStmt) SemanticError!void {
+    const range_start_kind = try self.analyzeExpr(&forStmt.range_start_expr);
+    _ = try self.staticCoerceKinds(forStmt.op, KindId.newInt(64), range_start_kind);
+    const range_end_kind = try self.analyzeExpr(&forStmt.range_end_expr);
+    _ = try self.staticCoerceKinds(forStmt.op, KindId.newInt(64), range_end_kind);
+
+    self.stm.addScope();
+
+    if (forStmt.pointer_expr) |*ptr_expr| {
+        var ptr_expr_kind = try self.analyzeExpr(ptr_expr);
+
+        // Decay any arrays into pointers
+        if (ptr_expr_kind == .ARRAY) {
+            // Downgrade to a ptr
+            ptr_expr_kind = KindId.newPtrFromArray(ptr_expr_kind, ptr_expr_kind.ARRAY.const_items);
+        }
+
+        if (ptr_expr_kind != .PTR) {
+            return self.reportError(SemanticError.TypeMismatch, forStmt.op, "Expected pointer or array at for loop pointer expression");
+        }
+
+        const ptr_id = forStmt.pointer_id.?;
+        const ptr_offset = self.stm.declareSymbol(
+            ptr_id.lexeme,
+            ptr_expr_kind,
+            ScopeKind.LOCAL,
+            ptr_id.line,
+            ptr_id.column,
+            false,
+            false,
+        ) catch {
+            const old_id = self.stm.getSymbol(ptr_id.lexeme) catch unreachable;
+            return self.reportDuplicateError(ptr_id, old_id.dcl_line, old_id.dcl_column);
+        };
+        forStmt.pointer_id_offset = ptr_offset + 8;
+    }
+
+    const range_id = forStmt.range_id;
+    const range_offset = self.stm.declareSymbol(
+        range_id.lexeme,
+        KindId.newInt(64),
+        ScopeKind.LOCAL,
+        range_id.line,
+        range_id.column,
+        false,
+        false,
+    ) catch {
+        const old_id = self.stm.getSymbol(range_id.lexeme) catch unreachable;
+        return self.reportDuplicateError(range_id, old_id.dcl_line, old_id.dcl_column);
+    };
+    forStmt.range_id_offset = range_offset + 8;
+
+    const range_end_offset = self.stm.declareSymbol(
+        "",
+        KindId.newInt(64),
+        ScopeKind.LOCAL,
+        range_id.line,
+        range_id.column,
+        false,
+        false,
+    ) catch {
+        const old_id = self.stm.getSymbol("") catch unreachable;
+        return self.reportDuplicateError(range_id, old_id.dcl_line, old_id.dcl_column);
+    };
+    forStmt.range_end_id_offset = range_end_offset + 8;
+
+    try self.analyzeStmt(&forStmt.body);
+
+    self.stm.popScope();
 }
 
 fn visitSwitchStmt(self: *TypeChecker, switchStmt: *Stmt.SwitchStmt) SemanticError!void {

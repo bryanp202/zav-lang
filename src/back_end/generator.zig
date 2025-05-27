@@ -555,6 +555,7 @@ fn genStmt(self: *Generator, stmt: StmtNode) GenerationError!void {
         .DEFER => |deferStmt| try self.visitDeferStmt(deferStmt.*),
         .MUTATE => |mutStmt| try self.visitMutateStmt(mutStmt.*),
         .WHILE => |whileStmt| try self.visitWhileStmt(whileStmt.*),
+        .FOR => |forStmt| try self.visitForStmt(forStmt.*),
         .SWITCH => |switchStmt| try self.visitSwitchStmt(switchStmt.*),
         .IF => |ifStmt| try self.visitIfStmt(ifStmt.*),
         .RETURN => |returnStmt| try self.visitReturnStmt(returnStmt.*),
@@ -1001,6 +1002,80 @@ fn visitWhileStmt(self: *Generator, whileStmt: Stmt.WhileStmt) GenerationError!v
     // Generate exit label
     try self.print(".L{d}:\n", .{exit_label});
     // Set break label and continue label to old on
+    self.break_label = old_break_label;
+    self.continue_label = old_cont_label;
+}
+
+fn visitForStmt(self: *Generator, forStmt: Stmt.ForStmt) GenerationError!void {
+    const range_id_offset = forStmt.range_id_offset - self.current_func_args_size;
+    const range_end_id_offset = forStmt.range_end_id_offset - self.current_func_args_size;
+
+    try self.genExpr(forStmt.range_start_expr);
+    const range_start_reg = self.getCurrCPUReg();
+    try self.print("    mov [rbp+{d}], {s}\n", .{ range_id_offset, range_start_reg.name });
+
+    const pointer_id_offset = forStmt.pointer_id_offset -% self.current_func_args_size;
+    if (forStmt.pointer_expr) |ptr_exp| {
+        try self.genExpr(ptr_exp);
+        const reg = self.popCPUReg();
+        try self.print("    mov [rbp+{d}], {s}\n", .{ pointer_id_offset, reg.name });
+    }
+
+    // Create and store break and continue labels
+    const old_break_label = self.break_label;
+    const exit_label = self.label_count;
+    self.break_label = exit_label;
+
+    const old_cont_label = self.continue_label;
+    const cont_label = self.label_count + 1;
+    self.continue_label = cont_label;
+    self.label_count += 2;
+
+    // Push range end onto the stack
+    try self.genExpr(forStmt.range_end_expr);
+    const range_end_reg = self.popCPUReg();
+    try self.print("    mov [rbp+{d}], {s}\n", .{ range_end_id_offset, range_end_reg.name });
+
+    _ = self.popCPUReg();
+    try self.print("    cmp {s}, {s}\n", .{ range_start_reg.name, range_end_reg.name });
+    const jmp_kind = if (forStmt.inclusive) "jg" else "jge";
+    try self.print("    {s} .L{d}\n", .{ jmp_kind, exit_label });
+
+    const start_label = self.label_count;
+    self.label_count += 1;
+    try self.print(".L{d}:\n", .{start_label});
+    try self.genStmt(forStmt.body);
+
+    // Loop section
+    try self.print(".L{d}:\n", .{cont_label});
+    try self.print("    add qword [rbp+{d}], 1\n", .{range_id_offset});
+
+    if (forStmt.pointer_expr) |ptr_expr| {
+        const child_size = switch (ptr_expr.result_kind) {
+            .ARRAY => |arr| arr.child.size(),
+            .PTR => |ptr| ptr.child.size(),
+            else => unreachable,
+        };
+        try self.print("    add qword [rbp+{d}], {d}\n", .{ pointer_id_offset, child_size });
+    }
+
+    // Conditional
+    const loop_jmp = if (forStmt.inclusive) "jle" else "jl";
+    try self.print(
+        \\    mov r8, [rbp+{d}]
+        \\    mov r9, [rbp+{d}]
+        \\    cmp r8, r9
+        \\    {s} .L{d}
+        \\.L{d}:
+        \\
+    , .{
+        range_id_offset,
+        range_end_id_offset,
+        loop_jmp,
+        start_label,
+        exit_label,
+    });
+
     self.break_label = old_break_label;
     self.continue_label = old_cont_label;
 }

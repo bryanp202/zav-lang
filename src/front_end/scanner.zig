@@ -62,7 +62,6 @@ pub const Scanner = struct {
             // Single char tokens
             ';' => return self.emitToken(TokenKind.SEMICOLON),
             ',' => return self.emitToken(TokenKind.COMMA),
-            '.' => return self.emitToken(TokenKind.DOT),
             '(' => return self.emitToken(TokenKind.LEFT_PAREN),
             ')' => return self.emitToken(TokenKind.RIGHT_PAREN),
             '{' => return self.emitToken(TokenKind.LEFT_BRACE),
@@ -136,6 +135,11 @@ pub const Scanner = struct {
             // Scopes or type declaration
             ':' => {
                 const kind = if (self.match(':')) TokenKind.SCOPE else TokenKind.COLON;
+                return self.emitToken(kind);
+            },
+            // for loop range
+            '.' => {
+                const kind = if (self.match('.')) TokenKind.DOT_DOT else TokenKind.DOT;
                 return self.emitToken(kind);
             },
 
@@ -280,7 +284,7 @@ pub const Scanner = struct {
         }
 
         // Check if decimal point and is float
-        if (self.peek() == '.') {
+        if (self.peek() == '.' and isDigit(self.peekNext())) {
             // Consume '.'
             _ = self.advance();
             while (isDigit(self.peek())) {
@@ -728,6 +732,7 @@ pub const TokenKind = enum {
     ARROW,
     THEN,
     DEFER,
+    DOT_DOT,
 
     //// Parser Tokens ////
     ERROR,

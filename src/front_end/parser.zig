@@ -746,8 +746,10 @@ fn deferStmt(self: *Parser) SyntaxError!StmtNode {
 fn statement(self: *Parser) SyntaxError!StmtNode {
     if (self.match(.{TokenKind.LEFT_BRACE})) {
         return self.blockStmt();
-    } else if (self.match(.{TokenKind.WHILE})) { // WhileStmt
+    } else if (self.match(.{TokenKind.WHILE})) {
         return self.whileStmt();
+    } else if (self.match(.{TokenKind.FOR})) {
+        return self.forStmt();
     } else if (self.match(.{TokenKind.IF})) {
         return self.ifStmt();
     } else if (self.match(.{TokenKind.RETURN})) {
@@ -880,6 +882,56 @@ fn whileStmt(self: *Parser) SyntaxError!StmtNode {
     new_stmt.* = Stmt.WhileStmt.init(op, conditional, body, loop_stmt);
     // Return new stmt node
     return StmtNode{ .WHILE = new_stmt };
+}
+
+/// Parse a WhileStmt
+///
+/// forStmt -> for (EXPR .. EXPR (, PTR)?) |IDENTIFIER (, IDENTIFIER)?| statement
+fn forStmt(self: *Parser) SyntaxError!StmtNode {
+    const op = self.previous;
+    try self.consume(TokenKind.LEFT_PAREN, "Expected '(' after for keyword");
+
+    const range_start_result = try self.expression();
+    const range_start_expr = range_start_result.expr;
+    try self.consume(TokenKind.DOT_DOT, "Expected '..' after for range start expression");
+    const inclusive = self.match(.{TokenKind.EQUAL});
+    const range_end_result = try self.expression();
+    const range_end_expr = range_end_result.expr;
+
+    const pointer_expr = if (self.match(.{TokenKind.COMMA})) blk: {
+        const result = try self.expression();
+        break :blk result.expr;
+    } else null;
+
+    try self.consume(TokenKind.RIGHT_PAREN, "Expected ')' after for conditional");
+    try self.consume(TokenKind.PIPE, "Expected '|' after for conditional");
+    try self.consume(TokenKind.IDENTIFIER, "Expected identifier to alias for loop range");
+    const range_id = self.previous;
+
+    const pointer_id = if (pointer_expr != null) blk: {
+        try self.consume(TokenKind.COMMA, "Expected ',' seperating range and pointer identifier");
+        try self.consume(TokenKind.IDENTIFIER, "Expected identifier for pointer identifier");
+        break :blk self.previous;
+    } else null;
+
+    try self.consume(TokenKind.PIPE, "Expected '|' after for loop captures");
+
+    const body = try self.statement();
+
+    // Make new stmt node
+    const new_stmt = self.allocator.create(Stmt.ForStmt) catch unreachable;
+    new_stmt.* = Stmt.ForStmt.init(
+        op,
+        range_start_expr,
+        range_end_expr,
+        pointer_expr,
+        range_id,
+        pointer_id,
+        body,
+        inclusive,
+    );
+    // Return new stmt node
+    return StmtNode{ .FOR = new_stmt };
 }
 
 /// Parses an if stmt

@@ -28,6 +28,7 @@ pub const StmtNode = union(enum) {
     ENUM: *EnumStmt,
     SWITCH: *SwitchStmt,
     DEFER: *DeferStmt,
+    FOR: *ForStmt,
 
     /// Display a stmt
     pub fn display(self: StmtNode) void {
@@ -205,6 +206,7 @@ pub const StmtNode = union(enum) {
                 std.debug.print("defer ", .{});
                 deferStmt.stmt.display();
             },
+            .FOR => |forStmt| forStmt.display(),
         }
     }
 };
@@ -542,5 +544,66 @@ pub const DeferStmt = struct {
             .op = op,
             .stmt = stmt,
         };
+    }
+};
+
+/// Sugar syntax for while loop
+///
+/// forStmt -> for (EXPR .. EXPR (, PTR)?) |IDENTIFIER (, IDENTIFIER)?| statement
+pub const ForStmt = struct {
+    op: Token,
+    range_start_expr: ExprNode,
+    range_end_expr: ExprNode,
+    pointer_expr: ?ExprNode,
+    range_id: Token,
+    pointer_id: ?Token,
+    body: StmtNode,
+    inclusive: bool,
+    range_id_offset: usize = undefined,
+    range_end_id_offset: usize = undefined,
+    pointer_id_offset: usize = undefined,
+
+    pub fn init(
+        op: Token,
+        range_start_expr: ExprNode,
+        range_end_expr: ExprNode,
+        pointer_expr: ?ExprNode,
+        range_id: Token,
+        pointer_id: ?Token,
+        body: StmtNode,
+        inclusive: bool,
+    ) ForStmt {
+        return ForStmt{
+            .op = op,
+            .range_start_expr = range_start_expr,
+            .range_end_expr = range_end_expr,
+            .pointer_expr = pointer_expr,
+            .range_id = range_id,
+            .pointer_id = pointer_id,
+            .body = body,
+            .inclusive = inclusive,
+        };
+    }
+
+    pub fn display(self: ForStmt) void {
+        std.debug.print("for (", .{});
+        self.range_start_expr.display();
+        std.debug.print("..", .{});
+        if (self.inclusive) {
+            std.debug.print("=", .{});
+        }
+        self.range_end_expr.display();
+
+        if (self.pointer_expr) |expr| {
+            std.debug.print(", ", .{});
+            expr.display();
+        }
+
+        std.debug.print(") |{s}", .{self.range_id.lexeme});
+        if (self.pointer_id) |id| {
+            std.debug.print(", {s}", .{id.lexeme});
+        }
+        std.debug.print("| ", .{});
+        self.body.display();
     }
 };

@@ -1,0 +1,11 @@
+fn main(argc: i64, argv: **u8) void {
+    const array: [10]i64 = undefined;
+
+    for (0..@len(array), array) |i, item| {
+        item.* = i;
+    }
+
+    for (0..10, array) |i, item| {
+        @printf("i: %d, item: %d\n", i, item.*);
+    }
+}
