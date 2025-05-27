@@ -1,7 +1,7 @@
-const BUFFER_SIZE = <u64>1001;
+const BUFFER_SIZE = 1001 as u64;
 
 fn main(argc: i64, argv: **u8) i64 {
-    const buffer = <*u8>@malloc(BUFFER_SIZE);
+    const buffer = @malloc(BUFFER_SIZE) as *u8;
 
     var board1: TicTacToeBoard = undefined;
 
@@ -63,7 +63,7 @@ struct TicTacToeBoard{
 fn initBoard(board: *TicTacToeBoard, player1: u8, player2: u8) void {
     board.*.player1_mark = player1;
     board.*.player2_mark = player2;
-    board.*.data = <*u8>@malloc(9);
+    board.*.data = @malloc(9) as *u8;
     resetBoard(board);
 }
 
@@ -75,7 +75,7 @@ fn resetBoard(board: *TicTacToeBoard) void {
     var index = 0;
     while (index < 9) {
         board.*.data[index] = EMPTY_MARK;
-    } loop: index += 1;
+    } loop index += 1;
 
     board.*.count = 0;
 }
