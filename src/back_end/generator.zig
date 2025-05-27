@@ -1143,8 +1143,10 @@ fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationErro
                 try self.print("    mov rax, {s}\n", .{reg.name});
             },
         }
-        self.func_stack_alignment += 8;
-        try self.write("    push rax\n");
+        if (self.defered_statements.items.len > 0) {
+            self.func_stack_alignment += 8;
+            try self.write("    push rax\n");
+        }
     }
 
     var i = self.defered_statements.items.len;
@@ -1153,7 +1155,7 @@ fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationErro
         try self.genStmt(stmt);
     }
 
-    if (returnStmt.expr != null) {
+    if (returnStmt.expr != null and self.defered_statements.items.len > 0) {
         try self.write("    pop rax\n");
     }
 
