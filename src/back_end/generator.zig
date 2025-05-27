@@ -614,7 +614,6 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
 fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_size: usize, used: bool, name: []const u8) GenerationError!void {
     // Do not generate if not used
     if (!used) {
-        self.stm.next_scope += functionStmt.scope_count;
         return;
     }
 
@@ -622,8 +621,6 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
     // Get locals stack size
     const locals_size = functionStmt.locals_size + ((8 - (functionStmt.locals_size & 7)) & 7);
     self.current_func_locals_size = locals_size;
-    // Enter scope
-    self.stm.pushScope();
 
     self.func_stack_alignment = 0;
 
@@ -663,9 +660,6 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
         self.func_stack_alignment -= locals_size;
     }
     try self.write("    ret\n");
-
-    // Exit scope
-    self.stm.popScope();
 }
 
 /// Generate the asm for a declare stmt
@@ -721,8 +715,6 @@ fn visitBlockStmt(self: *Generator, blockStmt: Stmt.BlockStmt) GenerationError!v
     const old_defer_count = self.current_block_defered_count;
     self.current_block_defered_count = 0;
 
-    // Push scope
-    self.stm.pushScope();
     // Generate each statement
     for (blockStmt.statements) |stmt| {
         try self.genStmt(stmt);
@@ -734,8 +726,6 @@ fn visitBlockStmt(self: *Generator, blockStmt: Stmt.BlockStmt) GenerationError!v
     }
 
     self.current_block_defered_count = old_defer_count;
-    // Pop scope
-    self.stm.popScope();
 }
 
 /// Generate the asm for an expr stmt

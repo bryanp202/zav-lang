@@ -36,7 +36,6 @@ had_error: bool,
 panic: bool,
 // Current functions return type
 current_return_kind: KindId,
-current_scope_count: u16,
 /// Stores path of current module
 current_module_path: []const u8,
 
@@ -50,7 +49,6 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .had_error = false,
         .panic = false,
         .current_return_kind = KindId.VOID,
-        .current_scope_count = undefined,
         .current_module_path = undefined,
     };
 }
@@ -1118,12 +1116,8 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, args_size: us
     // Update current return kind
     self.current_return_kind = func.return_kind;
 
-    // Reset current function scope count
-    self.current_scope_count = 1;
     // Analyze body
     try self.analyzeStmt(&func.body);
-    // Update scope count
-    func.scope_count = self.current_scope_count;
 
     // Get scope size
     const stack_size = self.stm.active_scope.next_address;
@@ -1393,7 +1387,6 @@ fn visitIfStmt(self: *TypeChecker, ifStmt: *Stmt.IfStmt) SemanticError!void {
 fn visitBlockStmt(self: *TypeChecker, blockStmt: *Stmt.BlockStmt) SemanticError!void {
     // Enter new scope
     self.stm.addScope();
-    self.current_scope_count += 1;
     // Loop through each statement in the block, checking its types
     for (blockStmt.statements) |*stmt| {
         self.analyzeStmt(stmt) catch {
