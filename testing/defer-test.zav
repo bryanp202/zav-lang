@@ -1,0 +1,20 @@
+pub fn main(argc: i64, argv: **u8) i64 {
+    const i = defer_stuff();
+    @printf("i: %d\n", i);
+}
+
+fn defer_stuff() i64 {
+    var i = 0;
+    defer @printf("Hello! %d\n", i);
+    defer @printf("Goodbye! %d\n", i);
+    defer i+=1;
+
+    while (true) {
+        defer i+=1;
+        @printf("i: %d\n", i);
+        if (i == 6) continue;
+        if (i == 7) break;
+    }
+
+    return i;
+}

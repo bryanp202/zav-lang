@@ -414,7 +414,17 @@ pub const Scanner = struct {
                 },
                 'd' => {
                     _ = self.advance();
-                    return self.checkKeyword("o", TokenKind.DO);
+                    switch (self.peek()) {
+                        'e' => {
+                            _ = self.advance();
+                            return self.checkKeyword("fer", TokenKind.DEFER);
+                        },
+                        'o' => {
+                            _ = self.advance();
+                            return self.checkKeyword("", TokenKind.DO);
+                        },
+                        else => break :identifier_loop,
+                    }
                 },
                 'e' => {
                     _ = self.advance();
@@ -717,6 +727,7 @@ pub const TokenKind = enum {
     AS,
     ARROW,
     THEN,
+    DEFER,
 
     //// Parser Tokens ////
     ERROR,

@@ -27,6 +27,7 @@ pub const StmtNode = union(enum) {
     STRUCT: *StructStmt,
     ENUM: *EnumStmt,
     SWITCH: *SwitchStmt,
+    DEFER: *DeferStmt,
 
     /// Display a stmt
     pub fn display(self: StmtNode) void {
@@ -199,6 +200,10 @@ pub const StmtNode = union(enum) {
                     stmt.display();
                 }
                 std.debug.print("}}\n", .{});
+            },
+            .DEFER => |deferStmt| {
+                std.debug.print("defer ", .{});
+                deferStmt.stmt.display();
             },
         }
     }
@@ -522,6 +527,21 @@ pub const SwitchStmt = struct {
             .literal_branch_stmts = literal_branch_stmts,
             .else_branch = else_branch,
             .then_branch = then_branch,
+        };
+    }
+};
+
+/// Used to defer a statement until the end of the current block
+///
+/// deferStmt -> defer statement
+pub const DeferStmt = struct {
+    op: Token,
+    stmt: StmtNode,
+
+    pub fn init(op: Token, stmt: StmtNode) DeferStmt {
+        return DeferStmt{
+            .op = op,
+            .stmt = stmt,
         };
     }
 };

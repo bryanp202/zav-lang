@@ -1193,6 +1193,7 @@ fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticErr
 fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
     return switch (stmt.*) {
         .DECLARE => |declareStmt| self.visitDeclareStmt(declareStmt),
+        .DEFER => |deferStmt| self.visitDeferStmt(deferStmt),
         .EXPRESSION => |exprStmt| self.visitExprStmt(exprStmt),
         .MUTATE => |mutStmt| self.visitMutateStmt(mutStmt),
         .WHILE => |whileStmt| self.visitWhileStmt(whileStmt),
@@ -1260,6 +1261,11 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
 
     // Update stack offset
     declareExpr.stack_offset = stack_offset + 8;
+}
+
+/// DeferStmt -> defer statement
+fn visitDeferStmt(self: *TypeChecker, deferStmt: *Stmt.DeferStmt) SemanticError!void {
+    try self.analyzeStmt(&deferStmt.stmt);
 }
 
 /// Analyze types of a mutation statement

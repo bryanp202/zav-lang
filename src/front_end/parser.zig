@@ -687,6 +687,8 @@ fn enumStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 fn declaration(self: *Parser) SyntaxError!StmtNode {
     if (self.match(.{ TokenKind.CONST, TokenKind.VAR })) { // DeclareStmt
         return self.declareStmt();
+    } else if (self.match(.{TokenKind.DEFER})) {
+        return self.deferStmt();
     } else { // Stmt fall through
         return self.statement();
     }
@@ -726,6 +728,17 @@ fn declareStmt(self: *Parser) SyntaxError!StmtNode {
     const new_stmt = self.allocator.create(Stmt.DeclareStmt) catch unreachable;
     new_stmt.* = Stmt.DeclareStmt.init(mutable, id, kind, op, assign_expr);
     return StmtNode{ .DECLARE = new_stmt };
+}
+
+/// DeferStmt -> defer statement
+fn deferStmt(self: *Parser) SyntaxError!StmtNode {
+    const op = self.previous;
+
+    const stmt = try self.statement();
+
+    const new_stmt = self.allocator.create(Stmt.DeferStmt) catch unreachable;
+    new_stmt.* = Stmt.DeferStmt.init(op, stmt);
+    return StmtNode{ .DEFER = new_stmt };
 }
 
 /// Parse a Stmt
@@ -822,7 +835,7 @@ fn switchBranch(self: *Parser, Branch: type, lit_branch_list: *std.MultiArrayLis
         then_branch.* = try self.statement();
     } else {
         var value_list = std.ArrayList(ExprNode).init(self.allocator);
-        
+
         const first_value = try self.literal();
         value_list.append(first_value.expr) catch unreachable;
         while (!self.match(.{TokenKind.ARROW})) {
@@ -833,7 +846,7 @@ fn switchBranch(self: *Parser, Branch: type, lit_branch_list: *std.MultiArrayLis
 
         const arrow = self.previous;
         const stmt = try self.statement();
-        lit_branch_list.append(self.allocator, .{.value = value_list.items, .arrow = arrow, .stmt = stmt}) catch unreachable;
+        lit_branch_list.append(self.allocator, .{ .value = value_list.items, .arrow = arrow, .stmt = stmt }) catch unreachable;
     }
 }
 

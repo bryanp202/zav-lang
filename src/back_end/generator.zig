@@ -68,6 +68,9 @@ current_func_locals_size: usize,
 current_func_args_size: usize,
 // Current stack alignment for current function
 func_stack_alignment: usize,
+/// Used to store all currently defered statements for a block
+defered_statements: std.ArrayList(Stmt.StmtNode),
+current_block_defered_count: usize,
 
 // Register count
 cpu_reg_stack: RegisterStack(cpu_reg_names),
@@ -234,6 +237,8 @@ pub fn open(
         .current_func_locals_size = undefined,
         .current_func_args_size = undefined,
         .func_stack_alignment = 0,
+        .defered_statements = std.ArrayList(StmtNode).init(allocator),
+        .current_block_defered_count = 0,
         .cpu_reg_stack = RegisterStack(cpu_reg_names).init(),
         .sse_reg_stack = RegisterStack(sse_reg_names).init(),
     };
@@ -547,6 +552,7 @@ fn genStmt(self: *Generator, stmt: StmtNode) GenerationError!void {
     switch (stmt) {
         .EXPRESSION => |exprStmt| try self.visitExprStmt(exprStmt.*),
         .DECLARE => |declareStmt| try self.visitDeclareStmt(declareStmt.*),
+        .DEFER => |deferStmt| try self.visitDeferStmt(deferStmt.*),
         .MUTATE => |mutStmt| try self.visitMutateStmt(mutStmt.*),
         .WHILE => |whileStmt| try self.visitWhileStmt(whileStmt.*),
         .SWITCH => |switchStmt| try self.visitSwitchStmt(switchStmt.*),
@@ -704,8 +710,17 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
     }
 }
 
+fn visitDeferStmt(self: *Generator, deferStmt: Stmt.DeferStmt) GenerationError!void {
+    self.defered_statements.append(deferStmt.stmt) catch unreachable;
+    self.current_block_defered_count += 1;
+}
+
 /// Generate the asm for a block stmt
 fn visitBlockStmt(self: *Generator, blockStmt: Stmt.BlockStmt) GenerationError!void {
+    // Reset defered statement
+    const old_defer_count = self.current_block_defered_count;
+    self.current_block_defered_count = 0;
+
     // Push scope
     self.stm.pushScope();
     // Generate each statement
@@ -713,6 +728,12 @@ fn visitBlockStmt(self: *Generator, blockStmt: Stmt.BlockStmt) GenerationError!v
         try self.genStmt(stmt);
     }
 
+    for (0..self.current_block_defered_count) |_| {
+        const stmt = self.defered_statements.pop().?;
+        try self.genStmt(stmt);
+    }
+
+    self.current_block_defered_count = old_defer_count;
     // Pop scope
     self.stm.popScope();
 }
@@ -1122,7 +1143,20 @@ fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationErro
                 try self.print("    mov rax, {s}\n", .{reg.name});
             },
         }
+        self.func_stack_alignment += 8;
+        try self.write("    push rax\n");
     }
+
+    var i = self.defered_statements.items.len;
+    while (i > 0) : (i -= 1) {
+        const stmt = self.defered_statements.items[i - 1];
+        try self.genStmt(stmt);
+    }
+
+    if (returnStmt.expr != null) {
+        try self.write("    pop rax\n");
+    }
+
     // Jump to return label
     try self.print("    jmp .L{d}\n", .{self.return_label});
 }
@@ -1130,6 +1164,14 @@ fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationErro
 /// Generate the jump for a break stmt
 fn visitBreakStmt(self: *Generator, breakStmt: Stmt.BreakStmt) GenerationError!void {
     _ = breakStmt;
+
+    var i = self.defered_statements.items.len;
+    const last = i - self.current_block_defered_count;
+    while (i > last) : (i -= 1) {
+        const stmt = self.defered_statements.items[i - 1];
+        try self.genStmt(stmt);
+    }
+
     // Write jump
     try self.print("    jmp .L{d}\n", .{self.break_label});
 }
@@ -1137,6 +1179,14 @@ fn visitBreakStmt(self: *Generator, breakStmt: Stmt.BreakStmt) GenerationError!v
 /// Generate the jump for a continue stmt
 fn visitContinueStmt(self: *Generator, continueStmt: Stmt.ContinueStmt) GenerationError!void {
     _ = continueStmt;
+
+    var i = self.defered_statements.items.len;
+    const last = i - self.current_block_defered_count;
+    while (i > last) : (i -= 1) {
+        const stmt = self.defered_statements.items[i - 1];
+        try self.genStmt(stmt);
+    }
+
     // Write jump
     try self.print("    jmp .L{d}\n", .{self.continue_label});
 }
