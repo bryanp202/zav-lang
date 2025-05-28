@@ -278,7 +278,7 @@ pub const Scanner = struct {
 
     /// Scan a number literal
     fn number(self: *Scanner) Token {
-        var previous: u8 = undefined;
+        var previous: u8 = 0;
 
         // Run until end of predecimal point
         while (isDigit(self.peek()) or (self.peek() == '_' and previous != '_')) {
