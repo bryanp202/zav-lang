@@ -1,5 +1,6 @@
 fn main(argc: i64, argv: **u8) void {
-    const array: [100]i64 = undefined;
+    const array: [10]i64 = undefined;
+    var _ = 100; // Does not cause error, because it is never truly declared
 
     for (0..@len(array), array) |i, item| {
         item.* = i;
@@ -10,8 +11,12 @@ fn main(argc: i64, argv: **u8) void {
     }
 
     var count = 0;
-    for (0..=100) |_| {
-        count += 1;
+    for (0..100) |x| {
+        for (0..x) |y| {
+            @printf("x*y=%d\n", x*y);
+            count += 1;
+        }
     }
     @printf("count: %d\n", count);
+    @printf("Time to run: %f\n", @nanoTimestamp() / 1_000_000_000.0);
 }

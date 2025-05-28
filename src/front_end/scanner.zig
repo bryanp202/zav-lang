@@ -278,22 +278,34 @@ pub const Scanner = struct {
 
     /// Scan a number literal
     fn number(self: *Scanner) Token {
+        var previous: u8 = undefined;
+
         // Run until end of predecimal point
-        while (isDigit(self.peek())) {
-            _ = self.advance();
+        while (isDigit(self.peek()) or (self.peek() == '_' and previous != '_')) {
+            previous = self.advance();
         }
 
-        // Check if decimal point and is float
-        if (self.peek() == '.' and isDigit(self.peekNext())) {
+        if (previous == '_') {
+            return self.emitError("Expected digit seperator to be between two digits");
+        }
+
+        const token_kind = if (self.peek() == '.' and (isDigit(self.peekNext()) or self.peekNext() == '_')) blk: {
             // Consume '.'
             _ = self.advance();
-            while (isDigit(self.peek())) {
-                _ = self.advance();
+            previous = '_';
+            while (isDigit(self.peek()) or (self.peek() == '_' and previous != '_')) {
+                previous = self.advance();
             }
-            return self.emitToken(TokenKind.FLOAT);
-        }
+
+            if (previous == '_') {
+                return self.emitError("Expected digit seperator to be between two digits");
+            }
+
+            break :blk TokenKind.FLOAT;
+        } else TokenKind.INTEGER;
+
         // Else return integer
-        return self.emitToken(TokenKind.INTEGER);
+        return self.emitToken(token_kind);
     }
 
     /// Scan a char literal

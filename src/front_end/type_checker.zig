@@ -1646,7 +1646,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
         const msg = switch (err) {
             error.InvalidScope => "Invalid scope target",
             error.SymbolNotPublic => "Attempted to access a non-public symbol from another module",
-            else => unreachable, // "Identifier is undeclared",
+            else => "Identifier is undeclared",
         };
         return self.reportError(SemanticError.UnresolvableIdentifier, token, msg);
     };
