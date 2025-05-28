@@ -1,11 +1,17 @@
 fn main(argc: i64, argv: **u8) void {
-    const array: [10]i64 = undefined;
+    const array: [100]i64 = undefined;
 
     for (0..@len(array), array) |i, item| {
         item.* = i;
     }
 
-    for (0..10, array) |i, item| {
-        @printf("i: %d, item: %d\n", i, item.*);
+    for (0..@len(array), array) |_, item| {
+        @printf("item: %d\n", item.*);
     }
+
+    var count = 0;
+    for (0..=100) |_| {
+        count += 1;
+    }
+    @printf("count: %d\n", count);
 }

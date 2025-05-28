@@ -1343,6 +1343,7 @@ fn visitForStmt(self: *TypeChecker, forStmt: *Stmt.ForStmt) SemanticError!void {
     _ = try self.staticCoerceKinds(forStmt.op, KindId.newInt(64), range_end_kind);
 
     self.stm.addScope();
+    self.loop_depth += 1;
 
     if (forStmt.pointer_expr) |*ptr_expr| {
         var ptr_expr_kind = try self.analyzeExpr(ptr_expr);
@@ -1404,6 +1405,7 @@ fn visitForStmt(self: *TypeChecker, forStmt: *Stmt.ForStmt) SemanticError!void {
 
     try self.analyzeStmt(&forStmt.body);
 
+    self.loop_depth -= 1;
     self.stm.popScope();
 }
 

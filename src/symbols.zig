@@ -329,14 +329,6 @@ pub const Scope = struct {
         global_next_address: *u64,
         size: u64,
     ) ScopeError!u64 {
-        // Check if in table
-        const getOrPut = self.symbols.getOrPut(name) catch unreachable;
-        // Check if it is already in table
-        if (getOrPut.found_existing) {
-            // Throw error
-            return ScopeError.DuplicateDeclaration;
-        }
-
         // Calculate address location
         var mem_loc: u64 = undefined;
         // Get allignment of data size
@@ -365,20 +357,31 @@ pub const Scope = struct {
             global_next_address.* += size;
         }
 
-        // Add symbol to the table
-        const new_symbol = Symbol.init(
-            module,
-            name,
-            kind,
-            scope,
-            dcl_line,
-            dcl_column,
-            is_mutable,
-            public,
-            mem_loc,
-            size,
-        );
-        getOrPut.value_ptr.* = new_symbol;
+        // Declare nothing if name is "_"
+        if (!std.mem.eql(u8, name, "_")) {
+            // Check if in table
+            const getOrPut = self.symbols.getOrPut(name) catch unreachable;
+            // Check if it is already in table
+            if (getOrPut.found_existing) {
+                // Throw error
+                return ScopeError.DuplicateDeclaration;
+            }
+
+            // Add symbol to the table
+            const new_symbol = Symbol.init(
+                module,
+                name,
+                kind,
+                scope,
+                dcl_line,
+                dcl_column,
+                is_mutable,
+                public,
+                mem_loc,
+                size,
+            );
+            getOrPut.value_ptr.* = new_symbol;
+        }
         // Return mem location
         return mem_loc;
     }
