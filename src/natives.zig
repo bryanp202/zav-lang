@@ -641,7 +641,7 @@ fn realloc_native(allocator: std.mem.Allocator) Native {
 fn free_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
-    arg_kinds[0] = KindId.newPtr(allocator, KindId.ANY, false);
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.ANY, true);
     // Make return kind
     const ret_kind = KindId.VOID;
     // Make the function kindid
