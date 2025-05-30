@@ -177,7 +177,7 @@ pub const SymbolTableManager = struct {
             } else {
                 const symbol = try self.peakSymbol(target);
 
-                if (symbol.source_module != self.parent_module and !symbol.public) {
+                if (symbol.source_module != self.parent_module and !symbol.public and symbol.borrowing_module != self.parent_module) {
                     return ScopeError.SymbolNotPublic;
                 }
 
@@ -211,19 +211,20 @@ pub const SymbolTableManager = struct {
             const symbol = switch (target) {
                 .MODULE => |module| try module.stm.getSymbol(name),
                 .ENUM => |enm| enm.variants.getPtr(name) orelse return ScopeError.UndeclaredSymbol,
-                .STRUCT => |strct| {
-                    const symbol = try strct.fields.getField(self, name);
-                    if (symbol.kind != .FUNC) {
+                .STRUCT => |strct| blk: {
+                    const struct_symbol = try strct.fields.getField(self, name);
+                    if (struct_symbol.kind != .FUNC) {
                         return ScopeError.InvalidScope;
-                    } else {
-                        return symbol;
                     }
+                    break :blk struct_symbol;
                 },
                 else => return ScopeError.InvalidScope,
             };
 
             if (symbol.source_module != self.parent_module) {
-                if (!symbol.public and symbol.borrowing_module != self.parent_module) return ScopeError.SymbolNotPublic;
+                if (!symbol.public and symbol.borrowing_module != self.parent_module) {
+                    return ScopeError.SymbolNotPublic;
+                }
 
                 if (symbol.scope == .FUNC) self.extern_dependencies.put(symbol.name, {}) catch unreachable;
             }

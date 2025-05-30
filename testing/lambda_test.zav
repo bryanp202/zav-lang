@@ -12,5 +12,4 @@ fn print_filter_n(n: i64, nums: *i64, sort_fn: fn (i64) bool) void {
     for (0..n, nums) |i, num| {
         if (sort_fn(num.*)) @printf("Num[%d]: %d\n", i, num.*);
     }
-
 }
