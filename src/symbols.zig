@@ -223,7 +223,7 @@ pub const SymbolTableManager = struct {
             };
 
             if (symbol.source_module != self.parent_module) {
-                if (!symbol.public) return ScopeError.SymbolNotPublic;
+                if (!symbol.public and symbol.borrowing_module != self.parent_module) return ScopeError.SymbolNotPublic;
 
                 if (symbol.scope == .FUNC) self.extern_dependencies.put(symbol.name, {}) catch unreachable;
             }
@@ -312,13 +312,13 @@ pub const Scope = struct {
     }
 
     /// Insert a used symbol, potentially changing names for value
-    pub fn importSymbol(self: *Scope, symbol: Symbol, as_name: []const u8, parent_module: *Module) ScopeError!void {
+    pub fn importSymbol(self: *Scope, symbol: Symbol, as_name: []const u8, borrowing_module: *Module) ScopeError!void {
         const getOrPut = self.symbols.getOrPut(as_name) catch unreachable;
         if (getOrPut.found_existing) {
             return ScopeError.DuplicateDeclaration;
         }
         getOrPut.value_ptr.* = symbol;
-        getOrPut.value_ptr.source_module = parent_module;
+        getOrPut.value_ptr.borrowing_module = borrowing_module;
     }
 
     /// Add a new symbol, providing all of its attributes and a null address
@@ -519,6 +519,7 @@ pub const StructScope = struct {
 /// Used to store information about a variable/symbol
 pub const Symbol = struct {
     source_module: *Module,
+    borrowing_module: *Module,
     name: []const u8,
     kind: KindId,
     scope: ScopeKind,
@@ -540,6 +541,7 @@ pub const Symbol = struct {
 
         return Symbol{
             .source_module = module,
+            .borrowing_module = module,
             .name = symbol_name,
             .kind = kind,
             .scope = scope,
@@ -563,6 +565,7 @@ pub const Symbol = struct {
 
         return Symbol{
             .source_module = module,
+            .borrowing_module = module,
             .name = symbol_name,
             .kind = kind,
             .scope = scope,
