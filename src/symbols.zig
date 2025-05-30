@@ -122,6 +122,11 @@ pub const SymbolTableManager = struct {
         }
     }
 
+    pub fn unpopScope(self: *SymbolTableManager) void {
+        self.next_scope -= 1;
+        self.active_scope = self.scopes.items[self.next_scope];
+    }
+
     /// Add a new symbol, with all of its attributes, and assign it with a null memory location
     pub fn declareSymbol(
         self: *SymbolTableManager,
@@ -156,7 +161,7 @@ pub const SymbolTableManager = struct {
     }
 
     pub fn importSymbol(self: *SymbolTableManager, symbol: Symbol, as_name: []const u8) ScopeError!void {
-        try self.active_scope.importSymbol(symbol, as_name);
+        try self.active_scope.importSymbol(symbol, as_name, self.parent_module);
     }
 
     pub fn addDependency(self: *SymbolTableManager, dependency: *Module, name: []const u8, dcl_line: u64, dcl_column: u64, public: bool) !void {
@@ -220,7 +225,7 @@ pub const SymbolTableManager = struct {
             if (symbol.source_module != self.parent_module) {
                 if (!symbol.public) return ScopeError.SymbolNotPublic;
 
-                self.extern_dependencies.put(symbol.name, {}) catch unreachable;
+                if (symbol.scope == .FUNC) self.extern_dependencies.put(symbol.name, {}) catch unreachable;
             }
 
             return symbol;
@@ -307,12 +312,13 @@ pub const Scope = struct {
     }
 
     /// Insert a used symbol, potentially changing names for value
-    pub fn importSymbol(self: *Scope, symbol: Symbol, as_name: []const u8) ScopeError!void {
+    pub fn importSymbol(self: *Scope, symbol: Symbol, as_name: []const u8, parent_module: *Module) ScopeError!void {
         const getOrPut = self.symbols.getOrPut(as_name) catch unreachable;
         if (getOrPut.found_existing) {
             return ScopeError.DuplicateDeclaration;
         }
         getOrPut.value_ptr.* = symbol;
+        getOrPut.value_ptr.source_module = parent_module;
     }
 
     /// Add a new symbol, providing all of its attributes and a null address

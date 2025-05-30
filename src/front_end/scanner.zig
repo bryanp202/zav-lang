@@ -82,7 +82,7 @@ pub const Scanner = struct {
                 return self.emitToken(kind);
             },
             '-' => {
-                const kind = if (self.match('=')) TokenKind.MINUS_EQUAL else TokenKind.MINUS;
+                const kind = if (self.match('=')) TokenKind.MINUS_EQUAL else if (self.match('>')) TokenKind.RETURN_ARROW else TokenKind.MINUS;
                 return self.emitToken(kind);
             },
             '*' => {
@@ -745,6 +745,7 @@ pub const TokenKind = enum {
     THEN,
     DEFER,
     DOT_DOT,
+    RETURN_ARROW,
 
     //// Parser Tokens ////
     ERROR,

@@ -276,7 +276,7 @@ fn len_native(allocator: std.mem.Allocator) Native {
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
     arg_kinds[0] = KindId.ANY;
     // Make return kind
-    const ret_kind = KindId.newUInt(32);
+    const ret_kind = KindId.newUInt(64);
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;

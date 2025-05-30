@@ -39,6 +39,9 @@ current_return_kind: KindId,
 /// Stores path of current module
 current_module_path: []const u8,
 
+/// Stores lambda functions to be evaluated later
+lambda_functions: std.ArrayList(StmtNode),
+
 /// Initialize a new TypeChecker
 pub fn init(allocator: std.mem.Allocator) TypeChecker {
     return TypeChecker{
@@ -50,6 +53,7 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .panic = false,
         .current_return_kind = KindId.VOID,
         .current_module_path = undefined,
+        .lambda_functions = std.ArrayList(StmtNode).init(allocator),
     };
 }
 
@@ -249,6 +253,9 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                 continue;
             };
         }
+
+        // Check all lambdas, add to module functions, and pop them off the stack
+        self.checkLambdas(module);
 
         // Check for unmutated var in global scope
         self.checkVarInScope();
@@ -1183,6 +1190,34 @@ fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticErr
     };
 }
 
+fn checkLambdas(self: *TypeChecker, module: *Module) void {
+    while (self.lambda_functions.pop()) |lambda| {
+        self.declareFunction(lambda.FUNCTION) catch {
+            self.panic = false;
+            self.had_error = true;
+            continue;
+        };
+
+        self.stm.unpopScope();
+
+        // Get arg_size
+        const func_symbol = self.stm.getSymbol(lambda.FUNCTION.name.lexeme) catch unreachable;
+        const args_size = func_symbol.kind.FUNC.args_size;
+        // analyze all function bodies, continue if there was an error
+        self.visitFunctionStmt(lambda.FUNCTION, args_size) catch {
+            self.panic = false;
+            self.had_error = true;
+            continue;
+        };
+
+        module.addStmt(lambda) catch {
+            self.panic = false;
+            self.had_error = true;
+            continue;
+        };
+    }
+}
+
 /// analyze the types of stmtnodes
 fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
     return switch (stmt.*) {
@@ -1554,6 +1589,7 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .AND => self.visitAndExpr(node),
         .OR => self.visitOrExpr(node),
         .IF => self.visitIfExpr(node),
+        .LAMBDA => self.visitLambdaExpr(node),
         //else => unreachable,
     };
 }
@@ -1855,8 +1891,6 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         if (arg_kind == .ARRAY) {
             // Downgrade to a ptr
             arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
-            // Update call_arg kind
-            caller_arg.*.result_kind = arg_kind;
         }
 
         // Check if match or coerceable
@@ -2322,6 +2356,39 @@ fn visitIfExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     } else {
         node.result_kind = coerce_result.final_kind;
     }
+
+    return node.result_kind;
+}
+
+fn visitLambdaExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    const lambdaExpr = node.expr.LAMBDA;
+
+    const name = std.fmt.allocPrint(self.allocator, "@anon{d}", .{self.lambda_functions.items.len}) catch unreachable;
+    const id = Token{ .lexeme = name, .kind = .IDENTIFIER, .line = lambdaExpr.op.line, .column = lambdaExpr.op.column };
+
+    const asm_name = std.fmt.allocPrint(self.allocator, "__{s}", .{name}) catch unreachable;
+
+    const new_identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+    new_identifier_expr.* = Expr.IdentifierExpr{ .id = id, .scope_kind = .FUNC, .lexical_scope = asm_name };
+    node.* = ExprNode.init(.{ .IDENTIFIER = new_identifier_expr });
+    node.result_kind = KindId.newFunc(self.allocator, lambdaExpr.arg_kinds, false, lambdaExpr.ret_kind);
+    _ = node.result_kind.update(self.stm) catch {
+        return self.reportError(SemanticError.UnresolvableIdentifier, id, "Could not resolve arg or return type in lambda function");
+    };
+
+    // Adds new sudo function statement to the queue of lambdas, evaluated after all normal methods and functions
+    const functionStmt = self.allocator.create(Stmt.FunctionStmt) catch unreachable;
+    functionStmt.* = Stmt.FunctionStmt.init(
+        false,
+        lambdaExpr.op,
+        id,
+        lambdaExpr.arg_names,
+        lambdaExpr.arg_kinds,
+        lambdaExpr.ret_kind,
+        lambdaExpr.body,
+    );
+    const temp_node = StmtNode{ .FUNCTION = functionStmt };
+    self.lambda_functions.append(temp_node) catch unreachable;
 
     return node.result_kind;
 }

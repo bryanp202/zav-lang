@@ -1048,7 +1048,7 @@ fn visitForStmt(self: *Generator, forStmt: Stmt.ForStmt) GenerationError!void {
 
     // Loop section
     try self.print(".L{d}:\n", .{cont_label});
-    try self.print("    add qword [rbp+{d}], 1\n", .{range_id_offset});
+    try self.print("    inc qword [rbp+{d}]\n", .{range_id_offset});
 
     if (forStmt.pointer_expr) |ptr_expr| {
         const child_size = switch (ptr_expr.result_kind) {
@@ -1295,6 +1295,7 @@ fn genExpr(self: *Generator, node: ExprNode) GenerationError!void {
         .AND => |andExpr| try self.visitAndExpr(andExpr),
         .OR => |orExpr| try self.visitOrExpr(orExpr),
         .IF => |ifExpr| try self.visitIfExpr(ifExpr, result_kind),
+        .LAMBDA => unreachable,
         //else => unreachable,
     }
 }
@@ -1790,7 +1791,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
                 // Increment next address
                 next_address += size;
             },
-            .PTR, .FUNC => {
+            .PTR, .FUNC, .ARRAY => {
                 // Get kind size
                 const size: u64 = 8;
                 // Check for alignment

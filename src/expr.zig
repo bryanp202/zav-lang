@@ -6,6 +6,8 @@ const Value = Symbol.Value;
 const KindId = Symbol.KindId;
 // Token
 const Token = @import("front_end/scanner.zig").Token;
+/// StmtNode import
+const StmtNode = @import("stmt.zig").StmtNode;
 
 //**********************************************//
 //          Expression Node
@@ -27,6 +29,7 @@ pub const ExprUnion = union(enum) {
     AND: *AndExpr,
     OR: *OrExpr,
     IF: *IfExpr,
+    LAMBDA: *LambdaExpr,
 };
 
 /// Generic node for all expression types
@@ -152,6 +155,7 @@ pub const ExprNode = struct {
                 ifExpr.else_branch.display();
                 std.debug.print(")", .{});
             },
+            .LAMBDA => |lambdaStmt| lambdaStmt.display(),
         }
     }
 };
@@ -409,5 +413,33 @@ pub const IfExpr = struct {
             .then_branch = then_branch,
             .else_branch = else_branch,
         };
+    }
+};
+
+/// Lambda
+pub const LambdaExpr = struct {
+    op: Token,
+    arg_names: []Token,
+    arg_kinds: []KindId,
+    ret_kind: KindId,
+    body: StmtNode,
+
+    pub fn init(op: Token, arg_names: []Token, arg_kinds: []KindId, ret_kind: KindId, body: StmtNode) LambdaExpr {
+        return LambdaExpr{
+            .op = op,
+            .arg_names = arg_names,
+            .arg_kinds = arg_kinds,
+            .ret_kind = ret_kind,
+            .body = body,
+        };
+    }
+
+    pub fn display(self: LambdaExpr) void {
+        std.debug.print("|", .{});
+        for (self.arg_names) |arg| {
+            std.debug.print("{s},", .{arg.lexeme});
+        }
+        std.debug.print("| ", .{});
+        self.body.display();
     }
 };

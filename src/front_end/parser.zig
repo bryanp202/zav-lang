@@ -516,45 +516,10 @@ fn functionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 
     // Consume '('
     try self.consume(TokenKind.LEFT_PAREN, "Expected '(' after function identifier");
-    // Parse args
-    var arg_name_list = std.ArrayList(Token).init(self.allocator);
-    var arg_kind_list = std.ArrayList(KindId).init(self.allocator);
-
-    // Check if any args
-    if (!self.match(.{TokenKind.RIGHT_PAREN})) {
-        // Do first arg
-        // Get name
-        try self.consume(TokenKind.IDENTIFIER, "Expected argument identifier");
-        const first_arg_name = self.previous;
-        // Consume ':'
-        try self.consume(TokenKind.COLON, "Expected ':' after argument identifier");
-        // Get type
-        const first_arg_kind = try self.parseKind();
-        // Add to arg_list
-        arg_name_list.append(first_arg_name) catch unreachable;
-        arg_kind_list.append(first_arg_kind) catch unreachable;
-
-        // Do sequential args
-        while (!self.match(.{TokenKind.RIGHT_PAREN}) and !self.isAtEnd()) {
-            // Consume ','
-            try self.consume(TokenKind.COMMA, "Expected ',' after argument");
-
-            // Get name
-            try self.consume(TokenKind.IDENTIFIER, "Expected argument identifier");
-            const arg_name = self.previous;
-            // Consume ':'
-            try self.consume(TokenKind.COLON, "Expected ':' after argument identifier");
-            // Get type
-            const arg_kind = try self.parseKind();
-
-            // Add to arg_list
-            arg_name_list.append(arg_name) catch unreachable;
-            arg_kind_list.append(arg_kind) catch unreachable;
-        }
-        // Check previous was paren
-        if (self.previous.kind != .RIGHT_PAREN) {
-            return self.errorAt("Expected ')' after function argument list");
-        }
+    const arg_list_result = try self.parseArgList(TokenKind.RIGHT_PAREN);
+    // Check previous was paren
+    if (self.previous.kind != .RIGHT_PAREN) {
+        return self.errorAt("Expected ')' after function argument list");
     }
 
     // Parse return kind
@@ -570,12 +535,59 @@ fn functionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
         is_public,
         op,
         name,
-        arg_name_list.items,
-        arg_kind_list.items,
+        arg_list_result.arg_names,
+        arg_list_result.arg_kinds,
         return_kind,
         body,
     );
     return StmtNode{ .FUNCTION = new_stmt };
+}
+
+const ArgList = struct {
+    arg_names: []Token,
+    arg_kinds: []KindId,
+};
+
+/// Helper function to parse argument list
+fn parseArgList(self: *Parser, closing_token_kind: TokenKind) SyntaxError!ArgList {
+    // Parse args
+    var arg_name_list = std.ArrayList(Token).init(self.allocator);
+    var arg_kind_list = std.ArrayList(KindId).init(self.allocator);
+
+    // Check if any args
+    if (!self.match(.{closing_token_kind})) {
+        // Do first arg
+        // Get name
+        try self.consume(TokenKind.IDENTIFIER, "Expected argument identifier");
+        const first_arg_name = self.previous;
+        // Consume ':'
+        try self.consume(TokenKind.COLON, "Expected ':' after argument identifier");
+        // Get type
+        const first_arg_kind = try self.parseKind();
+        // Add to arg_list
+        arg_name_list.append(first_arg_name) catch unreachable;
+        arg_kind_list.append(first_arg_kind) catch unreachable;
+
+        // Do sequential args
+        while (!self.match(.{closing_token_kind}) and !self.isAtEnd()) {
+            // Consume ','
+            try self.consume(TokenKind.COMMA, "Expected ',' after argument");
+
+            // Get name
+            try self.consume(TokenKind.IDENTIFIER, "Expected argument identifier");
+            const arg_name = self.previous;
+            // Consume ':'
+            try self.consume(TokenKind.COLON, "Expected ':' after argument identifier");
+            // Get type
+            const arg_kind = try self.parseKind();
+
+            // Add to arg_list
+            arg_name_list.append(arg_name) catch unreachable;
+            arg_kind_list.append(arg_kind) catch unreachable;
+        }
+    }
+
+    return ArgList{ .arg_names = arg_name_list.items, .arg_kinds = arg_kind_list.items };
 }
 
 /// StructStmt -> "struct" identifier '{' fieldlist '}'
@@ -1635,6 +1647,7 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             // Wrap in ExprResult
             return ExprResult.init(node, -1);
         },
+        .PIPE => return try self.lambdaExpr(),
         .EOF => return self.errorAtCurrent("Expected an expression but found end of file"),
         else => return self.errorAt("Expected an expression"),
     }
@@ -1664,6 +1677,36 @@ fn scopeExpr(self: *Parser, first_scope: Token, first_scope_op: Token) SyntaxErr
     const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
     identifier_expr.* = Expr.IdentifierExpr{ .id = next_scope, .lexical_scope = undefined };
     current_node.expr.SCOPE.operand = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
+
+    return ExprResult.init(new_node, 0);
+}
+
+fn lambdaExpr(self: *Parser) SyntaxError!ExprResult {
+    const op = self.previous;
+
+    const arg_list_result = try self.parseArgList(TokenKind.PIPE);
+    // Check previous was paren
+    if (self.previous.kind != .PIPE) {
+        return self.errorAt("Expected ')' after function argument list");
+    }
+
+    try self.consume(TokenKind.RETURN_ARROW, "Expected '->' after lamba arg list");
+
+    const ret_kind = try self.parseKind();
+
+    // If body is just an expression, turn it into a return stmt
+    const body = if (!self.match(.{TokenKind.LEFT_BRACE})) blk: {
+        const expr_result = try self.expression();
+        const expr = expr_result.expr;
+
+        const new_return_stmt = self.allocator.create(Stmt.ReturnStmt) catch unreachable;
+        new_return_stmt.* = Stmt.ReturnStmt.init(op, expr);
+        break :blk StmtNode{ .RETURN = new_return_stmt };
+    } else try self.blockStmt();
+
+    const lambda_expr = self.allocator.create(Expr.LambdaExpr) catch unreachable;
+    lambda_expr.* = Expr.LambdaExpr.init(op, arg_list_result.arg_names, arg_list_result.arg_kinds, ret_kind, body);
+    const new_node = ExprNode.init(.{ .LAMBDA = lambda_expr });
 
     return ExprResult.init(new_node, 0);
 }
