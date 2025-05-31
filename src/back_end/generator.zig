@@ -1705,6 +1705,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     const call_align = (16 - ((self.func_stack_alignment) % 16)) & 15;
     self.func_stack_alignment += call_align;
     const arg_space = args_size_aligned + call_align;
+
     // Reserve stack space
     if (arg_space > 8) {
         try self.print("    sub rsp, {d} ; Reserve call arg space\n", .{arg_space - 8});
@@ -2056,7 +2057,6 @@ fn visitIndexExprID(self: *Generator, indexExpr: *Expr.IndexExpr) GenerationErro
     } else {
         const child_size = access_kind.PTR.child.size();
         try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
-        // LEA the address
         try self.print("    lea {s}, [{s}+{s}] ; Ptr Index\n", .{ lhs_reg.name, lhs_reg.name, rhs_reg.name });
     }
 
@@ -2138,6 +2138,11 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
                 "    movsd {s}, [{s}+{s}] ; Array Index\n",
                 .{ result_reg.name, lhs_reg.name, rhs_reg.name },
             );
+        } else if (result_kind == .STRUCT) {
+            // Push lhs_reg back on the stack
+            const result_reg = try self.getNextCPUReg();
+            // Write index access, but as a pointer to the struct
+            try self.print("    lea {s}, [{s}+{s}] ; Array Index\n", .{ result_reg.name, lhs_reg.name, rhs_reg.name });
         } else {
             // Get the size of the result
             const size = result_kind.size();
@@ -2163,7 +2168,7 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
             }
         }
     } else {
-        const child_size = access_kind.PTR.child.size_runtime();
+        const child_size = access_kind.PTR.child.size();
         // Multiply index by child_size
         try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         // Check if float 32
@@ -2177,9 +2182,14 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
             const result_reg = try self.getNextSSEReg();
             // Write index access
             try self.print("    movsd {s}, [{s}+{s}] ; Ptr Index\n", .{ result_reg.name, lhs_reg.name, rhs_reg.name });
+        } else if (result_kind == .STRUCT) {
+            // Push lhs_reg back on the stack
+            const result_reg = try self.getNextCPUReg();
+            // Write index access, but as a pointer to the struct
+            try self.print("    lea {s}, [{s}+{s}] ; Ptr Index\n", .{ result_reg.name, lhs_reg.name, rhs_reg.name });
         } else {
             // Get the size of the result
-            const size = result_kind.size_runtime();
+            const size = result_kind.size();
             const size_keyword = getSizeKeyword(size);
             // Push lhs_reg back on the stack
             const result_reg = try self.getNextCPUReg();

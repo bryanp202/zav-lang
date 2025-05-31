@@ -1202,6 +1202,7 @@ fn checkLambdas(self: *TypeChecker, module: *Module) void {
 
         // Get arg_size
         const func_symbol = self.stm.getSymbol(lambda.FUNCTION.name.lexeme) catch unreachable;
+
         const args_size = func_symbol.kind.FUNC.args_size;
         // analyze all function bodies, continue if there was an error
         self.visitFunctionStmt(lambda.FUNCTION, args_size) catch {

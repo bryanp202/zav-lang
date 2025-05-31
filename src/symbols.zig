@@ -226,7 +226,7 @@ pub const SymbolTableManager = struct {
                     return ScopeError.SymbolNotPublic;
                 }
 
-                if (symbol.scope == .FUNC) self.extern_dependencies.put(symbol.name, {}) catch unreachable;
+                if (symbol.scope == .FUNC or symbol.scope == .GLOBAL) self.extern_dependencies.put(symbol.name, {}) catch unreachable;
             }
 
             return symbol;
@@ -902,6 +902,7 @@ const Function = struct {
         var size: usize = 0;
         for (self.arg_kinds) |*kind| {
             const child_size = try kind.update(stm);
+            size += child_size;
             const alignment: u64 = if (child_size > 4) 8 else if (child_size > 2) 4 else if (child_size > 1) 2 else 1;
             const offset = size & (alignment - 1);
             if (offset != 0) {
