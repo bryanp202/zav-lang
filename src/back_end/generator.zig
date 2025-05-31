@@ -1119,6 +1119,8 @@ fn visitSwitchStmt(self: *Generator, switchStmt: Stmt.SwitchStmt) GenerationErro
         }
     }
 
+    _ = self.popCPUReg();
+
     if (switchStmt.else_branch) |else_branch| {
         try self.genStmt(else_branch);
     }
@@ -1710,6 +1712,8 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     if (arg_space > 8) {
         try self.print("    sub rsp, {d} ; Reserve call arg space\n", .{arg_space - 8});
     }
+
+    self.buffered_writer_ptr.flush() catch unreachable;
     // Move function ptr to top of stack
     try self.print("    push {s}\n", .{func_ptr_reg.name});
     // Update stack alignment
@@ -1804,6 +1808,14 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
                 try self.print("    mov [rsp+{d}], {s}\n", .{ next_address, reg.name });
                 // Increment next address
                 next_address += size;
+            },
+            .STRUCT => |strct| {
+                const size = strct.fields.size();
+                next_address = realignStack(next_address, size);
+
+                const input_reg = self.popCPUReg();
+                const out_reg = Register{ .name = "rsp", .index = cpu_reg_names.len + 1 };
+                try self.copy_struct(out_reg, input_reg, size, next_address);
             },
             .ENUM => {
                 // Get kind size
