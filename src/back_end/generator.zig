@@ -2383,10 +2383,10 @@ fn visitCompareExpr(self: *Generator, compareExpr: *Expr.CompareExpr) Generation
             // Get register names, checking if reversed
             if (compareExpr.reversed) {
                 lhs_reg = self.popCPUReg();
-                rhs_reg = self.popCPUReg();
+                rhs_reg = self.getCurrCPUReg();
             } else {
                 rhs_reg = self.popCPUReg();
-                lhs_reg = self.popCPUReg();
+                lhs_reg = self.getCurrCPUReg();
             }
 
             // Zero out top parts of registers if necessary
@@ -2421,10 +2421,8 @@ fn visitCompareExpr(self: *Generator, compareExpr: *Expr.CompareExpr) Generation
                 .EXCLAMATION_EQUAL => try self.write("!=\n    setne al\n"),
                 else => unreachable,
             }
-            // Print common asm for all compares
-            try self.print("    movzx {s}, al\n", .{lhs_reg.name});
-            // Push lhs back on the stack
-            self.pushCPUReg(lhs_reg);
+            const out_reg = if (compareExpr.reversed) rhs_reg else lhs_reg;
+            try self.print("    movzx {s}, al\n", .{out_reg.name});
         },
         // Integer operands
         else => {
@@ -2433,10 +2431,10 @@ fn visitCompareExpr(self: *Generator, compareExpr: *Expr.CompareExpr) Generation
             // Get register names, checking if reversed
             if (compareExpr.reversed) {
                 lhs_reg = self.popCPUReg();
-                rhs_reg = self.popCPUReg();
+                rhs_reg = self.getCurrCPUReg();
             } else {
                 rhs_reg = self.popCPUReg();
-                lhs_reg = self.popCPUReg();
+                lhs_reg = self.getCurrCPUReg();
             }
 
             // Zero out top parts of registers if necessary
@@ -2463,10 +2461,8 @@ fn visitCompareExpr(self: *Generator, compareExpr: *Expr.CompareExpr) Generation
                 .EXCLAMATION_EQUAL => try self.write("!=\n    setne al\n"),
                 else => unreachable,
             }
-            // Print common asm for all compares
-            try self.print("    movzx {s}, al\n", .{lhs_reg.name});
-            // Push lhs register back on the stack
-            self.pushCPUReg(lhs_reg);
+            const out_reg = if (compareExpr.reversed) rhs_reg else lhs_reg;
+            try self.print("    movzx {s}, al\n", .{out_reg.name});
         },
     }
 }
