@@ -1904,7 +1904,8 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
     const old_call_chain = self.call_chain;
     self.call_chain = if (update_call_chain) true else old_call_chain;
     // Parse caller_expr
-    const callee_kind = try self.analyzeExpr(&callExpr.caller_expr);
+    const callee_result = try self.analyzeIDExpr(&callExpr.caller_expr, callExpr.op);
+    const callee_kind = callee_result.kind;
     self.call_chain = old_call_chain;
 
     // Check if function
@@ -2007,7 +2008,6 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
     }
 
     node.result_kind = callee.ret_kind.*;
-    std.debug.print("Call Result: {any}\n", .{node.result_kind});
     return node.result_kind;
 }
 
@@ -2034,6 +2034,10 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     // Update offset from base of struct
     fieldExpr.stack_offset = field.mem_loc;
     node.result_kind = field.kind;
+    // Check if method
+    if (field.scope == .FUNC) {
+        fieldExpr.method_name = field.name;
+    }
     // Check if mutable
     const mutable = if (operand_result.kind == .PTR) !operand_result.kind.PTR.const_child else operand_result.mutable and field.scope != .FUNC;
     return IDResult{ .kind = field.kind, .mutable = mutable };
@@ -2050,7 +2054,6 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
     // Check if operand is a struct
     if (operand_kind != .STRUCT) {
-        std.debug.print("kind: {any}\n", .{fieldExpr});
         return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct type for field access");
     }
     // Check if struct has the field
