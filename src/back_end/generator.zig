@@ -2188,14 +2188,14 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
                 "    movsd {s}, [{s}+{s}] ; Array Index\n",
                 .{ result_reg.name, lhs_reg.name, rhs_reg.name },
             );
-        } else if (result_kind == .STRUCT) {
+        } else if (result_kind == .STRUCT or result_kind == .ARRAY) {
             // Push lhs_reg back on the stack
             const result_reg = try self.getNextCPUReg();
             // Write index access, but as a pointer to the struct
             try self.print("    lea {s}, [{s}+{s}] ; Array Index\n", .{ result_reg.name, lhs_reg.name, rhs_reg.name });
         } else {
             // Get the size of the result
-            const size = result_kind.size();
+            const size = result_kind.size_runtime();
             const size_keyword = getSizeKeyword(size);
             // Push lhs_reg back on the stack
             const result_reg = try self.getNextCPUReg();
