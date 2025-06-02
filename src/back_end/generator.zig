@@ -576,6 +576,9 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
     }
 
     if (globalStmt.expr) |define_expr| {
+        const global_reg = try self.getNextCPUReg();
+        try self.print("    lea {s}, [{s}]\n", .{ global_reg.name, identifier.name });
+
         // Generate expression
         try self.genExpr(define_expr);
 
@@ -584,17 +587,19 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
         switch (result_kind) {
             .FLOAT32 => {
                 const reg = self.popSSEReg();
-                try self.print("    movss [{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
+                const id_reg = self.popCPUReg();
+                try self.print("    movss [{s}], {s} ; Declare identifier\n", .{ id_reg.name, reg.name });
             },
             .FLOAT64 => {
                 const reg = self.popSSEReg();
-                try self.print("    movsd [{s}], {s} ; Declare identifier\n", .{ identifier.name, reg.name });
+                const id_reg = self.popCPUReg();
+                try self.print("    movsd [{s}], {s} ; Declare identifier\n", .{ id_reg.name, reg.name });
             },
             .STRUCT => {
                 const reg = self.popCPUReg();
                 const struct_size = globalStmt.kind.?.size();
-                const global_reg = Register{ .name = identifier.name, .index = cpu_reg_names.len + 1 };
-                try self.copy_struct(global_reg, reg, struct_size, 0);
+                const id_reg = self.popCPUReg();
+                try self.copy_struct(id_reg, reg, struct_size, 0);
             },
             else => {
                 // Get size and size keyword
@@ -603,9 +608,10 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
                 const reg = self.popCPUReg();
                 // Get properly sized register
                 const sized_reg = getSizedCPUReg(reg.index, size);
+                const id_reg = self.popCPUReg();
 
                 // Write assignment
-                try self.print("    mov [{s}], {s} ; Declare identifier\n", .{ identifier.name, sized_reg });
+                try self.print("    mov [{s}], {s} ; Declare identifier\n", .{ id_reg.name, sized_reg });
             },
         }
     }
@@ -667,28 +673,32 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
 fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationError!void {
     // If defined, generate
     if (declareStmt.expr) |define_expr| {
+        const offset = declareStmt.stack_offset - self.current_func_args_size;
+        const declare_reg = try self.getNextCPUReg();
+        try self.print("    lea {s}, [rbp+{d}]\n", .{ declare_reg.name, offset });
+
         // Generate expression
         try self.genExpr(define_expr);
         // Get stack offset
-        const offset = declareStmt.stack_offset - self.current_func_args_size;
-
         // Pop register based on result type
         const result_kind = define_expr.result_kind;
 
         switch (result_kind) {
             .FLOAT32 => {
                 const reg = self.popSSEReg();
-                try self.print("    movss [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
+                const id_reg = self.popCPUReg();
+                try self.print("    movss [{s}], {s} ; Declare identifier\n", .{ id_reg.name, reg.name });
             },
             .FLOAT64 => {
                 const reg = self.popSSEReg();
-                try self.print("    movsd [rbp + {d}], {s} ; Declare identifier\n", .{ offset, reg.name });
+                const id_reg = self.popCPUReg();
+                try self.print("    movsd [{s}], {s} ; Declare identifier\n", .{ id_reg.name, reg.name });
             },
             .STRUCT => {
                 const expr_reg = self.popCPUReg();
                 const struct_size = result_kind.size();
-                const rbp_reg = Register{ .name = "rbp", .index = cpu_reg_names.len + 1 };
-                try self.copy_struct(rbp_reg, expr_reg, struct_size, offset);
+                const id_reg = self.popCPUReg();
+                try self.copy_struct(id_reg, expr_reg, struct_size, 0);
             },
             else => {
                 // Get size and size keyword
@@ -697,9 +707,10 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
                 const reg = self.popCPUReg();
                 // Get properly sized register
                 const sized_reg = getSizedCPUReg(reg.index, size);
+                const id_reg = self.popCPUReg();
 
                 // Write assignment
-                try self.print("    mov [rbp + {d}], {s} ; Declare identifier\n", .{ offset, sized_reg });
+                try self.print("    mov [{s}], {s} ; Declare identifier\n", .{ id_reg.name, sized_reg });
             },
         }
     }
@@ -744,17 +755,16 @@ fn visitExprStmt(self: *Generator, exprStmt: Stmt.ExprStmt) GenerationError!void
 
 /// Generate the asm for a mutate stmt
 fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void {
-    // Generate the assignment expression
-    try self.genExpr(mutStmt.assign_expr);
     // Generate the id expression
     try self.genIDExpr(mutStmt.id_expr);
+    // Generate the assignment expression
+    try self.genExpr(mutStmt.assign_expr);
 
-    // Pop id of the stack
-    const id_reg = self.popCPUReg();
     // Check if result is a float or not
     if (mutStmt.id_kind == .FLOAT32) {
         // Get register
         const expr_reg = self.popSSEReg();
+        const id_reg = self.popCPUReg();
         // Check if '='
         if (mutStmt.op.kind == .EQUAL) {
             // Write to memory
@@ -821,6 +831,7 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
     } else if (mutStmt.id_kind == .FLOAT64) {
         // Get register
         const expr_reg = self.popSSEReg();
+        const id_reg = self.popCPUReg();
         // Check if '='
         if (mutStmt.op.kind == .EQUAL) {
             // Write to memory
@@ -886,11 +897,13 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
         }
     } else if (mutStmt.id_kind == .STRUCT) {
         const expr_reg = self.popCPUReg();
+        const id_reg = self.popCPUReg();
         const struct_size = mutStmt.id_kind.size();
         try self.copy_struct(id_reg, expr_reg, struct_size, 0);
     } else {
         // Get register
         const expr_reg = self.popCPUReg();
+        const id_reg = self.popCPUReg();
         // Get sized reg
         const size = mutStmt.id_kind.size_runtime();
         const sized_reg = getSizedCPUReg(expr_reg.index, size);
@@ -1189,8 +1202,18 @@ fn visitIfStmt(self: *Generator, ifStmt: Stmt.IfStmt) GenerationError!void {
 fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationError!void {
     // Determine if return expression provided
     if (returnStmt.expr) |return_expr| {
-        // Generate it
         try self.genExpr(return_expr);
+
+        if (returnStmt.struct_ptr) |struct_ptr| {
+            const struct_offset = struct_ptr + self.current_func_locals_size;
+            const src_reg = self.getCurrCPUReg();
+            const size = return_expr.result_kind.size();
+            const out_reg = Register{ .name = "rax", .index = cpu_reg_names.len + 1 };
+
+            try self.print("    mov rax, [rbp+{d}]\n", .{struct_offset});
+            try self.copy_struct(out_reg, src_reg, size, 0);
+            try self.print("    mov {s}, rax\n", .{src_reg.name});
+        }
 
         // Move to rax
         switch (return_expr.result_kind) {
@@ -1272,6 +1295,7 @@ fn genIDExpr(self: *Generator, node: ExprNode) GenerationError!void {
         .INDEX => |indexExpr| try self.visitIndexExprID(indexExpr),
         .DEREFERENCE => |derefExpr| try self.visitDereferenceExprID(derefExpr),
         .FIELD => |fieldExpr| try self.visitFieldExprID(fieldExpr),
+        .CALL => |callExpr| try self.visitCallExpr(callExpr, node.result_kind),
         else => unreachable,
     }
 }
@@ -1721,6 +1745,20 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
 
     // Store next address on the stack
     var next_address: u64 = 8;
+
+    if (callExpr.chain) {
+        try self.write(
+            \\    mov rax, [rbp-8]
+            \\    mov [rsp+8], rax
+            \\
+        );
+        next_address += 8;
+    } else if (callExpr.non_chain_ptr) |ptr_str| {
+        try self.print("    lea rax, [{s}+{d}]\n", .{ ptr_str, callExpr.non_chain_ptr_offset - self.current_func_args_size });
+        try self.write("    mov [rsp+8], rax\n");
+        next_address += 8;
+    }
+
     // Generate each argument
     for (callExpr.args) |arg| {
         // Generate arg
@@ -1850,7 +1888,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     try self.restoreCPUReg(cpu_reg_count);
     // Move result
     switch (result_kind) {
-        .BOOL, .UINT, .INT, .PTR, .FUNC, .VOID, .ENUM => {
+        .BOOL, .UINT, .INT, .PTR, .FUNC, .VOID, .ENUM, .STRUCT => {
             // Get a new register
             const reg = try self.getNextCPUReg();
             try self.print("    mov {s}, rax\n", .{reg.name});

@@ -217,6 +217,9 @@ pub const CallExpr = struct {
     caller_expr: ExprNode,
     op: Token,
     args: []ExprNode,
+    chain: bool = false,
+    non_chain_ptr: ?[]const u8 = null,
+    non_chain_ptr_offset: usize = 0,
 
     pub fn init(caller_expr: ExprNode, op: Token, args: []ExprNode) CallExpr {
         return CallExpr{

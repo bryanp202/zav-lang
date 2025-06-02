@@ -661,9 +661,16 @@ pub const KindId = union(Kinds) {
         // Dynamically allocate the child KindId tag
         const ret_ptr = allocator.create(KindId) catch unreachable;
         ret_ptr.* = ret_kind;
-        // Make new array
+
+        const final_arg_kinds = if (ret_kind == .STRUCT) blk: {
+            const new_arg_kinds = allocator.alloc(KindId, arg_kinds.len + 1) catch unreachable;
+            std.mem.copyForwards(KindId, new_arg_kinds, arg_kinds);
+            new_arg_kinds[new_arg_kinds.len - 1] = KindId.newPtr(allocator, ret_kind, false);
+            break :blk new_arg_kinds;
+        } else arg_kinds;
+
         const func = Function{
-            .arg_kinds = arg_kinds,
+            .arg_kinds = final_arg_kinds,
             .variadic = variadic,
             .ret_kind = ret_ptr,
             .args_size = undefined,

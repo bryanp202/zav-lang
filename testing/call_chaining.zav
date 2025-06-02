@@ -1,0 +1,28 @@
+fn main(argc: i64, argv: **u8) i64 {
+    const result = MakeNum(1)
+        .inc()
+        .inc()
+        .inc()
+        .num;
+
+    @printf("num: %d\n", result);
+}
+
+struct Num {
+    num: i64;
+
+    pub fn init(self: *Num, num: i64) void {
+        self.num = num;
+    }
+
+    pub fn inc(self: *Num) Num {
+        self.num += 1;
+        return self.*;
+    }
+}
+
+fn MakeNum(val: i64) Num {
+    var num: Num = undefined;
+    num.num = val;
+    return num;
+}

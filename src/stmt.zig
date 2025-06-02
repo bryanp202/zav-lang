@@ -472,6 +472,7 @@ pub const BreakStmt = struct {
 pub const ReturnStmt = struct {
     op: Token,
     expr: ?ExprNode,
+    struct_ptr: ?usize = null,
 
     /// Initialize a ReturnStmt
     pub fn init(op: Token, expr: ?ExprNode) ReturnStmt {

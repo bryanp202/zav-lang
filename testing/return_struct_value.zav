@@ -1,0 +1,36 @@
+const global_complex = ComplexInit(1.0, 12.0);
+
+fn main(argc: i64, argv: **u8) i64 {
+    // @printf("hi\n");
+    // const new_complex = ComplexInit(2.0, 123.0);
+    // new_complex;nullptr;
+
+    // @printf("new_complex: real: %f\n", new_complex.imag);
+    
+    // @printf("hi\n");
+    // new_complex.display();
+    // @printf("hi\n");
+    // global_complex.display();
+
+    const a = 1;
+    @printf("a: %d\n", &a);
+
+    ComplexInit(1.123,-123.3).display();
+}
+
+fn ComplexInit(real: f64, imag: f64) Complex {
+    @printf("silent ptr: %d\n", (&real as *i64)[-1]);
+    var complex: Complex = undefined;
+    complex.real = real;
+    complex.imag = imag;
+    return complex;
+}
+
+struct Complex {
+    real: f64;
+    imag: f64;
+
+    pub fn display(self: *const Complex) void {
+        @printf("%f+%fi\n", self.real, self.imag);
+    }
+}

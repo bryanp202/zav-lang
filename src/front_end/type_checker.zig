@@ -42,6 +42,13 @@ current_module_path: []const u8,
 /// Stores lambda functions to be evaluated later
 lambda_functions: std.ArrayList(StmtNode),
 
+/// Stores the current return location for a struct
+current_function_return_ptr: ?usize,
+current_scope_kind: ScopeKind,
+anon_struct_count: usize,
+/// True if a call expr should be marked as a chain
+call_chain: bool,
+
 /// Initialize a new TypeChecker
 pub fn init(allocator: std.mem.Allocator) TypeChecker {
     return TypeChecker{
@@ -54,6 +61,10 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .current_return_kind = KindId.VOID,
         .current_module_path = undefined,
         .lambda_functions = std.ArrayList(StmtNode).init(allocator),
+        .current_function_return_ptr = null,
+        .current_scope_kind = ScopeKind.GLOBAL,
+        .anon_struct_count = 0,
+        .call_chain = false,
     };
 }
 
@@ -215,6 +226,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         }
     }
 
+    self.current_scope_kind = ScopeKind.LOCAL;
     module_iter = modules.iterator();
     while (module_iter.next()) |entry| {
         const module = entry.value_ptr.*;
@@ -996,6 +1008,19 @@ fn declareStruct(
             );
         }
 
+        if (method.return_kind == .STRUCT) {
+            const return_struct_ptr = new_func.FUNC.arg_kinds[new_func.FUNC.arg_kinds.len - 1];
+            _ = self.stm.declareSymbol(
+                "return",
+                return_struct_ptr,
+                ScopeKind.ARG,
+                method.op.line,
+                method.op.column,
+                false,
+                false,
+            ) catch unreachable;
+        }
+
         const ptr_child_kind = method.arg_kinds[0].PTR.child;
         _ = ptr_child_kind.update(self.stm) catch {
             return self.reportError(SemanticError.UnresolvableIdentifier, method.name, "Could not resolve struct type in this argument");
@@ -1060,19 +1085,32 @@ fn declareStruct(
 
 /// Declare a function, but do not check its body
 fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!void {
-    // Create new function
-    var new_func = KindId.newFunc(self.allocator, func.arg_kinds, false, func.return_kind);
-    // Update the function return to see if there are any user defined structs or function arguments/return types
-    _ = new_func.FUNC.ret_kind.update(self.stm) catch {
+    _ = func.return_kind.update(self.stm) catch {
         return self.reportError(
             SemanticError.UnresolvableIdentifier,
             func.op,
             "Could not resolve struct type in function return type",
         );
     };
+    // Create new function
+    var new_func = KindId.newFunc(self.allocator, func.arg_kinds, false, func.return_kind);
 
     // Add new scope for arguments
     self.stm.addScope();
+
+    if (func.return_kind == .STRUCT) {
+        const return_struct_ptr = new_func.FUNC.arg_kinds[new_func.FUNC.arg_kinds.len - 1];
+        _ = self.stm.declareSymbol(
+            "return",
+            return_struct_ptr,
+            ScopeKind.ARG,
+            func.op.line,
+            func.op.column,
+            false,
+            false,
+        ) catch unreachable;
+    }
+
     // Declare args
     for (func.arg_names, func.arg_kinds) |name, *kind| {
         _ = kind.update(self.stm) catch {
@@ -1122,6 +1160,7 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, args_size: us
     self.stm.pushScope();
     // Update current return kind
     self.current_return_kind = func.return_kind;
+    self.current_function_return_ptr = if (self.stm.getSymbol("return") catch null) |struct_ptr| struct_ptr.mem_loc + 16 else null;
 
     // Analyze body
     try self.analyzeStmt(&func.body);
@@ -1137,6 +1176,8 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, args_size: us
 
 /// Analze the types of an GlobalStmt
 fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticError!void {
+    self.call_chain = true;
+
     // Get the type of expression
     const maybe_expr_kind: ?KindId = if (globalStmt.expr != null) try self.analyzeExpr(&globalStmt.expr.?) else null;
     // Extract declaration kind
@@ -1240,6 +1281,8 @@ fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
 
 /// Analze the types of an DeclareStmt
 fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) SemanticError!void {
+    self.call_chain = true;
+
     // Get the type of expression
     const maybe_expr_kind: ?KindId = if (declareExpr.expr != null) try self.analyzeExpr(&declareExpr.expr.?) else null;
     // Extract declaration kind
@@ -1301,6 +1344,8 @@ fn visitDeferStmt(self: *TypeChecker, deferStmt: *Stmt.DeferStmt) SemanticError!
 
 /// Analyze types of a mutation statement
 fn visitMutateStmt(self: *TypeChecker, mutStmt: *Stmt.MutStmt) SemanticError!void {
+    self.call_chain = true;
+
     // Analze the id expression
     const id_result = try self.analyzeIDExpr(&mutStmt.id_expr, mutStmt.op);
     const id_kind = id_result.kind;
@@ -1347,6 +1392,7 @@ fn visitMutateStmt(self: *TypeChecker, mutStmt: *Stmt.MutStmt) SemanticError!voi
 
 /// analyze the types of an ExprStmt
 fn visitExprStmt(self: *TypeChecker, exprStmt: *Stmt.ExprStmt) SemanticError!void {
+    self.call_chain = false;
     // analyze the expression stored
     _ = try self.analyzeExpr(&exprStmt.expr);
 }
@@ -1526,6 +1572,10 @@ fn visitReturnStmt(self: *TypeChecker, returnStmt: *Stmt.ReturnStmt) SemanticErr
         if (coerce_result.upgraded_rhs) {
             insertConvExpr(self.allocator, return_expr, self.current_return_kind);
         }
+
+        if (self.current_function_return_ptr) |return_ptr| {
+            returnStmt.struct_ptr = return_ptr;
+        }
     } else {
         return self.reportError(SemanticError.TypeMismatch, returnStmt.op, "Expected a return expression");
     }
@@ -1567,6 +1617,11 @@ fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!I
         .INDEX => return self.visitIndexExprWrapped(node),
         .DEREFERENCE => return self.visitDereferenceExprWrapped(node),
         .FIELD => return self.visitFieldExprWrapped(node),
+        .CALL => {
+            const update_call_chain = true;
+            const call_result = try self.visitCallExpr(node, update_call_chain);
+            return IDResult{ .kind = call_result, .mutable = false };
+        },
         else => return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array for assignment"),
     }
 }
@@ -1581,7 +1636,7 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .NATIVE => self.visitNativeExpr(node),
         .DEREFERENCE => self.visitDereferenceExpr(node),
         .FIELD => self.visitFieldExpr(node),
-        .CALL => self.visitCallExpr(node),
+        .CALL => self.visitCallExpr(node, false),
         .CONVERSION => self.visitConvExpr(node),
         .INDEX => self.visitIndexExpr(node),
         .UNARY => self.visitUnaryExpr(node),
@@ -1842,18 +1897,24 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     return native.ret_kind.*;
 }
 
-fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) SemanticError!KindId {
     // Extract nativeExpr
     const callExpr = node.expr.CALL;
 
+    const old_call_chain = self.call_chain;
+    self.call_chain = if (update_call_chain) true else old_call_chain;
     // Parse caller_expr
     const callee_kind = try self.analyzeExpr(&callExpr.caller_expr);
+    self.call_chain = old_call_chain;
+
     // Check if function
     if (callee_kind != .FUNC) {
         return self.reportError(SemanticError.TypeMismatch, callExpr.op, "Expected a function type");
     }
     // Extract function
     const callee = callee_kind.FUNC;
+    var callee_args = callee.arg_kinds;
+    var call_args = callExpr.args;
 
     // Check if a method
     if (callExpr.caller_expr.expr == .FIELD) {
@@ -1865,7 +1926,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
                 var ampersand_token = callExpr.caller_expr.expr.FIELD.op;
                 ampersand_token.kind = TokenKind.AMPERSAND;
                 new_address.* = Expr.UnaryExpr.init(callExpr.caller_expr.expr.FIELD.operand, ampersand_token);
-                break :blk ExprNode.init(Expr.ExprUnion{ .UNARY = new_address });
+                break :blk ExprNode{ .result_kind = callee_args[0], .expr = .{ .UNARY = new_address } };
             } else {
                 break :blk callExpr.caller_expr.expr.FIELD.operand;
             }
@@ -1873,18 +1934,25 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         new_method_args[0] = first_arg_node;
         std.mem.copyForwards(ExprNode, new_method_args[1..], callExpr.args);
         callExpr.args = new_method_args;
+        callee_args = callee_args[1..];
+        call_args = new_method_args[1..];
     }
 
     // Check arg count
     if (callExpr.args.len != callee.arg_kinds.len) {
-        return self.reportError(
-            SemanticError.TypeMismatch,
-            callExpr.op,
-            "Invalid amount of arguments",
-        );
+        if (callee.ret_kind.* != .STRUCT or callExpr.args.len != callee.arg_kinds.len - 1) {
+            return self.reportError(
+                SemanticError.TypeMismatch,
+                callExpr.op,
+                "Invalid amount of arguments",
+            );
+        } else {
+            callee_args = callee_args[0 .. callee_args.len - 1];
+        }
     }
+
     // Check arg types
-    for (callee.arg_kinds, callExpr.args) |callee_arg, *caller_arg| {
+    for (call_args, callee_args) |*caller_arg, callee_arg| {
         // Evaluate argument type
         var arg_kind = try self.analyzeExpr(caller_arg);
 
@@ -1910,8 +1978,36 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             );
         }
     }
-    // Everything matches
+
+    // Check if returning struct by value
+    if (callee.ret_kind.* == .STRUCT) {
+        if (self.call_chain) {
+            callExpr.chain = true;
+        } else {
+            const anon_struct_name = std.fmt.allocPrint(self.allocator, "@anon_struct{d}", .{self.anon_struct_count}) catch unreachable;
+            self.anon_struct_count += 1;
+
+            const stack_offset = self.stm.declareSymbol(
+                anon_struct_name,
+                callee.ret_kind.*,
+                self.current_scope_kind,
+                undefined,
+                undefined,
+                false,
+                false,
+            ) catch unreachable;
+
+            if (self.current_scope_kind == .GLOBAL) {
+                callExpr.non_chain_ptr = anon_struct_name;
+            } else {
+                callExpr.non_chain_ptr = "rbp";
+                callExpr.non_chain_ptr_offset = stack_offset + 8;
+            }
+        }
+    }
+
     node.result_kind = callee.ret_kind.*;
+    std.debug.print("Call Result: {any}\n", .{node.result_kind});
     return node.result_kind;
 }
 
@@ -1954,6 +2050,7 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
     // Check if operand is a struct
     if (operand_kind != .STRUCT) {
+        std.debug.print("kind: {any}\n", .{fieldExpr});
         return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct type for field access");
     }
     // Check if struct has the field
