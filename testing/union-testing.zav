@@ -1,20 +1,87 @@
-union Union {
+union NumberValue {
     int: i64;
     float: f64;
 }
 
-struct Wrapper {
-    value: Union;
+enum NumberKind {
+    Integer,
+    Float
 }
 
+struct Number {
+    kind: NumberKind;
+    val: NumberValue;
+
+    pub fn display(self: *const Number) void {
+        switch (self.kind) {
+            NumberKind::Integer => @printf("int: %d\n", self.val.int);
+            NumberKind::Float => @printf("int: %f\n", self.val.float);
+        }
+    }
+
+    pub fn add_int(self: *Number, num: i64) void {
+        switch (self.kind) {
+            NumberKind::Integer => self.val.int += num;
+            NumberKind::Float => self.val.float += num as f64;
+        }
+    }
+
+    pub fn add_float(self: *Number, num: f64) void {
+        switch (self.kind) {
+            NumberKind::Integer => {
+                self.to_float();
+            }
+            else => {}
+        }
+        self.val.float += num;
+    }
+
+    pub fn to_float(self: *Number) void {
+        switch (self.kind) {
+            NumberKind::Integer => {
+                self.val.float = self.val.int as f64;
+                self.kind = NumberKind::Float;
+            }
+            else => {}
+        }
+    }
+
+    pub fn to_int(self: *Number) void {
+        switch (self.kind) {
+            NumberKind::Float => {
+                self.val.int = self.val.float as i64;
+                self.kind = NumberKind::Integer;
+            }
+            else => {}
+        }
+    }
+}
+
+fn new_number(kind: NumberKind) Number {
+    const a = true;
+    var new_num: Number = undefined;
+    new_num.kind = kind;
+    switch (kind) {
+        NumberKind::Integer => {
+            new_num.val.int = 100;
+        }
+        NumberKind::Float => {
+            new_num.val.float = 100.0;
+        }
+    }
+    return new_num;
+}
+
+
 pub fn main(argc: i64, argv: **u8) i64 {
-    var test: Wrapper = undefined;
-    test.value.int = 100;
-    test.value.float += 1.0;
-
-    const un = test.value;
-
-    const i = un.int;
-
-    @printf("as int: %f\n", i);
+    const num: Number = new_number(NumberKind::Float);
+    num.display();
+    num.add_int(10);
+    num.display();
+    num.add_float(1.1);
+    num.display();
+    num.to_int();
+    num.display();
+    num.to_float();
+    num.display();
 }

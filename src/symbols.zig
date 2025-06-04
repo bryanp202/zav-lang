@@ -1007,7 +1007,7 @@ pub const Struct = struct {
         const symbol = try stm.getSymbol(name);
         if (symbol.kind != .STRUCT) return ScopeError.UndeclaredSymbol;
         self.fields = symbol.kind.STRUCT.fields;
-        return self.fields.next_address;
+        return self.fields.next_address + (8 - (self.fields.next_address % 8));
     }
 };
 
