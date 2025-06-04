@@ -15,7 +15,7 @@ pub fn main() !void {
     // Stdio
     const stdout = std.io.getStdOut().writer();
     // Alloc
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     const global_allocator = gpa.allocator();
     var arena = std.heap.ArenaAllocator.init(global_allocator);
     const setup_allocator = arena.allocator();

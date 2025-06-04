@@ -1,0 +1,20 @@
+union Union {
+    int: i64;
+    float: f64;
+}
+
+struct Wrapper {
+    value: Union;
+}
+
+pub fn main(argc: i64, argv: **u8) i64 {
+    var test: Wrapper = undefined;
+    test.value.int = 100;
+    test.value.float += 1.0;
+
+    const un = test.value;
+
+    const i = un.int;
+
+    @printf("as int: %f\n", i);
+}

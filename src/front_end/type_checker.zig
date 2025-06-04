@@ -119,6 +119,14 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         const module = entry.value_ptr.*;
         self.setModule(module);
 
+        for (module.unionSlice(), 0..) |unon, index| {
+            self.indexUnion(unon.UNION.id, index, unon.UNION.public) catch {
+                self.panic = false;
+                self.had_error = true;
+                continue;
+            };
+        }
+
         for (module.structSlice(), 0..) |strct, index| {
             // Add it to symbol table
             self.indexStruct(strct.STRUCT.id, index, strct.STRUCT.public) catch {
@@ -153,6 +161,19 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                 },
                 else => continue,
             };
+        }
+
+        for (module.unionSlice()) |unon| {
+            // Get from stm
+            const symbol = self.stm.getSymbol(unon.UNION.id.lexeme) catch unreachable;
+            if (!symbol.kind.UNION.declared) {
+                // Declare the new kind with its fields, checking for circular dependencies
+                self.declareUnion(module, symbol, unon.UNION) catch {
+                    self.panic = false;
+                    self.had_error = true;
+                    return;
+                };
+            }
         }
 
         for (module.structSlice()) |strct| {
@@ -887,6 +908,25 @@ fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void
 }
 
 /// Index and add a struct to the STM
+fn indexUnion(self: *TypeChecker, name: Token, index: usize, public: bool) SemanticError!void {
+    // Create new struct with scope and index
+    const new_union = KindId.newUnion(self.allocator, name.lexeme, index);
+    // Try to add to stm global scope
+    _ = self.stm.declareSymbol(
+        name.lexeme,
+        new_union,
+        ScopeKind.STRUCT,
+        name.line,
+        name.column,
+        false,
+        public,
+    ) catch {
+        const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
+        return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
+    };
+}
+
+/// Index and add a struct to the STM
 fn indexStruct(self: *TypeChecker, name: Token, index: u64, public: bool) SemanticError!void {
     // Create new struct with scope and index
     const new_struct = KindId.newStructWithIndex(self.allocator, name.lexeme, index);
@@ -903,6 +943,40 @@ fn indexStruct(self: *TypeChecker, name: Token, index: u64, public: bool) Semant
         const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
         return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
     };
+}
+
+fn declareUnion(
+    self: *TypeChecker,
+    module: *Module,
+    symbol: *Symbol,
+    unionStmt: *Stmt.UnionStmt,
+) SemanticError!void {
+    // Get Struct kind
+    const union_kind = &symbol.kind.UNION;
+    // Check if declared
+    if (union_kind.declared) {
+        return;
+    }
+    union_kind.*.visited = true;
+
+    for (unionStmt.field_names, unionStmt.field_kinds) |name, *kind| {
+        try self.updateField(module, name, kind, &union_kind.visited);
+
+        symbol.kind.UNION.fields.addField(
+            self.stm.parent_module,
+            name.lexeme,
+            name.line,
+            name.column,
+            kind.*,
+            true,
+        ) catch {
+            const old_field = symbol.kind.UNION.fields.getField(self.stm, name.lexeme) catch unreachable;
+            return self.reportDuplicateError(name, old_field.dcl_line, old_field.dcl_column);
+        };
+    }
+
+    union_kind.*.visited = false;
+    union_kind.*.declared = true;
 }
 
 /// Analyze a struct defintion
@@ -923,63 +997,7 @@ fn declareStruct(
 
     // Add each field to the struct, declaring any structs encountered
     for (structStmt.field_names, structStmt.field_kinds) |name, *kind| {
-        switch (kind.*) {
-            .USER_KIND => |unknown_name| {
-                // Get from stm
-                const field_symbol = self.stm.getSymbol(unknown_name) catch {
-                    return self.reportError(SemanticError.UnresolvableIdentifier, name, "Undefined struct type");
-                };
-
-                switch (field_symbol.kind) {
-                    .STRUCT => {
-                        // If already visited, throw error
-                        if (field_symbol.kind.STRUCT.visited) {
-                            struct_kind.*.visited = false;
-                            return self.reportError(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected");
-                        }
-                        // Visit this struct if not already declared
-                        if (!field_symbol.kind.STRUCT.declared) {
-                            const field_index = field_symbol.kind.STRUCT.index;
-                            const field_structStmt = module.structSlice()[field_index].STRUCT;
-                            self.declareStruct(module, field_symbol, field_structStmt) catch {
-                                self.panic = false;
-                                return self.reportError(SemanticError.UnresolvableIdentifier, name, " |");
-                            };
-                        }
-
-                        // Update StructScope
-                        kind.* = KindId{ .STRUCT = Symbols.Struct{ .name = unknown_name, .fields = field_symbol.kind.STRUCT.fields } };
-                    },
-                    .ENUM => kind.* = KindId{ .ENUM = Symbols.Enum{ .name = unknown_name, .variants = field_symbol.kind.ENUM.variants } },
-                    else => undefined,
-                }
-            },
-            .PTR => |*ptr_arg| _ = ptr_arg.updatePtr(self.stm) catch {
-                return self.reportError(
-                    SemanticError.UnresolvableIdentifier,
-                    name,
-                    "Could not resolve type in pointer type definition",
-                );
-            },
-            .ARRAY => |*array_arg| _ = array_arg.updateArray(self.stm) catch {
-                return self.reportError(
-                    SemanticError.UnresolvableIdentifier,
-                    name,
-                    "Could not resolve type in array type definition",
-                );
-            },
-            .FUNC => |*func_arg| _ = func_arg.updateArgSize(self.stm) catch {
-                return self.reportError(
-                    SemanticError.UnresolvableIdentifier,
-                    name,
-                    "Could not resolve type in function type definition",
-                );
-            },
-            // If array, find the root child, if struct do the same thing as above
-            // If pointer, find the root child, if struct store StructScope in type
-            .VOID => return self.reportError(SemanticError.TypeMismatch, name, "Cannot have void type struct fields"),
-            else => undefined,
-        }
+        try self.updateField(module, name, kind, &struct_kind.visited);
 
         // Add field to struct
         symbol.kind.STRUCT.fields.addField(structStmt.id.lexeme, self.stm.parent_module, ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*, true) catch {
@@ -1008,7 +1026,7 @@ fn declareStruct(
             );
         }
 
-        if (method.return_kind == .STRUCT) {
+        if (method.return_kind == .STRUCT or method.return_kind == .UNION) {
             const return_struct_ptr = new_func.FUNC.arg_kinds[new_func.FUNC.arg_kinds.len - 1];
             _ = self.stm.declareSymbol(
                 "return",
@@ -1083,6 +1101,83 @@ fn declareStruct(
     struct_kind.*.declared = true;
 }
 
+fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, visited: *bool) SemanticError!void {
+    switch (kind.*) {
+        .USER_KIND => |unknown_name| {
+            // Get from stm
+            const field_symbol = self.stm.getSymbol(unknown_name) catch {
+                return self.reportError(SemanticError.UnresolvableIdentifier, name, "Undefined struct type");
+            };
+
+            switch (field_symbol.kind) {
+                .STRUCT => {
+                    // If already visited, throw error
+                    if (field_symbol.kind.STRUCT.visited) {
+                        visited.* = false;
+                        return self.reportError(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected");
+                    }
+                    // Visit this struct if not already declared
+                    if (!field_symbol.kind.STRUCT.declared) {
+                        const field_index = field_symbol.kind.STRUCT.index;
+                        const field_structStmt = module.structSlice()[field_index].STRUCT;
+                        self.declareStruct(module, field_symbol, field_structStmt) catch {
+                            self.panic = false;
+                            return self.reportError(SemanticError.UnresolvableIdentifier, name, " |");
+                        };
+                    }
+
+                    // Update StructScope
+                    kind.* = KindId{ .STRUCT = Symbols.Struct{ .name = unknown_name, .fields = field_symbol.kind.STRUCT.fields } };
+                },
+                .UNION => {
+                    if (field_symbol.kind.UNION.visited) {
+                        visited.* = false;
+                        return self.reportError(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected");
+                    }
+                    // Visit this struct if not already declared
+                    if (!field_symbol.kind.UNION.declared) {
+                        const union_index = field_symbol.kind.UNION.index;
+                        const field_unionStmt = module.unionSlice()[union_index].UNION;
+                        self.declareUnion(module, field_symbol, field_unionStmt) catch {
+                            self.panic = false;
+                            return self.reportError(SemanticError.UnresolvableIdentifier, name, " |");
+                        };
+                    }
+
+                    kind.* = KindId{ .UNION = Symbols.Union{ .name = unknown_name, .fields = field_symbol.kind.UNION.fields } };
+                },
+                .ENUM => kind.* = KindId{ .ENUM = Symbols.Enum{ .name = unknown_name, .variants = field_symbol.kind.ENUM.variants } },
+                else => {},
+            }
+        },
+        .PTR => |*ptr_arg| _ = ptr_arg.updatePtr(self.stm) catch {
+            return self.reportError(
+                SemanticError.UnresolvableIdentifier,
+                name,
+                "Could not resolve type in pointer type definition",
+            );
+        },
+        .ARRAY => |*array_arg| _ = array_arg.updateArray(self.stm) catch {
+            return self.reportError(
+                SemanticError.UnresolvableIdentifier,
+                name,
+                "Could not resolve type in array type definition",
+            );
+        },
+        .FUNC => |*func_arg| _ = func_arg.updateArgSize(self.stm) catch {
+            return self.reportError(
+                SemanticError.UnresolvableIdentifier,
+                name,
+                "Could not resolve type in function type definition",
+            );
+        },
+        // If array, find the root child, if struct do the same thing as above
+        // If pointer, find the root child, if struct store StructScope in type
+        .VOID => return self.reportError(SemanticError.TypeMismatch, name, "Cannot have void type struct fields"),
+        else => undefined,
+    }
+}
+
 /// Declare a function, but do not check its body
 fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!void {
     _ = func.return_kind.update(self.stm) catch {
@@ -1098,7 +1193,7 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
     // Add new scope for arguments
     self.stm.addScope();
 
-    if (func.return_kind == .STRUCT) {
+    if (func.return_kind == .STRUCT or func.return_kind == .UNION) {
         const return_struct_ptr = new_func.FUNC.arg_kinds[new_func.FUNC.arg_kinds.len - 1];
         _ = self.stm.declareSymbol(
             "return",
@@ -1367,7 +1462,7 @@ fn visitMutateStmt(self: *TypeChecker, mutStmt: *Stmt.MutStmt) SemanticError!voi
         );
     }
 
-    if (id_kind == .STRUCT and mutStmt.op.kind != .EQUAL) {
+    if ((id_kind == .STRUCT or id_kind == .UNION) and mutStmt.op.kind != .EQUAL) {
         return self.reportError(
             SemanticError.TypeMismatch,
             mutStmt.op,
@@ -1981,7 +2076,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
     }
 
     // Check if returning struct by value
-    if (callee.ret_kind.* == .STRUCT) {
+    if (callee.ret_kind.* == .STRUCT or callee.ret_kind.* == .UNION) {
         if (self.call_chain) {
             callExpr.chain = true;
         } else {
@@ -2022,25 +2117,36 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     const operand_result = try self.analyzeIDExpr(&fieldExpr.operand, fieldExpr.op);
     const operand_kind = if (operand_result.kind == .PTR) operand_result.kind.PTR.child.* else operand_result.kind;
 
-    // Check if operand is a struct
-    if (operand_kind != .STRUCT) {
-        return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct type for field access");
+    switch (operand_kind) {
+        .STRUCT => {
+            // Check if struct has the field
+            const field = operand_kind.STRUCT.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
+                error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
+                else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
+            };
+            // Update offset from base of struct
+            fieldExpr.stack_offset = field.mem_loc;
+            node.result_kind = field.kind;
+            // Check if method
+            if (field.scope == .FUNC) {
+                fieldExpr.method_name = field.name;
+            }
+            // Check if mutable
+            const mutable = if (operand_result.kind == .PTR) !operand_result.kind.PTR.const_child else operand_result.mutable and field.scope != .FUNC;
+            return IDResult{ .kind = field.kind, .mutable = mutable };
+        },
+        .UNION => {
+            const field = operand_kind.UNION.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
+                error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
+                else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
+            };
+            fieldExpr.stack_offset = 0;
+            node.result_kind = field.kind;
+            const mutable = if (operand_result.kind == .PTR) !operand_result.kind.PTR.const_child else operand_result.mutable;
+            return IDResult{ .kind = field.kind, .mutable = mutable };
+        },
+        else => return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct or union type for field access"),
     }
-    // Check if struct has the field
-    const field = operand_kind.STRUCT.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
-        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
-        else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
-    };
-    // Update offset from base of struct
-    fieldExpr.stack_offset = field.mem_loc;
-    node.result_kind = field.kind;
-    // Check if method
-    if (field.scope == .FUNC) {
-        fieldExpr.method_name = field.name;
-    }
-    // Check if mutable
-    const mutable = if (operand_result.kind == .PTR) !operand_result.kind.PTR.const_child else operand_result.mutable and field.scope != .FUNC;
-    return IDResult{ .kind = field.kind, .mutable = mutable };
 }
 
 /// Visit Field Expr
@@ -2052,23 +2158,34 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const operand_result = try self.analyzeExpr(&fieldExpr.operand);
     const operand_kind = if (operand_result == .PTR) operand_result.PTR.child.* else operand_result;
 
-    // Check if operand is a struct
-    if (operand_kind != .STRUCT) {
-        return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct type for field access");
+    switch (operand_kind) {
+        .STRUCT => {
+            // Check if struct has the field
+            const field = operand_kind.STRUCT.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
+                error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
+                else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
+            };
+            // Update offset from base of struct
+            fieldExpr.stack_offset = field.mem_loc;
+            node.result_kind = field.kind;
+            // Check if method
+            if (field.scope == .FUNC) {
+                fieldExpr.method_name = field.name;
+            }
+            node.result_kind = field.kind;
+            return field.kind;
+        },
+        .UNION => {
+            const field = operand_kind.UNION.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
+                error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
+                else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
+            };
+            fieldExpr.stack_offset = 0;
+            node.result_kind = field.kind;
+            return field.kind;
+        },
+        else => return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct or union type for field access"),
     }
-    // Check if struct has the field
-    const field = operand_kind.STRUCT.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
-        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
-        else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
-    };
-    // Update offset from base of struct
-    fieldExpr.stack_offset = field.mem_loc;
-    node.result_kind = field.kind;
-    // Check if method
-    if (field.scope == .FUNC) {
-        fieldExpr.method_name = field.name;
-    }
-    return field.kind;
 }
 
 /// Used for ID Expression resolution, returns if data is constant or not

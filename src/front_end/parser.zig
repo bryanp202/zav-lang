@@ -392,6 +392,8 @@ fn global(self: *Parser) SyntaxError!StmtNode {
         return self.structStmt(is_public);
     } else if (self.match(.{TokenKind.ENUM})) {
         return self.enumStmt(is_public);
+    } else if (self.match(.{TokenKind.UNION})) {
+        return self.unionStmt(is_public);
     } else if (self.match(.{TokenKind.MOD})) {
         return self.modStmt(is_public);
     } else if (self.match(.{TokenKind.USE})) {
@@ -660,6 +662,30 @@ fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) 
 
     const new_method = try self.functionStmt(is_public);
     method_list.append(new_method.FUNCTION.*) catch unreachable;
+}
+
+fn unionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
+    try self.consume(TokenKind.IDENTIFIER, "Expected union identifier");
+    const id = self.previous;
+
+    try self.consume(TokenKind.LEFT_BRACE, "Expected '{' before union fields");
+
+    var field_name_list = std.ArrayList(Token).init(self.allocator);
+    var field_kind_list = std.ArrayList(KindId).init(self.allocator);
+
+    try self.struct_field(&field_name_list, &field_kind_list);
+    // Do the rest if there are any
+    while (!self.match(.{TokenKind.RIGHT_BRACE}) and !self.isAtEnd()) {
+        try self.struct_field(&field_name_list, &field_kind_list);
+    }
+    // Check if previous was brace
+    if (self.previous.kind != .RIGHT_BRACE) {
+        return self.errorAt("Expected '}' after struct field list");
+    }
+
+    const new_union = self.allocator.create(Stmt.UnionStmt) catch unreachable;
+    new_union.* = Stmt.UnionStmt.init(is_public, id, field_name_list.items, field_kind_list.items);
+    return StmtNode{ .UNION = new_union };
 }
 
 fn enumStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {

@@ -18,6 +18,7 @@ globals: std.ArrayList(StmtNode),
 functions: std.ArrayList(StmtNode),
 structs: std.ArrayList(StmtNode),
 enums: std.ArrayList(StmtNode),
+unions: std.ArrayList(StmtNode),
 /// Scope handlers
 stm: STM,
 
@@ -36,6 +37,7 @@ pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleK
         .functions = std.ArrayList(StmtNode).init(allocator),
         .structs = std.ArrayList(StmtNode).init(allocator),
         .enums = std.ArrayList(StmtNode).init(allocator),
+        .unions = std.ArrayList(StmtNode).init(allocator),
         .stm = STM.init(allocator, global_module),
     };
 }
@@ -52,6 +54,9 @@ pub fn display(self: Module) void {
     }
     for (self.enumSlice()) |enm| {
         enm.display();
+    }
+    for (self.unionSlice()) |unon| {
+        unon.display();
     }
     for (self.structSlice()) |strct| {
         strct.display();
@@ -84,6 +89,10 @@ pub fn enumSlice(self: Module) []StmtNode {
     return self.enums.items;
 }
 
+pub fn unionSlice(self: Module) []StmtNode {
+    return self.unions.items;
+}
+
 pub fn useSlice(self: Module) []StmtNode {
     return self.uses.items;
 }
@@ -95,6 +104,7 @@ pub fn addStmt(self: *Module, stmt_node: StmtNode) !void {
         .FUNCTION => try self.functions.append(stmt_node),
         .STRUCT => try self.structs.append(stmt_node),
         .ENUM => try self.enums.append(stmt_node),
+        .UNION => try self.unions.append(stmt_node),
         .MOD => {},
         .USE => try self.uses.append(stmt_node),
         else => unreachable,

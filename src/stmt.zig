@@ -25,6 +25,7 @@ pub const StmtNode = union(enum) {
     FUNCTION: *FunctionStmt,
     RETURN: *ReturnStmt,
     STRUCT: *StructStmt,
+    UNION: *UnionStmt,
     ENUM: *EnumStmt,
     SWITCH: *SwitchStmt,
     DEFER: *DeferStmt,
@@ -207,6 +208,7 @@ pub const StmtNode = union(enum) {
                 deferStmt.stmt.display();
             },
             .FOR => |forStmt| forStmt.display(),
+            .UNION => |unionStmt| unionStmt.display(),
         }
     }
 };
@@ -359,6 +361,36 @@ pub const StructStmt = struct {
             .field_kinds = field_kinds,
             .methods = methods,
         };
+    }
+};
+
+/// UnionStmt -> "union" Identifier '{' fieldlist '}'
+/// FieldList -> (Field ';')+
+/// Field -> identifier ':' KindId
+pub const UnionStmt = struct {
+    public: bool,
+    id: Token,
+    field_names: []Token,
+    field_kinds: []KindId,
+
+    pub fn init(public: bool, id: Token, field_names: []Token, field_kinds: []KindId) UnionStmt {
+        return UnionStmt{
+            .public = public,
+            .id = id,
+            .field_names = field_names,
+            .field_kinds = field_kinds,
+        };
+    }
+
+    pub fn display(self: *UnionStmt) void {
+        if (self.public) {
+            std.debug.print("pub ", .{});
+        }
+        std.debug.print("union {s} {{", .{self.id.lexeme});
+        for (self.field_names, self.field_kinds) |name, kind| {
+            std.debug.print("    {s}: {any};\n", .{ name.lexeme, kind });
+        }
+        std.debug.print("}}\n", .{});
     }
 };
 

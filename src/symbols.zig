@@ -428,9 +428,62 @@ pub const Scope = struct {
     }
 };
 
+pub const UnionScope = struct {
+    fields: std.StringHashMap(Symbol),
+    max_size: usize,
+
+    pub fn init(allocator: std.mem.Allocator) UnionScope {
+        return UnionScope{
+            .fields = std.StringHashMap(Symbol).init(allocator),
+            .max_size = 0,
+        };
+    }
+
+    pub fn addField(self: *UnionScope, module: *Module, name: []const u8, dcl_line: u64, dcl_column: u64, kind: KindId, is_public: bool) ScopeError!void {
+        const getOrPut = self.fields.getOrPut(name) catch unreachable;
+        if (getOrPut.found_existing) {
+            return ScopeError.DuplicateDeclaration;
+        }
+
+        const field_size = kind.size();
+        const field = Symbol.init(
+            module,
+            name,
+            kind,
+            ScopeKind.LOCAL,
+            dcl_line,
+            dcl_column,
+            true,
+            is_public,
+            0,
+            field_size,
+        );
+        getOrPut.value_ptr.* = field;
+
+        self.max_size = @max(self.max_size, field_size);
+    }
+
+    pub fn getField(self: *UnionScope, stm: *SymbolTableManager, name: []const u8) ScopeError!*Symbol {
+        const field = self.fields.getPtr(name) orelse {
+            return ScopeError.UndeclaredSymbol;
+        };
+
+        if (field.source_module != stm.parent_module) {
+            stm.extern_dependencies.put(field.name, {}) catch unreachable;
+        }
+
+        field.used = true;
+        return field;
+    }
+
+    pub fn size(self: UnionScope) u64 {
+        return self.max_size;
+    }
+};
+
 pub const StructScope = struct {
     fields: std.StringHashMap(Symbol),
-    next_address: u64,
+    next_address: usize,
     is_open: bool,
 
     /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
@@ -587,7 +640,7 @@ pub const Symbol = struct {
 // *********************** //
 
 // Enum for the types available in Zav
-pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT, ENUM, USER_KIND, MODULE };
+pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT, UNION, ENUM, USER_KIND, MODULE };
 
 /// Used to mark what type a variable is
 pub const KindId = union(Kinds) {
@@ -602,6 +655,7 @@ pub const KindId = union(Kinds) {
     ARRAY: Array,
     FUNC: Function,
     STRUCT: Struct,
+    UNION: Union,
     ENUM: Enum,
     USER_KIND: []const u8,
     MODULE: *Module,
@@ -689,6 +743,12 @@ pub const KindId = union(Kinds) {
         const new_struct = Struct{ .name = name, .fields = undefined };
         return KindId{ .STRUCT = new_struct };
     }
+    pub fn newUnion(allocator: std.mem.Allocator, name: []const u8, index: u64) KindId {
+        const new_scope = allocator.create(UnionScope) catch unreachable;
+        new_scope.* = UnionScope.init(allocator);
+        const new_union = Union{ .name = name, .fields = new_scope, .index = index };
+        return KindId{ .UNION = new_union };
+    }
     /// Make an enum with a variant field
     pub fn newEnumWithVariants(name: []const u8, variants: *std.StringHashMap(Symbol)) KindId {
         const new_enum = Enum{ .name = name, .variants = variants };
@@ -719,6 +779,7 @@ pub const KindId = union(Kinds) {
             .ARRAY => |arr| return other == .ARRAY and arr.equal(other.ARRAY),
             .FUNC => |func| return other == .FUNC and func.equal(other.FUNC),
             .STRUCT => |srct| return other == .STRUCT and srct.equal(other.STRUCT),
+            .UNION => |unon| return other == .UNION and unon.equal(other.UNION),
             .ENUM => |enm| return other == .ENUM and enm.equal(other.ENUM),
             .USER_KIND, .MODULE => unreachable,
         };
@@ -735,6 +796,7 @@ pub const KindId = union(Kinds) {
             .ANY, .FLOAT64, .PTR, .FUNC => 8,
             .ARRAY => |arr| arr.size(),
             .STRUCT => |stct| stct.fields.size(),
+            .UNION => |unon| unon.fields.size(),
             .ENUM => 2,
             .USER_KIND => unreachable,
         };
@@ -748,7 +810,7 @@ pub const KindId = union(Kinds) {
             .UINT => |uint| uint.size(),
             .INT => |int| int.size(),
             .FLOAT32 => 4,
-            .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC, .STRUCT => 8,
+            .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC, .STRUCT, .UNION => 8,
             .ENUM => 2,
             .USER_KIND, .MODULE => unreachable,
         };
@@ -775,6 +837,10 @@ pub const KindId = union(Kinds) {
                     .STRUCT => {
                         self.* = symbol.kind;
                         return self.STRUCT.updateFields(stm, name);
+                    },
+                    .UNION => {
+                        self.* = symbol.kind;
+                        return self.UNION.updateFields(stm, name);
                     },
                     .ENUM => {
                         self.* = symbol.kind;
@@ -940,7 +1006,26 @@ pub const Struct = struct {
         const symbol = try stm.getSymbol(name);
         if (symbol.kind != .STRUCT) return ScopeError.UndeclaredSymbol;
         self.fields = symbol.kind.STRUCT.fields;
-        return self.fields.next_address + 8 - (self.fields.next_address % 8);
+        return self.fields.next_address;
+    }
+};
+
+pub const Union = struct {
+    name: []const u8,
+    fields: *UnionScope,
+    index: usize = undefined,
+    visited: bool = false,
+    declared: bool = false,
+
+    pub fn equal(self: Union, other: Union) bool {
+        return self.name.ptr == other.name.ptr and self.name.len == other.name.len and self.fields == other.fields;
+    }
+
+    pub fn updateFields(self: *Union, stm: *SymbolTableManager, name: []const u8) ScopeError!usize {
+        const symbol = try stm.getSymbol(name);
+        if (symbol.kind != .UNION) return ScopeError.UndeclaredSymbol;
+        self.fields = symbol.kind.UNION.fields;
+        return self.fields.max_size;
     }
 };
 

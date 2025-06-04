@@ -595,7 +595,7 @@ fn visitGlobalStmt(self: *Generator, globalStmt: Stmt.GlobalStmt) GenerationErro
                 const id_reg = self.popCPUReg();
                 try self.print("    movsd [{s}], {s} ; Declare identifier\n", .{ id_reg.name, reg.name });
             },
-            .STRUCT => {
+            .STRUCT, .UNION => {
                 const reg = self.popCPUReg();
                 const struct_size = globalStmt.kind.?.size();
                 const id_reg = self.popCPUReg();
@@ -694,7 +694,7 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
                 const id_reg = self.popCPUReg();
                 try self.print("    movsd [{s}], {s} ; Declare identifier\n", .{ id_reg.name, reg.name });
             },
-            .STRUCT => {
+            .STRUCT, .UNION => {
                 const expr_reg = self.popCPUReg();
                 const struct_size = result_kind.size();
                 const id_reg = self.popCPUReg();
@@ -895,7 +895,7 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                 else => unreachable,
             }
         }
-    } else if (mutStmt.id_kind == .STRUCT) {
+    } else if (mutStmt.id_kind == .STRUCT or mutStmt.id_kind == .UNION) {
         const expr_reg = self.popCPUReg();
         const id_reg = self.popCPUReg();
         const struct_size = mutStmt.id_kind.size();
@@ -1375,7 +1375,7 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
                 "    movsd {s}, {s} [rbp+{d}] ; Get Arg/Local\n",
                 .{ reg.name, size_keyword, offset },
             );
-        } else if (result_kind == .ARRAY or result_kind == .STRUCT) {
+        } else if (result_kind == .ARRAY or result_kind == .STRUCT or result_kind == .UNION) {
             const reg = try self.getNextCPUReg();
             // Mov normally
             try self.print(
@@ -1438,7 +1438,7 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
                 "    movsd {s}, {s} [{s}] ; Get Global\n",
                 .{ reg.name, size_keyword, path },
             );
-        } else if (result_kind == .STRUCT or result_kind == .ARRAY) {
+        } else if (result_kind == .STRUCT or result_kind == .ARRAY or result_kind == .UNION) {
             const reg = try self.getNextCPUReg();
             // Mov normally
             try self.print(
@@ -1847,8 +1847,8 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
                 // Increment next address
                 next_address += size;
             },
-            .STRUCT => |strct| {
-                const size = strct.fields.size();
+            .STRUCT, .UNION => {
+                const size = arg.result_kind.size();
                 next_address = realignStack(next_address, size);
 
                 const input_reg = self.popCPUReg();
@@ -1888,7 +1888,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     try self.restoreCPUReg(cpu_reg_count);
     // Move result
     switch (result_kind) {
-        .BOOL, .UINT, .INT, .PTR, .FUNC, .VOID, .ENUM, .STRUCT => {
+        .BOOL, .UINT, .INT, .PTR, .FUNC, .VOID, .ENUM, .STRUCT, .UNION => {
             // Get a new register
             const reg = try self.getNextCPUReg();
             try self.print("    mov {s}, rax\n", .{reg.name});
@@ -2128,7 +2128,7 @@ fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr, resu
     const source_reg = self.popCPUReg();
 
     switch (result_kind) {
-        .STRUCT, .FUNC => self.pushCPUReg(source_reg),
+        .STRUCT, .FUNC, .UNION => self.pushCPUReg(source_reg),
         .FLOAT32 => {
             const dest_reg = try self.getNextSSEReg();
             try self.print("    movss {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
@@ -2188,7 +2188,7 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
                 "    movsd {s}, [{s}+{s}] ; Array Index\n",
                 .{ result_reg.name, lhs_reg.name, rhs_reg.name },
             );
-        } else if (result_kind == .STRUCT or result_kind == .ARRAY) {
+        } else if (result_kind == .STRUCT or result_kind == .ARRAY or result_kind == .UNION) {
             // Push lhs_reg back on the stack
             const result_reg = try self.getNextCPUReg();
             // Write index access, but as a pointer to the struct
@@ -2232,7 +2232,7 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
             const result_reg = try self.getNextSSEReg();
             // Write index access
             try self.print("    movsd {s}, [{s}+{s}] ; Ptr Index\n", .{ result_reg.name, lhs_reg.name, rhs_reg.name });
-        } else if (result_kind == .STRUCT or result_kind == .ARRAY) {
+        } else if (result_kind == .STRUCT or result_kind == .ARRAY or result_kind == .UNION) {
             // Push lhs_reg back on the stack
             const result_reg = try self.getNextCPUReg();
             // Write index access, but as a pointer to the struct

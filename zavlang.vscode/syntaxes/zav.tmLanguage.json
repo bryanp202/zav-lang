@@ -49,7 +49,7 @@
 		"primative-types": {
 			"patterns": [{
 				"name": "storage.type.zav",
-				"match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|bool|void|struct|enum)\\b"
+				"match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|bool|void|struct|union|enum)\\b"
 			}]
 		},
 		"native-function": {
@@ -67,7 +67,7 @@
 		"user-constant": {
 			"patterns": [{
 				"name": "keyword",
-				"match": "\\b([A-Z][A-Z0-9_]*)\\b"
+				"match": "\\b([A-Z][A-Z0-9_]+)\\b"
 			}]
 		},
 		"user-type": {
