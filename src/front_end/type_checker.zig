@@ -1207,7 +1207,7 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
     }
 
     // Declare args
-    for (func.arg_names, func.arg_kinds) |name, *kind| {
+    for (func.arg_names, new_func.FUNC.arg_kinds[0..func.arg_names.len]) |name, *kind| {
         _ = kind.update(self.stm) catch {
             return self.reportError(SemanticError.UnresolvableIdentifier, name, "Could not resolve struct type in this argument");
         };

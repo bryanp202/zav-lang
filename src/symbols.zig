@@ -716,7 +716,7 @@ pub const KindId = union(Kinds) {
         const ret_ptr = allocator.create(KindId) catch unreachable;
         ret_ptr.* = ret_kind;
 
-        const final_arg_kinds = if (ret_kind == .STRUCT) blk: {
+        const final_arg_kinds = if (ret_kind == .STRUCT or ret_kind == .UNION) blk: {
             const new_arg_kinds = allocator.alloc(KindId, arg_kinds.len + 1) catch unreachable;
             std.mem.copyForwards(KindId, new_arg_kinds, arg_kinds);
             new_arg_kinds[new_arg_kinds.len - 1] = KindId.newPtr(allocator, ret_kind, false);
@@ -828,6 +828,7 @@ pub const KindId = union(Kinds) {
             .PTR => |*ptr| ptr.updatePtr(stm),
             .ARRAY => |*arr| arr.updateArray(stm),
             .FUNC => |*func| func.updateArgSize(stm),
+            .UNION => |*unon| unon.updateFields(stm, unon.name),
             .STRUCT => |*strct| strct.updateFields(stm, strct.name),
             .ENUM => |*enm| enm.updateVariants(stm, enm.name),
             .USER_KIND => |name| {
