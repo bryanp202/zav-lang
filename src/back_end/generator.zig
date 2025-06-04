@@ -1438,7 +1438,7 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
                 "    movsd {s}, {s} [{s}] ; Get Global\n",
                 .{ reg.name, size_keyword, path },
             );
-        } else if (result_kind == .STRUCT) {
+        } else if (result_kind == .STRUCT or result_kind == .ARRAY) {
             const reg = try self.getNextCPUReg();
             // Mov normally
             try self.print(
@@ -2232,7 +2232,7 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
             const result_reg = try self.getNextSSEReg();
             // Write index access
             try self.print("    movsd {s}, [{s}+{s}] ; Ptr Index\n", .{ result_reg.name, lhs_reg.name, rhs_reg.name });
-        } else if (result_kind == .STRUCT) {
+        } else if (result_kind == .STRUCT or result_kind == .ARRAY) {
             // Push lhs_reg back on the stack
             const result_reg = try self.getNextCPUReg();
             // Write index access, but as a pointer to the struct
