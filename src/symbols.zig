@@ -562,7 +562,9 @@ pub const StructScope = struct {
 
     /// Calculate the size of this scope
     pub fn size(self: StructScope) u64 {
-        return self.next_address;
+        const kind_size = self.next_address;
+        const alignment: usize = if (kind_size >= 8) 8 else if (kind_size >= 4) 4 else if (kind_size >= 2) 2 else 1;
+        return kind_size + (alignment - kind_size % alignment) % alignment;
     }
 };
 
