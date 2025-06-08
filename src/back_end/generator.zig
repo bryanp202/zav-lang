@@ -1246,6 +1246,7 @@ fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationErro
     }
 
     if (returnStmt.expr != null and self.defered_statements.items.len > 0) {
+        self.func_stack_alignment -= 8;
         try self.write("    pop rax\n");
     }
 
