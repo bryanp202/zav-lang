@@ -915,7 +915,7 @@ fn indexUnion(self: *TypeChecker, name: Token, index: usize, public: bool) Seman
     _ = self.stm.declareSymbol(
         name.lexeme,
         new_union,
-        ScopeKind.STRUCT,
+        ScopeKind.UNION,
         name.line,
         name.column,
         false,
@@ -1849,7 +1849,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
         .GLOBAL, .FUNC => {},
-        .STRUCT, .ENUM, .ENUM_VARIANT, .MODULE => return self.reportError(SemanticError.TypeMismatch, token, "Cannot modify kind values (enum and variants or structs)"),
+        .STRUCT, .ENUM, .ENUM_VARIANT, .MODULE, .UNION => return self.reportError(SemanticError.TypeMismatch, token, "Cannot modify kind values (enum and variants or structs)"),
     }
 
     // Wrap in id_result with constant status of symbol
@@ -1884,7 +1884,7 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
         .GLOBAL, .FUNC => {},
-        .STRUCT, .ENUM, .MODULE => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, or module types"),
+        .STRUCT, .ENUM, .MODULE, .UNION => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, or module types"),
         .ENUM_VARIANT => {
             const new_literal = self.allocator.create(Expr.LiteralExpr) catch unreachable;
             new_literal.* = Expr.LiteralExpr{ .literal = token, .value = Value.newUInt(symbol.mem_loc, 16) };

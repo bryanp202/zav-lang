@@ -864,6 +864,7 @@ pub const ScopeKind = enum {
     GLOBAL,
     FUNC,
     STRUCT,
+    UNION,
     ENUM,
     ENUM_VARIANT,
     MODULE,

@@ -386,6 +386,7 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
     // Generate all methods for each struct in the module
     for (module.structSlice()) |strct| {
         const struct_sym = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
+        std.debug.print("struct_kind: {any}\n\n", .{struct_sym.kind});
         for (strct.STRUCT.methods) |method| {
             const method_field = struct_sym.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
             try self.visitFunctionStmt(method, method_field.kind.FUNC.args_size, method_field.used, method_field.name);
