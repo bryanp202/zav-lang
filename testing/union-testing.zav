@@ -84,4 +84,7 @@ pub fn main(argc: i64, argv: **u8) i64 {
     num.display();
     num.to_float();
     num.display();
+
+    const num2 = -1_1_1_1_1.1_1e-1;
+    @printf("%f\n", num2);
 }
