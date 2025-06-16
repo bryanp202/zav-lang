@@ -206,7 +206,7 @@ pub fn open(
             \\    mov rcx, [@ARGC]
             \\    mov rdx, [@ARGV]
             \\
-            \\    sub rsp, 16
+            \\    sub rsp, 24
             \\    mov [rsp], rcx
             \\    mov [rsp+8], rdx
             \\
@@ -365,7 +365,7 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
         try self.write("\n    call __main ; Execute main\n");
         // Write exit
         try self.write(
-            \\    add rsp, 16
+            \\    add rsp, 24
             \\    push rax
             \\
             \\    mov rcx, [@ARG_BUFFER]
@@ -1548,7 +1548,6 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
     args = total_args[ct_arg_count..total_args.len];
 
     // Make space for all args
-    self.func_stack_alignment += 8;
     self.func_stack_alignment += if (args.len > 4) (args.len - 4) * 8 else 0;
     const call_align = (16 - ((self.func_stack_alignment) % 16)) & 15;
     self.func_stack_alignment += call_align;
@@ -1685,7 +1684,6 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
         try self.print("    add rsp, {d}\n", .{pop_size});
         self.func_stack_alignment -= pop_size;
     }
-    self.func_stack_alignment -= 8;
 
     // Pop registers back
     try self.restoreSSEReg(sse_reg_count);
@@ -1718,7 +1716,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     // Get arguments size
     const args_size = callExpr.caller_expr.result_kind.FUNC.args_size;
     // Align it
-    const args_size_aligned = args_size + 8;
+    const args_size_aligned = args_size;
 
     // Pop function pointer register
     const func_ptr_reg = self.popCPUReg();
@@ -1732,9 +1730,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     const arg_space = args_size_aligned + call_align;
 
     // Reserve stack space
-    if (arg_space > 8) {
-        try self.print("    sub rsp, {d} ; Reserve call arg space\n", .{arg_space - 8});
-    }
+    try self.print("    sub rsp, {d} ; Reserve call arg space\n", .{arg_space});
 
     self.buffered_writer_ptr.flush() catch unreachable;
     // Move function ptr to top of stack
@@ -1876,12 +1872,9 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
 
     // Generate call
     try self.write("    pop rcx\n    call rcx\n");
-    self.func_stack_alignment -= 8;
     // Remove locals from stack
-    if (arg_space > 8) {
-        try self.print("    add rsp, {d}\n", .{arg_space - 8});
-        self.func_stack_alignment -= arg_space;
-    }
+    try self.print("    add rsp, {d}\n", .{arg_space});
+    self.func_stack_alignment -= arg_space;
 
     // Restore registers
     try self.restoreSSEReg(sse_reg_count);
