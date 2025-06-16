@@ -92,22 +92,6 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             };
         }
 
-        for (module.useSlice()) |use| {
-            self.checkUse(use.USE) catch |err| switch (err) {
-                error.DuplicateDeclaration => {
-                    const name = use.USE.rename.?.lexeme;
-                    const old_symbol = self.stm.peakSymbol(name) catch unreachable;
-                    self.reportDuplicateError(
-                        use.USE.op,
-                        old_symbol.dcl_line,
-                        old_symbol.dcl_column,
-                    ) catch {};
-                },
-                else => continue,
-            };
-        }
-
-        // If had error in enum names or uses, return
         if (self.had_error) {
             return;
         }
@@ -119,17 +103,17 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         const module = entry.value_ptr.*;
         self.setModule(module);
 
-        for (module.unionSlice(), 0..) |unon, index| {
-            self.indexUnion(unon.UNION.id, index, unon.UNION.public) catch {
+        for (module.unionSlice()) |unon| {
+            self.indexUnion(unon.UNION.id, unon.UNION, unon.UNION.public) catch {
                 self.panic = false;
                 self.had_error = true;
                 continue;
             };
         }
 
-        for (module.structSlice(), 0..) |strct, index| {
+        for (module.structSlice()) |strct| {
             // Add it to symbol table
-            self.indexStruct(strct.STRUCT.id, index, strct.STRUCT.public) catch {
+            self.indexStruct(strct.STRUCT.id, strct.STRUCT, strct.STRUCT.public) catch {
                 self.panic = false;
                 self.had_error = true;
                 continue;
@@ -142,7 +126,6 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         }
     }
 
-    // Define all structs
     module_iter = modules.iterator();
     while (module_iter.next()) |entry| {
         const module = entry.value_ptr.*;
@@ -162,31 +145,34 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                 else => continue,
             };
         }
+    }
+
+    // Define all structs
+    module_iter = modules.iterator();
+    while (module_iter.next()) |entry| {
+        const module = entry.value_ptr.*;
+        self.setModule(module);
 
         for (module.unionSlice()) |unon| {
             // Get from stm
             const symbol = self.stm.getSymbol(unon.UNION.id.lexeme) catch unreachable;
-            if (!symbol.kind.UNION.declared) {
-                // Declare the new kind with its fields, checking for circular dependencies
-                self.declareUnion(module, symbol, unon.UNION) catch {
-                    self.panic = false;
-                    self.had_error = true;
-                    return;
-                };
-            }
+            // Declare the new kind with its fields, checking for circular dependencies
+            self.declareUnion(module, symbol, unon.UNION, self.stm) catch {
+                self.panic = false;
+                self.had_error = true;
+                return;
+            };
         }
 
         for (module.structSlice()) |strct| {
             // Get from stm
             const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
-            if (!symbol.kind.STRUCT.declared) {
-                // Declare the new kind with its fields, checking for circular dependencies
-                self.declareStruct(module, symbol, strct.STRUCT) catch {
-                    self.panic = false;
-                    self.had_error = true;
-                    return;
-                };
-            }
+            // Declare the new kind with its fields, checking for circular dependencies
+            self.declareStructFields(module, symbol, strct.STRUCT, self.stm) catch {
+                self.panic = false;
+                self.had_error = true;
+                return;
+            };
         }
     }
 
@@ -196,6 +182,15 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
     while (module_iter.next()) |entry| {
         const module = entry.value_ptr.*;
         self.setModule(module);
+
+        for (module.structSlice()) |strct| {
+            const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
+            self.declareStructMethods(strct.STRUCT, symbol) catch {
+                self.panic = false;
+                self.had_error = true;
+                return;
+            };
+        }
 
         for (module.functionSlice()) |function| {
             // Declare function but do not analyze body
@@ -253,8 +248,6 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         const module = entry.value_ptr.*;
         self.setModule(module);
 
-        // Reset the symbol table managers stack for function evaluation
-        self.stm.resetStack();
         // Check all method bodies in each struct
         for (module.structSlice()) |*strct| {
             // Get struct symbol
@@ -263,9 +256,8 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             for (strct.STRUCT.methods) |*method| {
                 // Get args size
                 const method_field = struct_symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
-                const args_size = method_field.kind.FUNC.args_size;
                 // analyze all function bodies, continue if there was an error
-                self.visitFunctionStmt(method, args_size) catch {
+                self.visitFunctionStmt(method, method_field.kind) catch {
                     self.panic = false;
                     self.had_error = true;
                     continue;
@@ -278,9 +270,8 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         for (module.functionSlice()) |*function| {
             // Get arg_size
             const func_symbol = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
-            const args_size = func_symbol.kind.FUNC.args_size;
             // analyze all function bodies, continue if there was an error
-            self.visitFunctionStmt(function.FUNCTION, args_size) catch {
+            self.visitFunctionStmt(function.FUNCTION, func_symbol.kind) catch {
                 self.panic = false;
                 self.had_error = true;
                 continue;
@@ -387,6 +378,25 @@ fn reportDuplicateError(self: *TypeChecker, duplicate_id: Token, dcl_line: u64, 
     return SemanticError.DuplicateDeclaration;
 }
 
+fn reportDuplicateErrorFrom(self: *TypeChecker, duplicate_id: Token, dcl_line: u64, dcl_column: u64, module: *Module) SemanticError {
+    const stderr = std.io.getStdErr().writer();
+
+    // Only display errors when not in panic mode
+    if (!self.panic) {
+        // Display message
+        stderr.print(
+            "[Module <root{s}>, Line {d}:{d}] at \'{s}\': Identifier already declared on [Line {d}:{d}]\n",
+            .{ module.path, duplicate_id.line, duplicate_id.column, duplicate_id.lexeme, dcl_line, dcl_column },
+        ) catch unreachable;
+
+        // Update had error and panic mode
+        self.had_error = true;
+        self.panic = true;
+    }
+    // Raise error
+    return SemanticError.DuplicateDeclaration;
+}
+
 /// Report an error and set error flag
 /// Do not show additional errors in panic mode
 fn reportError(self: *TypeChecker, errorType: SemanticError, token: Token, msg: []const u8) SemanticError {
@@ -398,6 +408,25 @@ fn reportError(self: *TypeChecker, errorType: SemanticError, token: Token, msg: 
         stderr.print(
             "[Module <root{s}>, Line {d}:{d}] at \'{s}\': {s}\n",
             .{ self.current_module_path, token.line, token.column, token.lexeme, msg },
+        ) catch unreachable;
+
+        // Update had error and panic mode
+        self.had_error = true;
+        self.panic = true;
+    }
+    // Raise error
+    return errorType;
+}
+
+fn reportErrorFrom(self: *TypeChecker, errorType: SemanticError, token: Token, msg: []const u8, module: *Module) SemanticError {
+    const stderr = std.io.getStdErr().writer();
+
+    // Only display errors when not in panic mode
+    if (!self.panic) {
+        // Display message
+        stderr.print(
+            "[Module <root{s}>, Line {d}:{d}] at \'{s}\': {s}\n",
+            .{ module.path, token.line, token.column, token.lexeme, msg },
         ) catch unreachable;
 
         // Update had error and panic mode
@@ -908,9 +937,9 @@ fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void
 }
 
 /// Index and add a struct to the STM
-fn indexUnion(self: *TypeChecker, name: Token, index: usize, public: bool) SemanticError!void {
+fn indexUnion(self: *TypeChecker, name: Token, index: *Stmt.UnionStmt, public: bool) SemanticError!void {
     // Create new struct with scope and index
-    const new_union = KindId.newUnion(self.allocator, name.lexeme, index);
+    const new_union = KindId.newUnion(self.allocator, name.lexeme, index, self.stm);
     // Try to add to stm global scope
     _ = self.stm.declareSymbol(
         name.lexeme,
@@ -927,9 +956,9 @@ fn indexUnion(self: *TypeChecker, name: Token, index: usize, public: bool) Seman
 }
 
 /// Index and add a struct to the STM
-fn indexStruct(self: *TypeChecker, name: Token, index: u64, public: bool) SemanticError!void {
+fn indexStruct(self: *TypeChecker, name: Token, index: *Stmt.StructStmt, public: bool) SemanticError!void {
     // Create new struct with scope and index
-    const new_struct = KindId.newStructWithIndex(self.allocator, name.lexeme, index);
+    const new_struct = KindId.newStructWithIndex(self.allocator, name.lexeme, index, self.stm);
     // Try to add to stm global scope
     _ = self.stm.declareSymbol(
         name.lexeme,
@@ -950,93 +979,169 @@ fn declareUnion(
     module: *Module,
     symbol: *Symbol,
     unionStmt: *Stmt.UnionStmt,
+    stm: *STM,
 ) SemanticError!void {
     // Get Struct kind
     const union_kind = &symbol.kind.UNION;
     // Check if declared
-    if (union_kind.declared) {
+    if (union_kind.fields.declared) {
         return;
     }
-    union_kind.*.visited = true;
+    union_kind.fields.visited = true;
 
     for (unionStmt.field_names, unionStmt.field_kinds) |name, *kind| {
-        try self.updateField(module, name, kind, &union_kind.visited);
+        try self.updateField(module, name, kind, &union_kind.fields.visited, stm);
 
         symbol.kind.UNION.fields.addField(
-            self.stm.parent_module,
+            stm.parent_module,
             name.lexeme,
             name.line,
             name.column,
             kind.*,
             true,
         ) catch {
-            const old_field = symbol.kind.UNION.fields.getField(self.stm, name.lexeme) catch unreachable;
-            return self.reportDuplicateError(name, old_field.dcl_line, old_field.dcl_column);
+            const old_field = symbol.kind.UNION.fields.getField(stm, name.lexeme) catch unreachable;
+            return self.reportDuplicateErrorFrom(name, old_field.dcl_line, old_field.dcl_column, module);
         };
     }
 
-    union_kind.*.visited = false;
-    union_kind.*.declared = true;
+    union_kind.fields.visited = false;
+    union_kind.fields.declared = true;
 }
 
 /// Analyze a struct defintion
-fn declareStruct(
+fn declareStructFields(
     self: *TypeChecker,
     module: *Module,
     symbol: *Symbol,
     structStmt: *Stmt.StructStmt,
+    stm: *STM,
 ) SemanticError!void {
     // Get Struct kind
     const struct_kind = &symbol.kind.STRUCT;
     // Check if declared
-    if (struct_kind.declared) {
+    if (struct_kind.fields.declared) {
         return;
     }
     // If not, mark as visited
-    struct_kind.*.visited = true;
+    struct_kind.fields.visited = true;
 
     // Add each field to the struct, declaring any structs encountered
     for (structStmt.field_names, structStmt.field_kinds) |name, *kind| {
-        try self.updateField(module, name, kind, &struct_kind.visited);
+        try self.updateField(module, name, kind, &struct_kind.fields.visited, stm);
 
         // Add field to struct
-        symbol.kind.STRUCT.fields.addField(structStmt.id.lexeme, self.stm.parent_module, ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*, true) catch {
-            const old_field = symbol.kind.STRUCT.fields.getField(self.stm, name.lexeme) catch unreachable;
-            return self.reportDuplicateError(name, old_field.dcl_line, old_field.dcl_column);
+        symbol.kind.STRUCT.fields.addField(structStmt.id.lexeme, stm.parent_module, ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*, true) catch {
+            const old_field = symbol.kind.STRUCT.fields.getField(stm, name.lexeme) catch unreachable;
+            return self.reportDuplicateErrorFrom(name, old_field.dcl_line, old_field.dcl_column, module);
         };
     }
 
+    // Mark as not visited and declared
+    struct_kind.fields.visited = false;
+    struct_kind.fields.declared = true;
+}
+
+fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, visited: *bool, stm: *STM) SemanticError!void {
+    switch (kind.*) {
+        .USER_KIND => |unknown_name| {
+            // Get from stm
+            const field_symbol = stm.getSymbol(unknown_name) catch {
+                return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, "Undefined struct type", module);
+            };
+
+            switch (field_symbol.kind) {
+                .STRUCT => {
+                    // If already visited, throw error
+                    if (field_symbol.kind.STRUCT.fields.visited) {
+                        visited.* = false;
+                        return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected", module);
+                    }
+
+                    const field_structStmt = field_symbol.kind.STRUCT.index;
+                    const field_stm = field_symbol.kind.STRUCT.stm;
+                    self.declareStructFields(field_stm.parent_module, field_symbol, field_structStmt, field_stm) catch {
+                        self.panic = false;
+                        return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, " |", module);
+                    };
+
+                    // Update StructScope
+                    kind.* = KindId{ .STRUCT = Symbols.Struct{ .name = unknown_name, .fields = field_symbol.kind.STRUCT.fields } };
+                },
+                .UNION => {
+                    if (field_symbol.kind.UNION.fields.visited) {
+                        visited.* = false;
+                        return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected", module);
+                    }
+
+                    const field_unionStmt = field_symbol.kind.UNION.index;
+                    const field_stm = field_symbol.kind.UNION.stm;
+                    self.declareUnion(field_stm.parent_module, field_symbol, field_unionStmt, field_stm) catch {
+                        self.panic = false;
+                        return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, " |", module);
+                    };
+
+                    kind.* = KindId{ .UNION = Symbols.Union{ .name = unknown_name, .fields = field_symbol.kind.UNION.fields } };
+                },
+                .ENUM => kind.* = KindId{ .ENUM = Symbols.Enum{ .name = unknown_name, .variants = field_symbol.kind.ENUM.variants } },
+                else => {},
+            }
+        },
+        .PTR => |*ptr_arg| _ = ptr_arg.updatePtr(stm) catch {
+            return self.reportErrorFrom(
+                SemanticError.UnresolvableIdentifier,
+                name,
+                "Could not resolve type in pointer type definition",
+                module,
+            );
+        },
+        .ARRAY => |*array_arg| _ = array_arg.updateArray(stm) catch {
+            return self.reportErrorFrom(
+                SemanticError.UnresolvableIdentifier,
+                name,
+                "Could not resolve type in array type definition",
+                module,
+            );
+        },
+        .FUNC => |*func_arg| _ = func_arg.updateArgSize(stm) catch {
+            return self.reportErrorFrom(
+                SemanticError.UnresolvableIdentifier,
+                name,
+                "Could not resolve type in function type definition",
+                module,
+            );
+        },
+        // If array, find the root child, if struct do the same thing as above
+        // If pointer, find the root child, if struct store StructScope in type
+        .VOID => return self.reportErrorFrom(SemanticError.TypeMismatch, name, "Cannot have void type struct fields", module),
+        else => undefined,
+    }
+}
+
+fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol: *Symbol) SemanticError!void {
     // Add each method to the struct, but do not analyze body yet
     for (structStmt.methods) |*method| {
         _ = method.return_kind.update(self.stm) catch {
             return self.reportError(SemanticError.UnresolvableIdentifier, method.name, "Could not resolve method return type");
         };
+
+        for (method.arg_kinds, method.arg_names) |*kind, name| {
+            _ = kind.update(self.stm) catch return self.reportError(
+                SemanticError.UnresolvableIdentifier,
+                name,
+                "Unresolvable argument type",
+            );
+        }
         // Make KindId
         var new_func = KindId.newFunc(self.allocator, method.arg_kinds, false, method.return_kind);
-
-        // Add new scope for arguments
-        self.stm.addScope();
 
         // Check if first argument is pointer to self
         if (method.arg_kinds.len < 1 or method.arg_kinds[0] != .PTR) {
             return self.reportError(
                 SemanticError.UnresolvableIdentifier,
-                method.arg_names[0],
+                method.op,
                 "Expect a pointer to struct type as first parameter of struct method",
             );
-        }
-
-        if (method.return_kind == .STRUCT or method.return_kind == .UNION) {
-            const return_struct_ptr = new_func.FUNC.arg_kinds[new_func.FUNC.arg_kinds.len - 1];
-            _ = self.stm.declareSymbol(
-                "return",
-                return_struct_ptr,
-                ScopeKind.ARG,
-                method.op.line,
-                method.op.column,
-                false,
-                false,
-            ) catch unreachable;
         }
 
         const ptr_child_kind = method.arg_kinds[0].PTR.child;
@@ -1052,33 +1157,8 @@ fn declareStruct(
             );
         }
 
-        // Declare args
-        for (method.arg_names, method.arg_kinds) |name, *kind| {
-            _ = kind.update(self.stm) catch {
-                return self.reportError(SemanticError.UnresolvableIdentifier, name, "Could not resolve struct type in this argument");
-            };
-            // Declare arg
-            _ = self.stm.declareSymbol(
-                name.lexeme,
-                kind.*,
-                ScopeKind.ARG,
-                name.line,
-                name.column,
-                false,
-                method.public,
-            ) catch {
-                const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
-                return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
-            };
-        }
-
         // Get size of arguments
-        const args_size = self.stm.active_scope.next_address;
-        // Update stack offset for arguments
-        new_func.FUNC.args_size = args_size;
-
-        // Pop scope
-        self.stm.popScope();
+        _ = new_func.update(self.stm) catch unreachable;
 
         // Add field to struct
         symbol.kind.STRUCT.fields.addField(
@@ -1095,87 +1175,6 @@ fn declareStruct(
             return self.reportDuplicateError(method.name, old_field.dcl_line, old_field.dcl_column);
         };
     }
-
-    // Mark as not visited and declared
-    struct_kind.*.visited = false;
-    struct_kind.*.declared = true;
-}
-
-fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, visited: *bool) SemanticError!void {
-    switch (kind.*) {
-        .USER_KIND => |unknown_name| {
-            // Get from stm
-            const field_symbol = self.stm.getSymbol(unknown_name) catch {
-                return self.reportError(SemanticError.UnresolvableIdentifier, name, "Undefined struct type");
-            };
-
-            switch (field_symbol.kind) {
-                .STRUCT => {
-                    // If already visited, throw error
-                    if (field_symbol.kind.STRUCT.visited) {
-                        visited.* = false;
-                        return self.reportError(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected");
-                    }
-                    // Visit this struct if not already declared
-                    if (!field_symbol.kind.STRUCT.declared) {
-                        const field_index = field_symbol.kind.STRUCT.index;
-                        const field_structStmt = module.structSlice()[field_index].STRUCT;
-                        self.declareStruct(module, field_symbol, field_structStmt) catch {
-                            self.panic = false;
-                            return self.reportError(SemanticError.UnresolvableIdentifier, name, " |");
-                        };
-                    }
-
-                    // Update StructScope
-                    kind.* = KindId{ .STRUCT = Symbols.Struct{ .name = unknown_name, .fields = field_symbol.kind.STRUCT.fields } };
-                },
-                .UNION => {
-                    if (field_symbol.kind.UNION.visited) {
-                        visited.* = false;
-                        return self.reportError(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected");
-                    }
-                    // Visit this struct if not already declared
-                    if (!field_symbol.kind.UNION.declared) {
-                        const union_index = field_symbol.kind.UNION.index;
-                        const field_unionStmt = module.unionSlice()[union_index].UNION;
-                        self.declareUnion(module, field_symbol, field_unionStmt) catch {
-                            self.panic = false;
-                            return self.reportError(SemanticError.UnresolvableIdentifier, name, " |");
-                        };
-                    }
-
-                    kind.* = KindId{ .UNION = Symbols.Union{ .name = unknown_name, .fields = field_symbol.kind.UNION.fields } };
-                },
-                .ENUM => kind.* = KindId{ .ENUM = Symbols.Enum{ .name = unknown_name, .variants = field_symbol.kind.ENUM.variants } },
-                else => {},
-            }
-        },
-        .PTR => |*ptr_arg| _ = ptr_arg.updatePtr(self.stm) catch {
-            return self.reportError(
-                SemanticError.UnresolvableIdentifier,
-                name,
-                "Could not resolve type in pointer type definition",
-            );
-        },
-        .ARRAY => |*array_arg| _ = array_arg.updateArray(self.stm) catch {
-            return self.reportError(
-                SemanticError.UnresolvableIdentifier,
-                name,
-                "Could not resolve type in array type definition",
-            );
-        },
-        .FUNC => |*func_arg| _ = func_arg.updateArgSize(self.stm) catch {
-            return self.reportError(
-                SemanticError.UnresolvableIdentifier,
-                name,
-                "Could not resolve type in function type definition",
-            );
-        },
-        // If array, find the root child, if struct do the same thing as above
-        // If pointer, find the root child, if struct store StructScope in type
-        .VOID => return self.reportError(SemanticError.TypeMismatch, name, "Cannot have void type struct fields"),
-        else => undefined,
-    }
 }
 
 /// Declare a function, but do not check its body
@@ -1187,14 +1186,39 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
             "Could not resolve struct type in function return type",
         );
     };
+
+    for (func.arg_kinds, func.arg_names) |*kind, name| {
+        _ = kind.update(self.stm) catch return self.reportError(SemanticError.UnresolvableIdentifier, name, "Unresolvable argument type");
+    }
+
     // Create new function
     var new_func = KindId.newFunc(self.allocator, func.arg_kinds, false, func.return_kind);
 
+    // Get size of arguments
+    _ = new_func.update(self.stm) catch unreachable;
+
+    // Declare this function
+    _ = self.stm.declareSymbol(
+        func.name.lexeme,
+        new_func,
+        ScopeKind.FUNC,
+        func.name.line,
+        func.name.column,
+        false,
+        func.public,
+    ) catch {
+        const old_id = self.stm.getSymbol(func.name.lexeme) catch unreachable;
+        return self.reportDuplicateError(func.name, old_id.dcl_line, old_id.dcl_column);
+    };
+}
+
+/// Analyze a function body
+fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: KindId) SemanticError!void {
     // Add new scope for arguments
     self.stm.addScope();
 
     if (func.return_kind == .STRUCT or func.return_kind == .UNION) {
-        const return_struct_ptr = new_func.FUNC.arg_kinds[new_func.FUNC.arg_kinds.len - 1];
+        const return_struct_ptr = func_kind.FUNC.arg_kinds[func_kind.FUNC.arg_kinds.len - 1];
         _ = self.stm.declareSymbol(
             "return",
             return_struct_ptr,
@@ -1207,7 +1231,7 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
     }
 
     // Declare args
-    for (func.arg_names, new_func.FUNC.arg_kinds[0..func.arg_names.len]) |name, *kind| {
+    for (func.arg_names, func_kind.FUNC.arg_kinds[0..func.arg_names.len]) |name, *kind| {
         _ = kind.update(self.stm) catch {
             return self.reportError(SemanticError.UnresolvableIdentifier, name, "Could not resolve struct type in this argument");
         };
@@ -1226,33 +1250,6 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
         };
     }
 
-    // Get size of arguments
-    const args_size = self.stm.active_scope.next_address;
-    // Update stack offset for arguments
-    new_func.FUNC.args_size = args_size;
-
-    // Pop scope
-    self.stm.popScope();
-
-    // Declare this function
-    _ = self.stm.declareSymbol(
-        func.name.lexeme,
-        new_func,
-        ScopeKind.FUNC,
-        func.name.line,
-        func.name.column,
-        false,
-        func.public,
-    ) catch {
-        const old_id = self.stm.getSymbol(func.name.lexeme) catch unreachable;
-        return self.reportDuplicateError(func.name, old_id.dcl_line, old_id.dcl_column);
-    };
-}
-
-/// Analyze a function body
-fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, args_size: usize) SemanticError!void {
-    // Enter new scope
-    self.stm.pushScope();
     // Update current return kind
     self.current_return_kind = func.return_kind;
     self.current_function_return_ptr = if (self.stm.getSymbol("return") catch null) |struct_ptr| struct_ptr.mem_loc + 16 else null;
@@ -1262,10 +1259,9 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, args_size: us
 
     // Get scope size
     const stack_size = self.stm.active_scope.next_address;
-    // Update FunctionStmts local variable stack size
-    func.locals_size = stack_size - args_size;
+    func.locals_size = stack_size - func_kind.FUNC.args_size;
 
-    // Exit scope
+    // Pop scope
     self.stm.popScope();
 }
 
@@ -1334,14 +1330,10 @@ fn checkLambdas(self: *TypeChecker, module: *Module) void {
             continue;
         };
 
-        self.stm.unpopScope();
-
         // Get arg_size
         const func_symbol = self.stm.getSymbol(lambda.FUNCTION.name.lexeme) catch unreachable;
-
-        const args_size = func_symbol.kind.FUNC.args_size;
         // analyze all function bodies, continue if there was an error
-        self.visitFunctionStmt(lambda.FUNCTION, args_size) catch {
+        self.visitFunctionStmt(lambda.FUNCTION, func_symbol.kind) catch {
             self.panic = false;
             self.had_error = true;
             continue;
@@ -1654,6 +1646,7 @@ fn visitBlockStmt(self: *TypeChecker, blockStmt: *Stmt.BlockStmt) SemanticError!
 
 /// Analyze the return types of a return stmt
 fn visitReturnStmt(self: *TypeChecker, returnStmt: *Stmt.ReturnStmt) SemanticError!void {
+    self.call_chain = false;
     // Check if return current return type is void
     if (self.current_return_kind == .VOID) {
         if (returnStmt.expr != null) {

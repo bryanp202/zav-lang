@@ -7,6 +7,8 @@ const ScopeError = Error.ScopeError;
 const NativesTable = @import("natives.zig");
 const Module = @import("module.zig");
 
+const Stmt = @import("stmt.zig");
+
 // *********************** //
 //*** STM type Classes  ***//
 // *********************** //
@@ -16,7 +18,6 @@ pub const SymbolTableManager = struct {
     allocator: std.mem.Allocator,
     // Symbol Resolution
     scopes: std.ArrayList(*Scope),
-    next_scope: u16,
     active_scope: *Scope,
     /// Constant Resolution
     constants: std.AutoHashMap([48]u8, ConstantData),
@@ -54,7 +55,6 @@ pub const SymbolTableManager = struct {
         return SymbolTableManager{
             .allocator = allocator,
             .scopes = scopes,
-            .next_scope = 1,
             .active_scope = global,
             .next_address = 0,
             .constants = const_map,
@@ -69,14 +69,6 @@ pub const SymbolTableManager = struct {
 
     pub fn setParentModule(self: *SymbolTableManager, module: *Module) void {
         self.parent_module = module;
-    }
-
-    /// Reset the active scope stack and scope counter
-    pub fn resetStack(self: *SymbolTableManager) void {
-        // Set bottom scope to active_scope
-        self.active_scope = self.scopes.items[0];
-        // Reset counter
-        self.next_scope = 1;
     }
 
     /// Create a new scope, add it to scopes stack,
@@ -94,19 +86,7 @@ pub const SymbolTableManager = struct {
         self.active_scope.next_address = next_address;
 
         // Insert new scope into stack
-        self.scopes.insert(self.next_scope, new_scope) catch unreachable;
-
-        // Increment current scope counter
-        self.next_scope += 1;
-    }
-
-    /// Push the next scope onto the active scope stack
-    pub fn pushScope(self: *SymbolTableManager) void {
-        // Put next scope as active scope
-        self.active_scope = self.scopes.items[self.next_scope];
-
-        // Increment counter
-        self.next_scope += 1;
+        self.scopes.append(new_scope) catch unreachable;
     }
 
     /// Pop the current active scope from the active scope stack
@@ -115,16 +95,12 @@ pub const SymbolTableManager = struct {
         const next_address = self.active_scope.next_address;
         // Pop scope
         self.active_scope = self.active_scope.enclosing.?;
+        _ = self.scopes.pop();
 
         // Add size if not global
         if (self.active_scope != self.scopes.items[0]) {
             self.active_scope.next_address = next_address;
         }
-    }
-
-    pub fn unpopScope(self: *SymbolTableManager) void {
-        self.next_scope -= 1;
-        self.active_scope = self.scopes.items[self.next_scope];
     }
 
     /// Add a new symbol, with all of its attributes, and assign it with a null memory location
@@ -431,6 +407,8 @@ pub const Scope = struct {
 pub const UnionScope = struct {
     fields: std.StringHashMap(Symbol),
     max_size: usize,
+    declared: bool = false,
+    visited: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) UnionScope {
         return UnionScope{
@@ -485,6 +463,8 @@ pub const StructScope = struct {
     fields: std.StringHashMap(Symbol),
     next_address: usize,
     is_open: bool,
+    declared: bool = false,
+    visited: bool = false,
 
     /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
     pub fn init(allocator: std.mem.Allocator) StructScope {
@@ -734,10 +714,10 @@ pub const KindId = union(Kinds) {
         return KindId{ .FUNC = func };
     }
     /// Init a new Struct kindid with a defined scope
-    pub fn newStructWithIndex(allocator: std.mem.Allocator, name: []const u8, index: u64) KindId {
+    pub fn newStructWithIndex(allocator: std.mem.Allocator, name: []const u8, index: *Stmt.StructStmt, stm: *SymbolTableManager) KindId {
         const new_scope = allocator.create(StructScope) catch unreachable;
         new_scope.* = StructScope.init(allocator);
-        const new_struct = Struct{ .name = name, .fields = new_scope, .index = index };
+        const new_struct = Struct{ .name = name, .fields = new_scope, .index = index, .stm = stm };
         return KindId{ .STRUCT = new_struct };
     }
     /// Init a new Struct kindid with no scope
@@ -745,10 +725,10 @@ pub const KindId = union(Kinds) {
         const new_struct = Struct{ .name = name, .fields = undefined };
         return KindId{ .STRUCT = new_struct };
     }
-    pub fn newUnion(allocator: std.mem.Allocator, name: []const u8, index: u64) KindId {
+    pub fn newUnion(allocator: std.mem.Allocator, name: []const u8, index: *Stmt.UnionStmt, stm: *SymbolTableManager) KindId {
         const new_scope = allocator.create(UnionScope) catch unreachable;
         new_scope.* = UnionScope.init(allocator);
-        const new_union = Union{ .name = name, .fields = new_scope, .index = index };
+        const new_union = Union{ .name = name, .fields = new_scope, .index = index, .stm = stm };
         return KindId{ .UNION = new_union };
     }
     /// Make an enum with a variant field
@@ -996,9 +976,8 @@ const Function = struct {
 pub const Struct = struct {
     name: []const u8,
     fields: *StructScope,
-    index: u64 = undefined,
-    visited: bool = false,
-    declared: bool = false,
+    index: *Stmt.StructStmt = undefined,
+    stm: *SymbolTableManager = undefined,
 
     /// Returns true if two structs are the same
     pub fn equal(self: Struct, other: Struct) bool {
@@ -1017,9 +996,8 @@ pub const Struct = struct {
 pub const Union = struct {
     name: []const u8,
     fields: *UnionScope,
-    index: usize = undefined,
-    visited: bool = false,
-    declared: bool = false,
+    index: *Stmt.UnionStmt = undefined,
+    stm: *SymbolTableManager = undefined,
 
     pub fn equal(self: Union, other: Union) bool {
         return self.name.ptr == other.name.ptr and self.name.len == other.name.len and self.fields == other.fields;

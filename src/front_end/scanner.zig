@@ -278,9 +278,34 @@ pub const Scanner = struct {
 
     /// Scan a number literal
     fn number(self: *Scanner) Token {
-        var previous: u8 = 0;
+        if (self.parse_integer()) |err| return err;
 
-        // Run until end of predecimal point
+        const token_kind = if (self.peek() == '.' and (isDigit(self.peekNext()) or self.peekNext() == '_')) blk: {
+            // Consume '.'
+            _ = self.advance();
+
+            if (self.parse_integer()) |err| return err;
+
+            if (self.match('e')) {
+                _ = self.match('+') or self.match('-');
+
+                if (self.parse_integer()) |err| return err;
+            }
+
+            break :blk TokenKind.FLOAT;
+        } else if (self.match('e')) blk: {
+            _ = self.match('+') or self.match('-');
+
+            if (self.parse_integer()) |err| return err;
+            break :blk TokenKind.FLOAT;
+        } else TokenKind.INTEGER;
+
+        // Else return integer
+        return self.emitToken(token_kind);
+    }
+
+    fn parse_integer(self: *Scanner) ?Token {
+        var previous: u8 = '_';
         while (isDigit(self.peek()) or (self.peek() == '_' and previous != '_')) {
             previous = self.advance();
         }
@@ -289,23 +314,7 @@ pub const Scanner = struct {
             return self.emitError("Expected digit seperator to be between two digits");
         }
 
-        const token_kind = if (self.peek() == '.' and (isDigit(self.peekNext()) or self.peekNext() == '_')) blk: {
-            // Consume '.'
-            _ = self.advance();
-            previous = '_';
-            while (isDigit(self.peek()) or (self.peek() == '_' and previous != '_')) {
-                previous = self.advance();
-            }
-
-            if (previous == '_') {
-                return self.emitError("Expected digit seperator to be between two digits");
-            }
-
-            break :blk TokenKind.FLOAT;
-        } else TokenKind.INTEGER;
-
-        // Else return integer
-        return self.emitToken(token_kind);
+        return null;
     }
 
     /// Scan a char literal

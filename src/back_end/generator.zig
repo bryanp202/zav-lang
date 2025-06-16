@@ -268,8 +268,10 @@ pub fn close(self: Generator) GenerationError!void {
         \\
         \\section .data
         \\    ; Native Constants and Dependencies;
-        \\    @SS_SIGN_BIT: dq 0x80000000, 0, 0, 0
-        \\    @SD_SIGN_BIT: dq 0x8000000000000000, 0, 0, 0
+        \\    align 16
+        \\    @SS_SIGN_BIT: dq 0x80000000, 0
+        \\    align 16
+        \\    @SD_SIGN_BIT: dq 0x8000000000000000, 0
         \\    extern QueryPerformanceCounter
         \\    extern GetCommandLineW
         \\    extern CommandLineToArgvW
@@ -333,8 +335,7 @@ pub fn close(self: Generator) GenerationError!void {
         \\    ; Program Globals ;
         \\
     );
-    // Reset scope stack
-    self.stm.resetStack();
+
     var global_iter = self.stm.active_scope.symbols.iterator();
     // Write each variable to the file
     while (global_iter.next()) |global_entry| {
@@ -354,9 +355,6 @@ pub fn close(self: Generator) GenerationError!void {
 
 /// Walk the ast, generating ASM
 pub fn genModule(self: *Generator, module: Module) GenerationError!void {
-    // Reset STM stack
-    self.stm.resetStack();
-
     if (module.kind == .ROOT) {
         // Generate all statements in the module
         for (module.globalSlice()) |global| {
@@ -386,7 +384,6 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
     // Generate all methods for each struct in the module
     for (module.structSlice()) |strct| {
         const struct_sym = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
-        std.debug.print("struct_kind: {any}\n\n", .{struct_sym.kind});
         for (strct.STRUCT.methods) |method| {
             const method_field = struct_sym.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
             try self.visitFunctionStmt(method, method_field.kind.FUNC.args_size, method_field.used, method_field.name);
@@ -1856,6 +1853,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
                 const input_reg = self.popCPUReg();
                 const out_reg = Register{ .name = "rsp", .index = cpu_reg_names.len + 1 };
                 try self.copy_struct(out_reg, input_reg, size, next_address);
+                next_address += size;
             },
             .ENUM => {
                 // Get kind size
@@ -2006,7 +2004,7 @@ fn visitFieldExprID(self: *Generator, fieldExpr: *Expr.FieldExpr) GenerationErro
     const source_reg = self.getCurrCPUReg();
     const offset = fieldExpr.stack_offset;
     // Generate the field offset access
-    if (offset > 0) {
+    if (offset != 0) {
         try self.print("    lea {s}, [{s}+{d}] ; Field access\n", .{ source_reg.name, source_reg.name, offset });
     }
 }
@@ -2038,6 +2036,12 @@ fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: Kin
         .FLOAT64 => {
             const dest_reg = try self.getNextSSEReg();
             try self.print("    movsd {s}, [{s}+{d}] ; Field access\n", .{ dest_reg.name, source_reg.name, offset });
+        },
+        .STRUCT, .UNION => {
+            const reg = try self.getNextCPUReg();
+            if (offset != 0) {
+                try self.print("    lea {s}, [{s}+{d}] ; Field access\n", .{ reg.name, source_reg.name, offset });
+            }
         },
         else => {
             const reg = try self.getNextCPUReg();

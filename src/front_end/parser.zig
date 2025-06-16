@@ -1582,6 +1582,9 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;
             // Parse lexeme
             const parsed_float = std.fmt.parseFloat(f64, token.lexeme) catch unreachable;
+
+            if (parsed_float == std.math.inf(f64)) return self.reportError(token, "Floating point value to large to parse");
+
             // Make new value
             const value = Value.newFloat64(parsed_float);
             constant_expr.* = .{ .value = value, .literal = token };
