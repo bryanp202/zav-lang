@@ -49,7 +49,7 @@
 		"primative-types": {
 			"patterns": [{
 				"name": "storage.type.zav",
-				"match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|bool|void|struct|union|enum)\\b"
+				"match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|bool|void)\\b"
 			}]
 		},
 		"native-function": {
@@ -97,13 +97,13 @@
 		"control-keywords": {
 			"patterns": [{
 				"name": "keyword.control.zav",
-				"match": "\\b(if|else|while|loop|return|fn|const|var|break|continue|switch|then|defer|for)\\b"
+				"match": "\\b(if|else|while|loop|return|break|continue|switch|then|defer|for)\\b"
 			}]
 		},
 		"operator-keywords": {
 			"patterns": [{
 				"name": "keyword.zav",
-				"match": "\\b(or|and|use|pub|mod|as)\\b"
+				"match": "\\b(or|and|use|pub|mod|as|fn|var|const|union|struct|enum)\\b"
 			}]
 		},
 		"strings": {
