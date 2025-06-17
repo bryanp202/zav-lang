@@ -1136,26 +1136,10 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
         var new_func = KindId.newFunc(self.allocator, method.arg_kinds, false, method.return_kind);
 
         // Check if first argument is pointer to self
-        if (method.arg_kinds.len < 1 or method.arg_kinds[0] != .PTR) {
-            return self.reportError(
-                SemanticError.UnresolvableIdentifier,
-                method.op,
-                "Expect a pointer to struct type as first parameter of struct method",
-            );
-        }
-
-        const ptr_child_kind = method.arg_kinds[0].PTR.child;
-        _ = ptr_child_kind.update(self.stm) catch {
-            return self.reportError(SemanticError.UnresolvableIdentifier, method.name, "Could not resolve struct type in this argument");
-        };
-
-        if (!symbol.kind.equal(ptr_child_kind.*)) {
-            return self.reportError(
-                SemanticError.UnresolvableIdentifier,
-                method.arg_names[0],
-                "Expect a pointer to struct type as first parameter of struct method",
-            );
-        }
+        const fn_type = if (method.arg_kinds.len >= 1 and method.arg_kinds[0] == .PTR) blk: {
+            const ptr_child_kind = method.arg_kinds[0].PTR.child;
+            break :blk if (symbol.kind.equal(ptr_child_kind.*)) ScopeKind.METHOD else ScopeKind.FUNC;
+        } else ScopeKind.FUNC;
 
         // Get size of arguments
         _ = new_func.update(self.stm) catch unreachable;
@@ -1164,7 +1148,7 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
         symbol.kind.STRUCT.fields.addField(
             structStmt.id.lexeme,
             self.stm.parent_module,
-            ScopeKind.FUNC,
+            fn_type,
             method.name.lexeme,
             method.name.line,
             method.name.column,
@@ -1841,7 +1825,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     switch (symbol.scope) {
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
-        .GLOBAL, .FUNC => {},
+        .GLOBAL, .FUNC, .METHOD => {},
         .STRUCT, .ENUM, .ENUM_VARIANT, .MODULE, .UNION => return self.reportError(SemanticError.TypeMismatch, token, "Cannot modify kind values (enum and variants or structs)"),
     }
 
@@ -1876,7 +1860,7 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
     switch (symbol.scope) {
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
-        .GLOBAL, .FUNC => {},
+        .GLOBAL, .FUNC, .METHOD => {},
         .STRUCT, .ENUM, .MODULE, .UNION => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, or module types"),
         .ENUM_VARIANT => {
             const new_literal = self.allocator.create(Expr.LiteralExpr) catch unreachable;
@@ -2007,6 +1991,15 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
 
     // Check if a method
     if (callExpr.caller_expr.expr == .FIELD) {
+        if (callExpr.caller_expr.expr.FIELD.operand.result_kind == .PTR) {
+            const caller_ptr = callExpr.caller_expr.expr.FIELD.operand.result_kind.PTR;
+            if (caller_ptr.const_child and !callee_args[0].PTR.const_child) {
+                return self.reportError(SemanticError.TypeMismatch, callExpr.op, "Cannot downgrade const pointer types");
+            }
+        } else if (!callee_result.mutable and !callee_args[0].PTR.const_child) {
+            return self.reportError(SemanticError.TypeMismatch, callExpr.op, "Cannot downgrade const pointer types");
+        }
+
         const new_method_args = self.allocator.alloc(ExprNode, callExpr.args.len + 1) catch unreachable;
         const first_arg_node = blk: {
             // Make new dereference node for first argument, if not ptr
@@ -2124,8 +2117,10 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
             fieldExpr.stack_offset = field.mem_loc;
             node.result_kind = field.kind;
             // Check if method
-            if (field.scope == .FUNC) {
+            if (field.scope == .METHOD) {
                 fieldExpr.method_name = field.name;
+            } else if (field.scope == .FUNC) {
+                return self.reportError(SemanticError.TypeMismatch, fieldExpr.field_name, "Expected a struct method");
             }
             // Check if mutable
             const mutable = if (operand_result.kind == .PTR) !operand_result.kind.PTR.const_child else operand_result.mutable and field.scope != .FUNC;
@@ -2165,8 +2160,10 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             fieldExpr.stack_offset = field.mem_loc;
             node.result_kind = field.kind;
             // Check if method
-            if (field.scope == .FUNC) {
+            if (field.scope == .METHOD) {
                 fieldExpr.method_name = field.name;
+            } else if (field.scope == .FUNC) {
+                return self.reportError(SemanticError.TypeMismatch, fieldExpr.field_name, "Expected a struct method");
             }
             node.result_kind = field.kind;
             return field.kind;

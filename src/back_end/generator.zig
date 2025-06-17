@@ -104,14 +104,14 @@ pub fn open(
         const symbol = entry.value_ptr;
         if (symbol.public and symbol.used) {
             switch (symbol.scope) {
-                .GLOBAL, .FUNC => _ = try writer.print("global {s}\n", .{symbol.name}),
+                .GLOBAL, .FUNC, .METHOD => _ = try writer.print("global {s}\n", .{symbol.name}),
                 .STRUCT => {
                     var field_iter = symbol.kind.STRUCT.fields.fields.iterator();
                     while (field_iter.next()) |field_entry| {
                         const field = field_entry.value_ptr;
                         if (field.public and field.used) {
                             switch (field.scope) {
-                                .GLOBAL, .FUNC => _ = try writer.print("global {s}\n", .{field.name}),
+                                .GLOBAL, .FUNC, .METHOD => _ = try writer.print("global {s}\n", .{field.name}),
                                 else => {},
                             }
                         }
@@ -1336,7 +1336,7 @@ fn visitIdentifierExprID(self: *Generator, idExpr: *Expr.IdentifierExpr) Generat
     switch (idExpr.scope_kind) {
         .ARG => try self.print("    lea {s}, [rbp+{d}] ; Get Arg\n", .{ reg.name, idExpr.stack_offset + self.current_func_locals_size }),
         .LOCAL => try self.print("    lea {s}, [rbp+{d}] ; Get Local\n", .{ reg.name, idExpr.stack_offset - self.current_func_args_size }),
-        .GLOBAL, .FUNC => try self.print("    lea {s}, [{s}] ; Get Global\n", .{ reg.name, id_name }),
+        .GLOBAL, .FUNC, .METHOD => try self.print("    lea {s}, [{s}] ; Get Global\n", .{ reg.name, id_name }),
         else => unreachable,
     }
 }
@@ -1352,7 +1352,7 @@ fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_ki
     const stack_offset: ?u64 = switch (idExpr.scope_kind) {
         .ARG => idExpr.stack_offset + self.current_func_locals_size,
         .LOCAL => idExpr.stack_offset - self.current_func_args_size,
-        .GLOBAL, .FUNC => null,
+        .GLOBAL, .FUNC, .METHOD => null,
         else => unreachable,
     };
 
