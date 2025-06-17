@@ -2040,6 +2040,8 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
         }
     }
 
+    const pre_arg_call_chain = self.call_chain;
+    self.call_chain = false;
     // Check arg types
     for (call_args, callee_args) |*caller_arg, callee_arg| {
         // Evaluate argument type
@@ -2067,6 +2069,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
             );
         }
     }
+    self.call_chain = pre_arg_call_chain;
 
     // Check if returning struct by value
     if (callee.ret_kind.* == .STRUCT or callee.ret_kind.* == .UNION) {
