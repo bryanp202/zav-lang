@@ -938,6 +938,8 @@ fn run_native(allocator: std.mem.Allocator) Native {
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source =
         \\@run:
+        \\    push rbp
+        \\    mov rbp, rsp
         \\    lea r8, [@STARTUP_INFO] ; Zero out STARTUP_INFO
         \\    mov dword [r8], 96
         \\    mov r9d, 1
@@ -982,6 +984,7 @@ fn run_native(allocator: std.mem.Allocator) Native {
         \\    mov rcx, [@PROCESS_INFO+8]
         \\    call CloseHandle
         \\    add rsp, 32
+        \\    pop rbp
         \\    ret
         \\
     ;

@@ -627,7 +627,7 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
     const locals_size = functionStmt.locals_size + ((8 - (functionStmt.locals_size & 7)) & 7);
     self.current_func_locals_size = locals_size;
 
-    self.func_stack_alignment = 0;
+    self.func_stack_alignment = 8;
 
     // Write the functions label
     try self.print("\n{s}:\n", .{name});
