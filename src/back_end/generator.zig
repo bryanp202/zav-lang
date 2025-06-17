@@ -1231,7 +1231,7 @@ fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationErro
                 try self.print("    mov rax, {s}\n", .{reg.name});
             },
         }
-        if (self.defered_statements.items.len > 0) {
+        if (returnStmt.expr != null and self.defered_statements.items.len > 0) {
             self.func_stack_alignment += 8;
             try self.write("    push rax\n");
         }
@@ -1871,6 +1871,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     }
 
     // Generate call
+    self.func_stack_alignment -= 8;
     try self.write("    pop rcx\n    call rcx\n");
     // Remove locals from stack
     try self.print("    add rsp, {d}\n", .{arg_space});
