@@ -1,0 +1,330 @@
+pub mod list;
+pub mod object;
+pub mod value;
+
+use value::Value;
+use value::ValueType;
+use value::ValueUnion;
+
+use ::string::String;
+use ::string::nstr_eql;
+
+use object::Object;
+use list::List;
+
+use ::fs::read_file;
+
+pub enum Error {
+    Okay,
+    OutOfMemory,
+    InvalidJson,
+    FailedToLoad
+}
+
+pub struct Result {
+    status: Error;
+    data: Value; 
+}
+
+pub fn get(url: *const u8, url_len: u64) Result {
+    var result: Result = undefined;
+
+    const cmd_buf = @malloc(url_len + 64) as *u8;
+    @sprintf(cmd_buf, "curl %.*s -o temp.json", url_len, url);
+    const run_result = @run(cmd_buf);
+    @free(cmd_buf);
+    
+    if (!run_result) {
+        result.status = Error::FailedToLoad;
+        return result;
+    }
+
+    const file_result = read_file("temp.json");
+    @fdelete("temp.json");
+    switch (file_result.status) {
+        ::fs::Error::Okay => {}
+        else => {
+            result.status = Error::FailedToLoad;
+            return result;
+        }
+    }
+
+    var parser = initParser(file_result.data);
+    return parser.parse();
+}
+
+/* Parser Struct */
+
+fn initParser(src: String) Parser {
+    var parser: Parser = undefined;
+    parser.src = src.data;
+    parser.len = src.len;
+    parser.start = 0 as u64;
+    parser.current = 0 as u64;
+    return parser;
+}
+
+struct Parser {
+    src: *const u8;
+    len: u64;
+    start: u64;
+    current: u64;
+
+    pub fn parse(self: *Parser) Result {
+        return self.element();
+    }
+
+    fn at_end(self: *Parser) bool {
+        return self.current >= self.len;
+    }
+
+    fn advance(self: *Parser) u8 {
+        self.current += 1 as u64;
+        return self.src[self.current - 1];
+    }
+
+    fn peek(self: *Parser) u8 {
+        return self.src[self.current];
+    }
+
+    fn match(self: *Parser, expected: u8) bool {
+        self.skip_whitespace();
+        if (self.at_end() or self.peek() != expected) return false;
+        self.current += 1 as u64;
+        return true;
+    }
+
+    fn skip_whitespace(self: *Parser) void {
+        while (!self.at_end()) {
+            switch (self.peek() as i64) {
+                10 | 13 | 32 | 9 => self.advance();
+                else => return;
+            }
+        }
+    }
+
+    fn element(self: *Parser) Result {
+        var result: Result = undefined;
+
+        self.skip_whitespace();
+        self.start = self.current;
+
+        if (is_digit(self.peek()) or self.peek() == '-') {
+            return self.num();
+        }
+
+        const c = self.peek();
+        switch (c) {
+            '"' => return self.str();
+            '{' => return self.obj();
+            '[' => return self.list();
+            't' => return self.rue();
+            'f' => return self.alse();
+            'n' => return self.ull();
+        }
+
+        result.status = Error::InvalidJson;
+        return result;
+    }
+
+    fn num(self: *Parser) Result {
+        var result: Result = undefined;
+        var digit = 0.0;
+        const negative = self.match('-');
+
+        while(is_digit(self.peek())) {
+            const c = self.advance();
+            digit *= 10.0;
+            digit += (c - '0') as f64;
+        }
+
+        if (self.peek() == '.') {
+            self.advance();
+            var decimal = 0.0;
+            var mag = 1.0;
+
+            while (is_digit(self.peek())) {
+                const c = self.advance();
+                decimal *= 10.0;
+                mag *= 10.0;
+                decimal += (c - '0') as f64;
+            }
+
+            if (mag == 1.0) {
+                result.status = Error::InvalidJson;
+                return result;
+            }
+
+            digit += decimal / mag;
+        }
+
+        // TODO: e[+-]Integer, scientific notation
+
+        result.status = Error::Okay;
+        result.data.type = ValueType::Number;
+        result.data.val.num = negative ? -digit : digit;
+        return result;
+    }
+
+    fn str(self: *Parser) Result {
+        var result: Result = undefined;
+
+        var current = self.advance();
+
+        while ((self.peek() != '"' or current == '\') and !self.at_end()) {
+            current = self.advance();
+        }
+
+        if (self.at_end()) {
+            result.status = Error::InvalidJson;
+            return result;
+        }
+
+        self.advance();
+        const len = self.current - self.start - 2 as u64;
+        result.status = Error::Okay;
+        result.data.type = ValueType::String;
+        result.data.val.str.from_nstr(len, &self.src[self.start + 1]);
+        return result;
+    }
+
+    fn obj(self: *Parser) Result {
+        var result: Result = undefined;
+        result.data.val.obj.init();
+        self.advance();
+
+        self.skip_whitespace();
+        var next = self.peek() == '}' ? '}' : ',';
+
+        while (next == ',' and !self.at_end()) {
+            const item_name = self.element();
+            if (item_name.status != Error::Okay or item_name.data.type != ValueType::String) {
+                result.status = Error::InvalidJson;
+                result.data.val.obj.deinit();
+                return result;
+            }
+
+            if (!self.match(':')) {
+                result.status = Error::InvalidJson;
+                result.data.val.obj.deinit();
+                return result;
+            }
+            const item_element = self.element();
+
+            if (item_element.status != Error::Okay) {
+                result.status = Error::InvalidJson;
+                result.data.val.obj.deinit();
+                return result;
+            }
+
+            result.data.val.obj.put(item_name.data.val.str, item_element.data);
+            self.skip_whitespace();
+            next = self.peek();
+            if (next == ',') self.advance();
+        }
+
+        if (!self.match('}')) {
+            result.status = Error::InvalidJson;
+            result.data.val.obj.deinit();
+            return result;
+        }
+
+        result.status = Error::Okay;
+        result.data.type = ValueType::Object;
+        return result;
+    }
+
+    fn list(self: *Parser) Result {
+        var result: Result = undefined;
+        result.data.val.list.init();
+        self.advance();
+
+        self.skip_whitespace();
+        var next = self.peek() == ']' ? ']' : ',';
+
+        while (next == ',' and !self.at_end()) {
+            const item_element = self.element();
+            if (item_element.status != Error::Okay) {
+                result.status = Error::InvalidJson;
+                result.data.val.list.deinit();
+                return result;
+            }
+
+            result.data.val.list.append(item_element.data);
+            self.skip_whitespace();
+            next = self.peek();
+            if (next == ',') self.advance();
+        }
+
+        if (!self.match(']')) {
+            result.status = Error::InvalidJson;
+            result.data.val.list.deinit();
+            return result;
+        }
+
+        result.status = Error::Okay;
+        result.data.type = ValueType::List;
+        return result;
+    }
+
+    fn rue(self: *Parser) Result {
+        var result: Result = undefined;
+
+        if (self.start + 4 > self.len or !nstr_eql(4 as u64, &self.src[self.start], "true")) {
+            result.status = Error::InvalidJson;
+            return result;
+        }
+
+        self.current += 4 as u64;
+
+        result.status = Error::Okay;
+        result.data.type = ValueType::Boolean;
+        result.data.val.boolean = true;
+        return result;
+    }
+
+    fn alse(self: *Parser) Result {
+        var result: Result = undefined;
+
+        if (self.start + 5 > self.len or !nstr_eql(5 as u64, &self.src[self.start], "false")) {
+            result.status = Error::InvalidJson;
+            return result;
+        }
+
+        self.current += 5 as u64;
+
+        result.status = Error::Okay;
+        result.data.type = ValueType::Boolean;
+        result.data.val.boolean = false;
+        return result;
+    }
+
+    fn ull(self: *Parser) Result {
+        var result: Result = undefined;
+
+        if (self.start + 4 > self.len or !nstr_eql(4 as u64, &self.src[self.start], "null")) {
+            result.status = Error::InvalidJson;
+            return result;
+        }
+
+        self.current += 4 as u64;
+
+        result.status = Error::Okay;
+        result.data.type = ValueType::Null;
+        result.data.val.boolean = true;
+        return result;
+    }
+}
+
+/* Parser Helpers */
+fn is_digit(c: u8) bool {
+    return c >= '0' and c <= '9';
+}
+
+fn is_alpha(c: u8) bool {
+    return c >= 'a' and c <= 'z' or c >= 'A' and c <= 'Z';
+}
+
+fn is_alpha_numeric(c: u8) bool {
+    return is_digit(c) or is_alpha(c);
+}

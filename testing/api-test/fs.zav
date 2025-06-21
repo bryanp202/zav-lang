@@ -1,0 +1,53 @@
+pub mod buffered_writer;
+
+use ::string::String;
+
+pub enum Error {
+    Okay,
+    FileNotFound,
+    FileEmpty,
+    OutOfMemory,
+    FailedToRead
+}
+
+pub struct Result {
+    status: Error;
+    data: String;
+}
+
+pub fn read_file(path: *const u8) Result {
+    var result: Result = undefined;
+
+    const file = @fopen(path);
+    if (file == -1) {
+        result.status = Error::FileNotFound;
+        return result;
+    }
+    defer @fclose(file);
+
+    var file_len: u64 = 0 as u64;
+    const read_file_size_success  = @fgetSize(file, &file_len);
+    if (!read_file_size_success) {
+        result.status = Error::FileEmpty;
+        return result;
+    }
+
+    const file_buf = @malloc(file_len) as *u8;
+    if (file_buf == nullptr) {
+        result.status = Error::OutOfMemory;
+        return result;
+    }
+
+    var bytes_read: u64 = 0 as u64;
+    const read_success = @fread(file, file_buf, file_len, &bytes_read);
+    if (!read_success or bytes_read != file_len) {
+        result.status = Error::FailedToRead;
+        return result;
+    }
+
+    result.status = Error::Okay;
+    result.data.data = file_buf;
+    result.data.len = bytes_read;
+    result.data.capacity = bytes_read;
+    return result;
+}

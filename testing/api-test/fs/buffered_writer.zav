@@ -1,0 +1,4 @@
+pub struct BufferedWriter {
+    file: i64;
+    // TODO
+}

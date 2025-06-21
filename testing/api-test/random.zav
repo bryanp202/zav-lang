@@ -1,0 +1,10 @@
+var seed: i64 = undefined;
+
+pub fn init(input: i64) void {
+    seed = input;
+}
+
+pub fn rand() i32 {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed as i32;
+}
