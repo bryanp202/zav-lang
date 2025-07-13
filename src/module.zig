@@ -19,6 +19,7 @@ functions: std.ArrayList(StmtNode),
 structs: std.ArrayList(StmtNode),
 enums: std.ArrayList(StmtNode),
 unions: std.ArrayList(StmtNode),
+generics: std.ArrayList(StmtNode),
 /// Scope handlers
 stm: STM,
 
@@ -38,6 +39,7 @@ pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleK
         .structs = std.ArrayList(StmtNode).init(allocator),
         .enums = std.ArrayList(StmtNode).init(allocator),
         .unions = std.ArrayList(StmtNode).init(allocator),
+        .generics = std.ArrayList(StmtNode).init(allocator),
         .stm = STM.init(allocator, global_module),
     };
 }
@@ -51,6 +53,9 @@ pub fn display(self: Module) void {
     std.debug.print("\n--- Module <root{s}> ---\n", .{self.path});
     for (self.useSlice()) |use| {
         use.display();
+    }
+    for (self.genericSlice()) |generic| {
+        generic.display();
     }
     for (self.enumSlice()) |enm| {
         enm.display();
@@ -68,6 +73,10 @@ pub fn display(self: Module) void {
         function.display();
     }
     std.debug.print("--- End of <root{s}> ---\n\n", .{self.path});
+}
+
+pub fn genericSlice(self: Module) []StmtNode {
+    return self.generics.items;
 }
 
 /// Return a slice of all globals in this module
@@ -107,6 +116,7 @@ pub fn addStmt(self: *Module, stmt_node: StmtNode) !void {
         .UNION => try self.unions.append(stmt_node),
         .MOD => {},
         .USE => try self.uses.append(stmt_node),
+        .GENERIC => try self.generics.append(stmt_node),
         else => unreachable,
     }
 }

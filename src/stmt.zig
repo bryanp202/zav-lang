@@ -30,6 +30,33 @@ pub const StmtNode = union(enum) {
     SWITCH: *SwitchStmt,
     DEFER: *DeferStmt,
     FOR: *ForStmt,
+    GENERIC: *GenericStmt,
+
+    /// Deep copy a stmtnode
+    pub fn copy(self: StmtNode, allocator: std.mem.Allocator) StmtNode {
+        return switch (self) {
+            .MOD => |modStmt| modStmt.copy(allocator),
+            .USE => |useStmt| useStmt.copy(allocator),
+            .GLOBAL => |globalStmt| globalStmt.copy(allocator),
+            .MUTATE => |mutStmt| mutStmt.copy(allocator),
+            .DECLARE => |declStmt| declStmt.copy(allocator),
+            .EXPRESSION => |exprStmt| exprStmt.copy(allocator),
+            .WHILE => |whileStmt| whileStmt.copy(allocator),
+            .BLOCK => |blockStmt| blockStmt.copy(allocator),
+            .IF => |ifStmt| ifStmt.copy(allocator),
+            .BREAK => |breakStmt| breakStmt.copy(allocator),
+            .CONTINUE => |contStmt| contStmt.copy(allocator),
+            .FUNCTION => |funcStmt| funcStmt.copy(allocator),
+            .UNION => |unionStmt| unionStmt.copy(allocator),
+            .ENUM => |enumStmt| enumStmt.copy(allocator),
+            .SWITCH => |switchStmt| switchStmt.copy(allocator),
+            .DEFER => |deferStmt| deferStmt.copy(allocator),
+            .FOR => |forStmt| forStmt.copy(allocator),
+            .RETURN => |returnStmt| returnStmt.copy(allocator),
+            .STRUCT => |structStmt| structStmt.copy(allocator),
+            .GENERIC => unreachable,
+        };
+    }
 
     /// Display a stmt
     pub fn display(self: StmtNode) void {
@@ -209,6 +236,7 @@ pub const StmtNode = union(enum) {
             },
             .FOR => |forStmt| forStmt.display(),
             .UNION => |unionStmt| unionStmt.display(),
+            .GENERIC => |genericStmt| genericStmt.display(),
         }
     }
 };
@@ -231,6 +259,12 @@ pub const ModStmt = struct {
             .module_name = module_name,
         };
     }
+
+    pub fn copy(self: ModStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_mod = allocator.create(ModStmt) catch unreachable;
+        new_mod.* = self;
+        return StmtNode{ .MOD = new_mod };
+    }
 };
 
 /// Bring symbol into a module scope
@@ -251,6 +285,18 @@ pub const UseStmt = struct {
             .public = is_public,
         };
     }
+
+    pub fn copy(self: UseStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(UseStmt) catch unreachable;
+        new_stmt.* = UseStmt{
+            .op = self.op,
+            .scopes = self.scopes.copy(allocator),
+            .rename = self.rename,
+            .public = self.public,
+            .imported = self.imported,
+        };
+        return StmtNode{ .USE = new_stmt };
+    }
 };
 
 /// Used to store an MutExpr
@@ -269,6 +315,17 @@ pub const MutStmt = struct {
             .assign_expr = assign_expr,
             .id_kind = undefined,
         };
+    }
+
+    pub fn copy(self: MutStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(MutStmt) catch unreachable;
+        new_stmt.* = MutStmt{
+            .id_expr = self.id_expr.copy(allocator),
+            .op = self.op,
+            .assign_expr = self.assign_expr.copy(allocator),
+            .id_kind = self.id_kind, // TODO figure out why self.id_kind.copy() causes problems????
+        };
+        return StmtNode{ .MUTATE = new_stmt };
     }
 };
 
@@ -293,6 +350,21 @@ pub const GlobalStmt = struct {
             .expr = expr,
         };
     }
+
+    pub fn copy(self: GlobalStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(GlobalStmt) catch unreachable;
+        const new_expr = if (self.expr) |assign_expr| assign_expr.copy(allocator) else null;
+        const new_kind = if (self.kind) |kind| kind.copy(allocator) else null;
+        new_stmt.* = GlobalStmt{
+            .public = self.public,
+            .mutable = self.mutable,
+            .id = self.id,
+            .kind = new_kind,
+            .op = self.op,
+            .expr = new_expr,
+        };
+        return StmtNode{ .GLOBAL = new_stmt };
+    }
 };
 
 /// Used to store a function stmt
@@ -300,12 +372,6 @@ pub const GlobalStmt = struct {
 /// arglist -> arg (',' arg)*
 /// arg -> identifier ':' type
 pub const FunctionStmt = struct {
-    /// Used to store an argument
-    pub const Arg = struct {
-        name: Token,
-        kind: KindId,
-    };
-    // Fields
     public: bool,
     op: Token,
     name: Token,
@@ -327,6 +393,25 @@ pub const FunctionStmt = struct {
             .return_kind = return_kind,
             .body = body,
         };
+    }
+
+    pub fn copy(self: FunctionStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(FunctionStmt) catch unreachable;
+        const new_arg_kinds = allocator.alloc(KindId, self.arg_kinds.len) catch unreachable;
+        for (0..new_arg_kinds.len) |i| {
+            new_arg_kinds[i] = self.arg_kinds[i].copy(allocator);
+        }
+        new_stmt.* = FunctionStmt{
+            .public = self.public,
+            .op = self.op,
+            .name = self.name,
+            .arg_names = self.arg_names,
+            .arg_kinds = new_arg_kinds,
+            .locals_size = self.locals_size,
+            .return_kind = self.return_kind.copy(allocator),
+            .body = self.body.copy(allocator),
+        };
+        return StmtNode{ .FUNCTION = new_stmt };
     }
 
     /// Debug display
@@ -362,6 +447,26 @@ pub const StructStmt = struct {
             .methods = methods,
         };
     }
+
+    pub fn copy(self: StructStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(StructStmt) catch unreachable;
+        const new_field_kinds = allocator.alloc(KindId, self.field_kinds.len) catch unreachable;
+        for (0..new_field_kinds.len) |i| {
+            new_field_kinds[i] = self.field_kinds[i].copy(allocator);
+        }
+        const new_methods = allocator.alloc(FunctionStmt, self.methods.len) catch unreachable;
+        for (0..self.methods.len) |i| {
+            new_methods[i] = self.methods[i].copy(allocator).FUNCTION.*;
+        }
+        new_stmt.* = StructStmt{
+            .public = self.public,
+            .id = self.id,
+            .field_names = self.field_names,
+            .field_kinds = new_field_kinds,
+            .methods = new_methods,
+        };
+        return StmtNode{ .STRUCT = new_stmt };
+    }
 };
 
 /// UnionStmt -> "union" Identifier '{' fieldlist '}'
@@ -380,6 +485,21 @@ pub const UnionStmt = struct {
             .field_names = field_names,
             .field_kinds = field_kinds,
         };
+    }
+
+    pub fn copy(self: UnionStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(UnionStmt) catch unreachable;
+        const new_field_kinds = allocator.alloc(KindId, self.field_kinds.len) catch unreachable;
+        for (0..new_field_kinds.len) |i| {
+            new_field_kinds[i] = self.field_kinds[i].copy(allocator);
+        }
+        new_stmt.* = UnionStmt{
+            .public = self.public,
+            .id = self.id,
+            .field_names = self.field_names,
+            .field_kinds = new_field_kinds,
+        };
+        return StmtNode{ .UNION = new_stmt };
     }
 
     pub fn display(self: *UnionStmt) void {
@@ -415,6 +535,21 @@ pub const DeclareStmt = struct {
             .stack_offset = undefined,
         };
     }
+
+    pub fn copy(self: DeclareStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(DeclareStmt) catch unreachable;
+        const new_expr = if (self.expr) |assign_expr| assign_expr.copy(allocator) else null;
+        const new_kind = if (self.kind) |kind| kind.copy(allocator) else null;
+        new_stmt.* = DeclareStmt{
+            .mutable = self.mutable,
+            .id = self.id,
+            .kind = new_kind,
+            .op = self.op,
+            .expr = new_expr,
+            .stack_offset = self.stack_offset,
+        };
+        return StmtNode{ .DECLARE = new_stmt };
+    }
 };
 
 /// Used to store an ExprStmt
@@ -425,6 +560,14 @@ pub const ExprStmt = struct {
     /// Initialize an expr stmt with an exprnode
     pub fn init(expr: ExprNode) ExprStmt {
         return ExprStmt{ .expr = expr };
+    }
+
+    pub fn copy(self: ExprStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(ExprStmt) catch unreachable;
+        new_stmt.* = ExprStmt{
+            .expr = self.expr.copy(allocator),
+        };
+        return StmtNode{ .EXPRESSION = new_stmt };
     }
 };
 
@@ -445,6 +588,18 @@ pub const WhileStmt = struct {
             .loop_stmt = loop_stmt,
         };
     }
+
+    pub fn copy(self: WhileStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(WhileStmt) catch unreachable;
+        const new_loop_stmt = if (self.loop_stmt) |loop_stmt| loop_stmt.copy(allocator) else null;
+        new_stmt.* = WhileStmt{
+            .op = self.op,
+            .conditional = self.conditional.copy(allocator),
+            .body = self.body.copy(allocator),
+            .loop_stmt = new_loop_stmt,
+        };
+        return StmtNode{ .WHILE = new_stmt };
+    }
 };
 
 /// Used to store an IfStmt
@@ -464,6 +619,18 @@ pub const IfStmt = struct {
             .else_branch = else_branch,
         };
     }
+
+    pub fn copy(self: IfStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(IfStmt) catch unreachable;
+        const new_else_branch = if (self.else_branch) |else_branch| else_branch.copy(allocator) else null;
+        new_stmt.* = IfStmt{
+            .op = self.op,
+            .conditional = self.conditional.copy(allocator),
+            .then_branch = self.then_branch.copy(allocator),
+            .else_branch = new_else_branch,
+        };
+        return StmtNode{ .IF = new_stmt };
+    }
 };
 
 /// Used to store a blockstmt
@@ -474,6 +641,16 @@ pub const BlockStmt = struct {
     /// Initialize a block stmt
     pub fn init(statements: []StmtNode) BlockStmt {
         return BlockStmt{ .statements = statements };
+    }
+
+    pub fn copy(self: BlockStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(BlockStmt) catch unreachable;
+        const new_statements = allocator.alloc(StmtNode, self.statements.len) catch unreachable;
+        for (0..self.statements.len) |i| {
+            new_statements[i] = self.statements[i].copy(allocator);
+        }
+        new_stmt.* = BlockStmt{ .statements = new_statements };
+        return StmtNode{ .BLOCK = new_stmt };
     }
 };
 
@@ -486,6 +663,11 @@ pub const ContinueStmt = struct {
     pub fn init(op: Token) ContinueStmt {
         return ContinueStmt{ .op = op };
     }
+
+    pub fn copy(self: *ContinueStmt, allocator: std.mem.Allocator) StmtNode {
+        _ = allocator;
+        return StmtNode{ .CONTINUE = self };
+    }
 };
 
 /// Used to store a break stmt
@@ -496,6 +678,11 @@ pub const BreakStmt = struct {
     /// Initialize a BreakStmt
     pub fn init(op: Token) BreakStmt {
         return BreakStmt{ .op = op };
+    }
+
+    pub fn copy(self: *BreakStmt, allocator: std.mem.Allocator) StmtNode {
+        _ = allocator;
+        return StmtNode{ .BREAK = self };
     }
 };
 
@@ -512,6 +699,17 @@ pub const ReturnStmt = struct {
             .op = op,
             .expr = expr,
         };
+    }
+
+    pub fn copy(self: ReturnStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(ReturnStmt) catch unreachable;
+        const new_expr = if (self.expr) |return_expr| return_expr.copy(allocator) else null;
+        new_stmt.* = ReturnStmt{
+            .op = self.op,
+            .expr = new_expr,
+            .struct_ptr = self.struct_ptr,
+        };
+        return StmtNode{ .RETURN = new_stmt };
     }
 };
 
@@ -531,6 +729,11 @@ pub const EnumStmt = struct {
             .id = id,
             .variant_names = variants,
         };
+    }
+
+    pub fn copy(self: *EnumStmt, allocator: std.mem.Allocator) StmtNode {
+        _ = allocator;
+        return StmtNode{ .ENUM = self };
     }
 };
 
@@ -563,6 +766,31 @@ pub const SwitchStmt = struct {
             .then_branch = then_branch,
         };
     }
+
+    pub fn copy(self: SwitchStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(SwitchStmt) catch unreachable;
+        const new_else_branch = if (self.else_branch) |else_branch| else_branch.copy(allocator) else null;
+        const new_then_branch = if (self.then_branch) |then_branch| then_branch.copy(allocator) else null;
+        const new_literal_branch_stmts = allocator.alloc(StmtNode, self.literal_branch_stmts.len) catch unreachable;
+        const new_literal_branch_values = allocator.alloc([]ExprNode, self.literal_branch_values.len) catch unreachable;
+        for (0..self.literal_branch_stmts.len) |i| {
+            new_literal_branch_stmts[i] = self.literal_branch_stmts[i].copy(allocator);
+            new_literal_branch_values[i] = allocator.alloc(ExprNode, self.literal_branch_values[i].len) catch unreachable;
+            for (0..self.literal_branch_values[i].len) |l| {
+                new_literal_branch_values[i][l] = self.literal_branch_values[i][l].copy(allocator);
+            }
+        }
+        new_stmt.* = SwitchStmt{
+            .op = self.op,
+            .value = self.value.copy(allocator),
+            .literal_branch_values = new_literal_branch_values,
+            .arrows = self.arrows,
+            .literal_branch_stmts = new_literal_branch_stmts,
+            .else_branch = new_else_branch,
+            .then_branch = new_then_branch,
+        };
+        return StmtNode{ .SWITCH = new_stmt };
+    }
 };
 
 /// Used to defer a statement until the end of the current block
@@ -577,6 +805,15 @@ pub const DeferStmt = struct {
             .op = op,
             .stmt = stmt,
         };
+    }
+
+    pub fn copy(self: DeferStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(DeferStmt) catch unreachable;
+        new_stmt.* = DeferStmt{
+            .op = self.op,
+            .stmt = self.stmt.copy(allocator),
+        };
+        return StmtNode{ .DEFER = new_stmt };
     }
 };
 
@@ -618,6 +855,25 @@ pub const ForStmt = struct {
         };
     }
 
+    pub fn copy(self: ForStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(ForStmt) catch unreachable;
+        const new_ptr_expr = if (self.pointer_expr) |ptr_expr| ptr_expr.copy(allocator) else null;
+        new_stmt.* = ForStmt{
+            .op = self.op,
+            .range_start_expr = self.range_start_expr.copy(allocator),
+            .range_end_expr = self.range_end_expr.copy(allocator),
+            .pointer_expr = new_ptr_expr,
+            .range_id = self.range_id,
+            .pointer_id = self.pointer_id,
+            .body = self.body.copy(allocator),
+            .inclusive = self.inclusive,
+            .range_id_offset = self.range_id_offset,
+            .range_end_id_offset = self.range_end_id_offset,
+            .pointer_id_offset = self.pointer_id_offset,
+        };
+        return StmtNode{ .FOR = new_stmt };
+    }
+
     pub fn display(self: ForStmt) void {
         std.debug.print("for (", .{});
         self.range_start_expr.display();
@@ -638,5 +894,29 @@ pub const ForStmt = struct {
         }
         std.debug.print("| ", .{});
         self.body.display();
+    }
+};
+
+pub const GenericStmt = struct {
+    op: Token,
+    generic_names: []Token,
+    body: StmtNode,
+
+    pub fn init(op: Token, generic_names: []Token, body: StmtNode) GenericStmt {
+        return GenericStmt{
+            .op = op,
+            .generic_names = generic_names,
+            .body = body,
+        };
+    }
+
+    pub fn display(self: GenericStmt) void {
+        std.debug.print("<", .{});
+        for (self.generic_names) |name| {
+            std.debug.print("{s},", .{name.lexeme});
+        }
+        std.debug.print(">{{\n", .{});
+        self.body.display();
+        std.debug.print("}}\n", .{});
     }
 };

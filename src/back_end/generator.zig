@@ -105,7 +105,7 @@ pub fn open(
         if (symbol.public and symbol.used) {
             switch (symbol.scope) {
                 .GLOBAL, .FUNC, .METHOD => _ = try writer.print("global {s}\n", .{symbol.name}),
-                .STRUCT => {
+                .STRUCT, .GENERIC_STRUCT => {
                     var field_iter = symbol.kind.STRUCT.fields.fields.iterator();
                     while (field_iter.next()) |field_entry| {
                         const field = field_entry.value_ptr;
@@ -138,13 +138,11 @@ pub fn open(
             \\    ; Setup main args
             \\    sub rsp, 40
             \\    call GetCommandLineW ; Get Full string
-            \\
             \\    mov rcx, rax
             \\    lea rdx, [@ARGC]
             \\    call CommandLineToArgvW ; Split into wide substrings
             \\    add rsp, 40
             \\    mov [@ARGV], rax
-            \\
             \\    xor ebx, ebx
             \\    xor esi, esi
             \\    mov rdi, [@ARGC]
@@ -168,13 +166,11 @@ pub fn open(
             \\    inc rsi
             \\    jmp .BUFFER_SIZE_START
             \\.BUFFER_SIZE_END:
-            \\
             \\    mov rcx, rbx
             \\    sub rsp, 40
             \\    call malloc ; Allocate space for argv buffer
             \\    add rsp, 40
             \\    mov [@ARG_BUFFER], rax
-            \\
             \\    xor esi, esi ; arg count
             \\    xor edi, edi ; total length
             \\.BUFFER_MAKE_START:
@@ -205,11 +201,9 @@ pub fn open(
             \\.BUFFER_MAKE_END:
             \\    mov rcx, [@ARGC]
             \\    mov rdx, [@ARGV]
-            \\
             \\    sub rsp, 24
             \\    mov [rsp], rcx
             \\    mov [rsp+8], rdx
-            \\
             \\    ; Setup clock
             \\    push rax
             \\    mov rcx, rsp
@@ -1218,7 +1212,7 @@ fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationErro
             .FLOAT32 => {
                 // Get cpu register
                 const reg = self.popSSEReg();
-                try self.print("    movd rax, {s}\n", .{reg.name});
+                try self.print("    movq rax, {s}\n", .{reg.name});
             },
             .FLOAT64 => {
                 // Get cpu register
@@ -1320,7 +1314,7 @@ fn genExpr(self: *Generator, node: ExprNode) GenerationError!void {
         .AND => |andExpr| try self.visitAndExpr(andExpr),
         .OR => |orExpr| try self.visitOrExpr(orExpr),
         .IF => |ifExpr| try self.visitIfExpr(ifExpr, result_kind),
-        .LAMBDA => unreachable,
+        .LAMBDA, .GENERIC => unreachable,
         //else => unreachable,
     }
 }
@@ -1911,6 +1905,7 @@ fn visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: 
     switch (operand_type) {
         // Converting FROM FLOAT32
         .FLOAT32 => switch (result_kind) {
+            .FLOAT32 => {},
             // Converting to FLOAT64
             .FLOAT64 => {
                 // Get register name
@@ -1932,6 +1927,7 @@ fn visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: 
         },
         // Converting FROM FLOAT64
         .FLOAT64 => switch (result_kind) {
+            .FLOAT64 => {},
             // Converting to FLOAT32 from FLOAT64
             .FLOAT32 => {
                 // Get register name

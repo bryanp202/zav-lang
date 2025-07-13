@@ -8,6 +8,8 @@ const NativesTable = @import("natives.zig");
 const Module = @import("module.zig");
 
 const Stmt = @import("stmt.zig");
+const Token = @import("front_end/scanner.zig").Token;
+const TypeChecker = @import("front_end/type_checker.zig");
 
 // *********************** //
 //*** STM type Classes  ***//
@@ -570,11 +572,7 @@ pub const Symbol = struct {
 
     /// Make a new symbol
     pub fn init(module: *Module, name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, dcl_column: u64, is_mutable: bool, public: bool, mem_loc: u64, size: u64) Symbol {
-        const symbol_name = if (public)
-            (std.fmt.allocPrint(module.stm.allocator, "{s}__{s}", .{ module.path, name }) catch unreachable)
-        else
-            (std.fmt.allocPrint(module.stm.allocator, "__{s}", .{name}) catch unreachable);
-
+        const symbol_name = std.fmt.allocPrint(module.stm.allocator, "{s}__{s}", .{ module.path, name }) catch unreachable;
         return Symbol{
             .source_module = module,
             .borrowing_module = module,
@@ -622,7 +620,7 @@ pub const Symbol = struct {
 // *********************** //
 
 // Enum for the types available in Zav
-pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT, UNION, ENUM, USER_KIND, MODULE };
+pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT, UNION, ENUM, USER_KIND, MODULE, GENERIC, GENERIC_USER_KIND };
 
 /// Used to mark what type a variable is
 pub const KindId = union(Kinds) {
@@ -641,7 +639,102 @@ pub const KindId = union(Kinds) {
     ENUM: Enum,
     USER_KIND: []const u8,
     MODULE: *Module,
+    GENERIC: Generic,
+    GENERIC_USER_KIND: GenericUserKind,
 
+    pub fn copy(self: KindId, allocator: std.mem.Allocator) KindId {
+        switch (self) {
+            .PTR => |ptr| {
+                const new_child = ptr.child.copy(allocator);
+                return KindId.newPtr(allocator, new_child, ptr.const_child);
+            },
+            .ARRAY => |arr| {
+                const new_child = arr.child.copy(allocator);
+                return KindId.newArr(allocator, new_child, arr.length, arr.const_items, arr.static);
+            },
+            .FUNC => |func| {
+                const new_ret_kind = allocator.create(KindId) catch unreachable;
+                new_ret_kind.* = func.ret_kind.*;
+                const new_arg_kinds = allocator.alloc(KindId, func.arg_kinds.len) catch unreachable;
+                for (0..new_arg_kinds.len) |i| {
+                    new_arg_kinds[i] = func.arg_kinds[i].copy(allocator);
+                }
+                const new_func = Function{ .arg_kinds = new_arg_kinds, .ret_kind = new_ret_kind, .variadic = func.variadic, .args_size = func.args_size };
+                return KindId{ .FUNC = new_func };
+            },
+            .GENERIC_USER_KIND => |gen_user_kind| {
+                const new_gen_kinds = allocator.alloc(KindId, gen_user_kind.generic_kinds.len) catch unreachable;
+                for (0..new_gen_kinds.len) |i| {
+                    new_gen_kinds[i] = gen_user_kind.generic_kinds[i].copy(allocator);
+                }
+                const new_gen = GenericUserKind{ .generic_kinds = new_gen_kinds, .id = gen_user_kind.id };
+                return KindId{ .GENERIC_USER_KIND = new_gen };
+            },
+            else => return self,
+        }
+    }
+
+    pub fn to_str(self: KindId, str: *std.ArrayList(u8), stm: *SymbolTableManager) void {
+        switch (self) {
+            .VOID => str.appendSlice("void") catch unreachable,
+            .BOOL => str.appendSlice("bool") catch unreachable,
+            .UINT => |uint| {
+                const str_rep = std.fmt.allocPrint(str.allocator, "u{d}", .{uint.bits}) catch unreachable;
+                str.appendSlice(str_rep) catch unreachable;
+                str.allocator.free(str_rep);
+            },
+            .INT => |int| {
+                const str_rep = std.fmt.allocPrint(str.allocator, "i{d}", .{int.bits}) catch unreachable;
+                str.appendSlice(str_rep) catch unreachable;
+                str.allocator.free(str_rep);
+            },
+            .FLOAT32 => str.appendSlice("f32") catch unreachable,
+            .FLOAT64 => str.appendSlice("f64") catch unreachable,
+            .PTR => |ptr| {
+                if (ptr.const_child) {
+                    str.appendSlice("@p") catch unreachable;
+                } else {
+                    str.appendSlice("@cp") catch unreachable;
+                }
+                ptr.child.to_str(str, stm);
+            },
+            .ARRAY => |arr| {
+                if (arr.const_items) {
+                    str.appendSlice("@a") catch unreachable;
+                } else {
+                    str.appendSlice("@ca") catch unreachable;
+                }
+                arr.child.to_str(str, stm);
+            },
+            .FUNC => |func| {
+                const str_rep = std.fmt.allocPrint(str.allocator, "fn{d}", .{func.arg_kinds.len}) catch unreachable;
+                str.appendSlice(str_rep) catch unreachable;
+                str.allocator.free(str_rep);
+                for (func.arg_kinds) |arg| {
+                    arg.to_str(str, stm);
+                }
+                func.ret_kind.to_str(str, stm);
+            },
+            .STRUCT => |strct| {
+                const symbol = stm.getSymbol(strct.name) catch unreachable;
+                str.appendSlice(symbol.name) catch unreachable;
+            },
+            .UNION => |unin| {
+                const symbol = stm.getSymbol(unin.name) catch unreachable;
+                str.appendSlice(symbol.name) catch unreachable;
+            },
+            .ENUM => |enm| {
+                const symbol = stm.getSymbol(enm.name) catch unreachable;
+                str.appendSlice(symbol.name) catch unreachable;
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn newGeneric(body: Stmt.StmtNode, generic_names: []Token) KindId {
+        const gen = Generic{ .body = body, .generic_names = generic_names };
+        return KindId{ .GENERIC = gen };
+    }
     /// Init a new unsigned integer
     pub fn newUInt(bits: u16) KindId {
         const uint = UInteger{
@@ -763,14 +856,14 @@ pub const KindId = union(Kinds) {
             .STRUCT => |srct| return other == .STRUCT and srct.equal(other.STRUCT),
             .UNION => |unon| return other == .UNION and unon.equal(other.UNION),
             .ENUM => |enm| return other == .ENUM and enm.equal(other.ENUM),
-            .USER_KIND, .MODULE => unreachable,
+            .USER_KIND, .MODULE, .GENERIC, .GENERIC_USER_KIND => unreachable,
         };
     }
 
     /// Return the size of the Kind
     pub fn size(self: KindId) u64 {
         return switch (self) {
-            .VOID, .MODULE => 0,
+            .VOID, .MODULE, .GENERIC => 0,
             .BOOL => 1,
             .UINT => |uint| uint.size(),
             .INT => |int| int.size(),
@@ -780,7 +873,7 @@ pub const KindId = union(Kinds) {
             .STRUCT => |stct| stct.fields.size(),
             .UNION => |unon| unon.fields.size(),
             .ENUM => 2,
-            .USER_KIND => unreachable,
+            .USER_KIND, .GENERIC_USER_KIND => unreachable,
         };
     }
 
@@ -794,12 +887,12 @@ pub const KindId = union(Kinds) {
             .FLOAT32 => 4,
             .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC, .STRUCT, .UNION => 8,
             .ENUM => 2,
-            .USER_KIND, .MODULE => unreachable,
+            .USER_KIND, .MODULE, .GENERIC, .GENERIC_USER_KIND => unreachable,
         };
     }
 
     /// Update a user defined type
-    pub fn update(self: *KindId, stm: *SymbolTableManager) ScopeError!usize {
+    pub fn update(self: *KindId, stm: *SymbolTableManager, checker: *TypeChecker) ScopeError!usize {
         return switch (self.*) {
             .VOID => 0,
             .BOOL => 1,
@@ -807,9 +900,9 @@ pub const KindId = union(Kinds) {
             .INT => |int| int.size(),
             .FLOAT32 => 4,
             .FLOAT64 => 8,
-            .PTR => |*ptr| ptr.updatePtr(stm),
-            .ARRAY => |*arr| arr.updateArray(stm),
-            .FUNC => |*func| func.updateArgSize(stm),
+            .PTR => |*ptr| ptr.updatePtr(stm, checker),
+            .ARRAY => |*arr| arr.updateArray(stm, checker),
+            .FUNC => |*func| func.updateArgSize(stm, checker),
             .UNION => |*unon| unon.updateFields(stm, unon.name),
             .STRUCT => |*strct| strct.updateFields(stm, strct.name),
             .ENUM => |*enm| enm.updateVariants(stm, enm.name),
@@ -829,9 +922,17 @@ pub const KindId = union(Kinds) {
                         self.* = symbol.kind;
                         return self.ENUM.updateVariants(stm, name);
                     },
-                    else => return ScopeError.UndeclaredSymbol,
+                    else => {
+                        if (symbol.scope != .KIND) {
+                            return ScopeError.UndeclaredSymbol;
+                        } else {
+                            self.* = symbol.kind;
+                            return self.update(stm, checker);
+                        }
+                    },
                 }
             },
+            .GENERIC_USER_KIND => return checker.check_generic_user_kind(self) catch return ScopeError.UndeclaredSymbol,
             else => unreachable,
         };
     }
@@ -849,6 +950,9 @@ pub const ScopeKind = enum {
     ENUM,
     ENUM_VARIANT,
     MODULE,
+    KIND,
+    GENERIC,
+    GENERIC_STRUCT,
 };
 
 // *********************** //
@@ -888,8 +992,8 @@ const Pointer = struct {
     }
 
     /// Update a userdefined pointer type
-    pub fn updatePtr(self: *Pointer, stm: *SymbolTableManager) ScopeError!usize {
-        _ = try self.child.update(stm);
+    pub fn updatePtr(self: *Pointer, stm: *SymbolTableManager, checker: *TypeChecker) ScopeError!usize {
+        _ = try self.child.update(stm, checker);
         return 8;
     }
 };
@@ -915,8 +1019,8 @@ const Array = struct {
     }
 
     /// Update a userdefined pointer type
-    pub fn updateArray(self: *Array, stm: *SymbolTableManager) ScopeError!usize {
-        const child_size = try self.child.update(stm);
+    pub fn updateArray(self: *Array, stm: *SymbolTableManager, checker: *TypeChecker) ScopeError!usize {
+        const child_size = try self.child.update(stm, checker);
         return self.length * child_size;
     }
 };
@@ -956,10 +1060,10 @@ const Function = struct {
     }
 
     /// Resolve the arg size of a user defined fn kind
-    pub fn updateArgSize(self: *Function, stm: *SymbolTableManager) ScopeError!usize {
+    pub fn updateArgSize(self: *Function, stm: *SymbolTableManager, checker: *TypeChecker) ScopeError!usize {
         var size: usize = 0;
         for (self.arg_kinds) |*kind| {
-            const child_size = try kind.update(stm);
+            const child_size = try kind.update(stm, checker);
             size += child_size;
             const alignment: u64 = if (child_size > 4) 8 else if (child_size > 2) 4 else if (child_size > 1) 2 else 1;
             const offset = size & (alignment - 1);
@@ -968,7 +1072,7 @@ const Function = struct {
             }
         }
         self.args_size = size;
-        _ = try self.ret_kind.update(stm);
+        _ = try self.ret_kind.update(stm, checker);
         return 8;
     }
 };
@@ -1030,6 +1134,16 @@ pub const Enum = struct {
         self.variants = symbol.kind.ENUM.variants;
         return 2;
     }
+};
+
+pub const Generic = struct {
+    generic_names: []Token,
+    body: Stmt.StmtNode,
+};
+
+pub const GenericUserKind = struct {
+    generic_kinds: []KindId,
+    id: Token,
 };
 
 // *********************** //

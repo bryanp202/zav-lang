@@ -1,0 +1,91 @@
+pub struct Complex {
+    real: f64;
+    imag: f64;
+
+    pub fn new(real: f64, imag: f64) Complex {
+        var complex: Complex = undefined;
+        complex.real = real;
+        complex.imag = imag;
+        return complex;
+    }
+
+    pub fn mag(self: *const Complex) f64 {
+        return @sqrtf64(self.real * self.real + self.imag * self.imag);
+    }
+
+    pub fn greater(self: Complex, other: Complex) bool {
+        return self.mag() >= other.mag();
+    }
+
+    pub fn display(self: *const Complex) void {
+        @printf("%f+%fi\n", self.real, self.imag);
+    }
+}
+
+pub fn <Child> max(data: *const Child, len: u64, lhs_greater_rhs_func: fn (Child, Child) bool) Child {
+    var max = data[0];
+    for (1..len, &data[1]) |i, rhs| {
+        if (!lhs_greater_rhs_func(max, rhs.*)) {
+            max = rhs.*;
+        }
+    }
+
+    return max;
+}
+
+pub struct <T> List {
+    items: *T;
+    len: u64;
+    capacity: u64;
+
+    pub fn bytes(self: *const <T>List, item: T) void {
+        @printf("sizeof item: %d\n", @sizeof(item));
+        for (0..@sizeof(item)) |i| {
+            @printf("%X,", (&item as *u8)[@sizeof(item) - i - 1]);
+        }
+        @printf("\n");
+    }
+}
+
+pub fn main(argc: i64, argv: **u8) i64 {
+    const a: <Complex>List = undefined;
+    a.bytes(Complex::new(100.0, -13.0));
+    const b: <i64>List = undefined;
+    b.bytes(9700);
+    const c: <i8>List = undefined;
+    c.bytes(10 as i8);
+    const d: <*const u8>List = undefined;
+    d.bytes("Hello world!\n");
+
+    const ints_len = 10 as u64;
+    const ints = @malloc(ints_len * 8) as *i64;
+    defer @free(ints);
+    for (0..ints_len) |i| {
+        ints[i] = i;
+    }
+
+    const floats_len = 10 as u64;
+    const floats = @malloc(floats_len * 8) as *f64;
+    defer @free(floats);
+    for (0..floats_len) |i| {
+        floats[i] = i * 3.0;
+    }
+
+    const complexes_len = 10 as u64;
+    const complexes = @malloc(complexes_len * 16) as *Complex;
+    defer @free(complexes);
+    for (0..complexes_len) |i| {
+        complexes[i] = Complex::new(i, -i);
+    }
+
+    const floats_cmp_func = |lhs: f64, rhs: f64| -> bool lhs >= rhs;
+    const max_float = <f64>max(floats, floats_len, floats_cmp_func);
+    const max_int = <i64>max(ints, ints_len, |lhs: i64, rhs: i64| -> bool lhs >= rhs);
+    const max_int2 = <i64>max(ints, ints_len, |lhs: i64, rhs: i64| -> bool lhs >= rhs);
+    const max_complex = <Complex>max(complexes, complexes_len, Complex::greater);
+    @printf("Max int: %d\n", max_int);
+    @printf("Max float: %f\n", max_float);
+
+    max_complex.display();
+    return 0;
+}
