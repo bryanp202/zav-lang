@@ -49,6 +49,8 @@ current_scope_kind: ScopeKind,
 anon_struct_count: usize,
 /// True if a call expr should be marked as a chain
 call_chain: bool,
+call_chain_max_size: usize,
+mutate_parent_kind: ?KindId,
 
 /// Initialize a new TypeChecker
 pub fn init(allocator: std.mem.Allocator) TypeChecker {
@@ -67,6 +69,8 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .current_scope_kind = ScopeKind.GLOBAL,
         .anon_struct_count = 0,
         .call_chain = false,
+        .call_chain_max_size = 0,
+        .mutate_parent_kind = null,
     };
 }
 
@@ -196,6 +200,9 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
 
         for (module.structSlice()) |strct| {
             const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
+            if (symbol.scope == .GENERIC_STRUCT) {
+                continue;
+            }
             self.declareStructMethods(strct.STRUCT, symbol) catch {
                 self.panic = false;
                 self.had_error = true;
@@ -1294,6 +1301,7 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: Ki
 /// Analze the types of an GlobalStmt
 fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticError!void {
     self.call_chain = true;
+    self.call_chain_max_size = 0;
 
     // Get the type of expression
     const maybe_expr_kind: ?KindId = if (globalStmt.expr != null) try self.analyzeExpr(&globalStmt.expr.?) else null;
@@ -1334,7 +1342,7 @@ fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticErr
     }
 
     // Create new symbol in STM
-    _ = self.stm.declareSymbol(
+    _ = self.stm.declareSymbolWithSize(
         globalStmt.id.lexeme,
         globalStmt.kind.?,
         ScopeKind.GLOBAL,
@@ -1342,6 +1350,7 @@ fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticErr
         globalStmt.id.column,
         globalStmt.mutable,
         globalStmt.public,
+        self.call_chain_max_size,
     ) catch {
         const old_id = self.stm.getSymbol(globalStmt.id.lexeme) catch unreachable;
         return self.reportDuplicateError(globalStmt.id, old_id.dcl_line, old_id.dcl_column);
@@ -1395,6 +1404,7 @@ fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
 /// Analze the types of an DeclareStmt
 fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) SemanticError!void {
     self.call_chain = true;
+    self.call_chain_max_size = 0;
 
     // Get the type of expression
     const maybe_expr_kind: ?KindId = if (declareExpr.expr != null) try self.analyzeExpr(&declareExpr.expr.?) else null;
@@ -1433,7 +1443,7 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
     }
 
     // Create new symbol in STM
-    const stack_offset = self.stm.declareSymbol(
+    const stack_offset = self.stm.declareSymbolWithSize(
         declareExpr.id.lexeme,
         declareExpr.kind.?,
         ScopeKind.LOCAL,
@@ -1441,6 +1451,7 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
         declareExpr.id.column,
         declareExpr.mutable,
         false,
+        self.call_chain_max_size,
     ) catch {
         const old_id = self.stm.getSymbol(declareExpr.id.lexeme) catch unreachable;
         return self.reportDuplicateError(declareExpr.id, old_id.dcl_line, old_id.dcl_column);
@@ -1465,6 +1476,10 @@ fn visitMutateStmt(self: *TypeChecker, mutStmt: *Stmt.MutStmt) SemanticError!voi
     const is_mutable = id_result.mutable;
     // Update id_kind in stmt
     mutStmt.id_kind = id_kind;
+    self.mutate_parent_kind = id_kind;
+    defer {
+        self.mutate_parent_kind = null;
+    }
 
     // Make sure it is mutable
     if (!is_mutable) {
@@ -1735,7 +1750,7 @@ fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!I
         .CALL => {
             const update_call_chain = true;
             const call_result = try self.visitCallExpr(node, update_call_chain);
-            return IDResult{ .kind = call_result, .mutable = false };
+            return IDResult{ .kind = call_result, .mutable = true };
         },
         else => return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array for assignment"),
     }
@@ -2110,8 +2125,13 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
 
     // Check if returning struct by value
     if (callee.ret_kind.* == .STRUCT or callee.ret_kind.* == .UNION) {
+        if (self.mutate_parent_kind) |mut_parent_kind| {
+            self.call_chain = callee.ret_kind.equal(mut_parent_kind);
+            self.mutate_parent_kind = null;
+        }
         if (self.call_chain) {
             callExpr.chain = true;
+            self.call_chain_max_size = @max(self.call_chain_max_size, callee.ret_kind.size());
         } else {
             const anon_struct_name = std.fmt.allocPrint(self.allocator, "@anon_struct{d}", .{self.anon_struct_count}) catch unreachable;
             self.anon_struct_count += 1;
@@ -2867,6 +2887,8 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
         generic_name,
         parent_module,
     );
+
+    self.stm.importSymbol(generic_version_symbol.*, generic_name) catch {};
 
     generic_kind.* = generic_version_symbol.kind;
     return generic_kind.size();

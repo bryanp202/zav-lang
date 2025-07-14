@@ -138,6 +138,39 @@ pub const SymbolTableManager = struct {
         return mem_loc;
     }
 
+    /// Add a new symbol, with all of its attributes, and assign it with a null memory location
+    pub fn declareSymbolWithSize(
+        self: *SymbolTableManager,
+        name: []const u8,
+        kind: KindId,
+        scope: ScopeKind,
+        dcl_line: u64,
+        dcl_column: u64,
+        is_mutable: bool,
+        public: bool,
+        size: usize,
+    ) !u64 {
+        const new_size = @max(kind.size(), size);
+        const module = self.parent_module;
+
+        // Else let the local scope calculate the local scope
+        const mem_loc = try self.active_scope.declareSymbol(
+            module,
+            name,
+            kind,
+            scope,
+            dcl_line,
+            dcl_column,
+            is_mutable,
+            public,
+            &self.next_address,
+            new_size,
+        );
+
+        // Return the memory location
+        return mem_loc;
+    }
+
     pub fn importSymbol(self: *SymbolTableManager, symbol: Symbol, as_name: []const u8) ScopeError!void {
         try self.active_scope.importSymbol(symbol, as_name, self.parent_module);
     }

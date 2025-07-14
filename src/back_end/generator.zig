@@ -102,7 +102,7 @@ pub fn open(
     var symbol_iter = stm.scopes.items[0].symbols.iterator();
     while (symbol_iter.next()) |entry| {
         const symbol = entry.value_ptr;
-        if (symbol.public and symbol.used) {
+        if (symbol.public and symbol.used and symbol.source_module == symbol.borrowing_module) {
             switch (symbol.scope) {
                 .GLOBAL, .FUNC, .METHOD => _ = try writer.print("global {s}\n", .{symbol.name}),
                 .STRUCT, .GENERIC_STRUCT => {
