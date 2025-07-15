@@ -46,11 +46,14 @@ lambda_functions: std.ArrayList(StmtNode),
 /// Stores the current return location for a struct
 current_function_return_ptr: ?usize,
 current_scope_kind: ScopeKind,
-anon_struct_count: usize,
 /// True if a call expr should be marked as a chain
 call_chain: bool,
 call_chain_max_size: usize,
 mutate_parent_kind: ?KindId,
+
+/// Only evaluate generic method bodies after everything has been declared
+eval_generic_method_bodies: bool,
+declare_generic_methods: bool,
 
 /// Initialize a new TypeChecker
 pub fn init(allocator: std.mem.Allocator) TypeChecker {
@@ -67,10 +70,11 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .lambda_functions = std.ArrayList(StmtNode).init(allocator),
         .current_function_return_ptr = null,
         .current_scope_kind = ScopeKind.GLOBAL,
-        .anon_struct_count = 0,
         .call_chain = false,
         .call_chain_max_size = 0,
         .mutate_parent_kind = null,
+        .eval_generic_method_bodies = false,
+        .declare_generic_methods = false,
     };
 }
 
@@ -191,6 +195,8 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         }
     }
 
+    self.declare_generic_methods = true;
+
     // Check all global statements and functions first
     // Declare all functions
     module_iter = modules.iterator();
@@ -200,9 +206,6 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
 
         for (module.structSlice()) |strct| {
             const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
-            if (symbol.scope == .GENERIC_STRUCT) {
-                continue;
-            }
             self.declareStructMethods(strct.STRUCT, symbol) catch {
                 self.panic = false;
                 self.had_error = true;
@@ -260,6 +263,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         }
     }
 
+    self.eval_generic_method_bodies = true;
     self.current_scope_kind = ScopeKind.LOCAL;
     module_iter = modules.iterator();
     while (module_iter.next()) |entry| {
@@ -270,21 +274,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         for (module.structSlice()) |*strct| {
             // Get struct symbol
             const struct_symbol = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
-            if (struct_symbol.scope == .GENERIC_STRUCT) {
-                continue;
-            }
-            struct_symbol.kind.STRUCT.fields.open();
-            for (strct.STRUCT.methods) |*method| {
-                // Get args size
-                const method_field = struct_symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
-                // analyze all function bodies, continue if there was an error
-                self.visitFunctionStmt(method, method_field.kind) catch {
-                    self.panic = false;
-                    self.had_error = true;
-                    continue;
-                };
-            }
-            struct_symbol.kind.STRUCT.fields.close();
+            self.evalStructMethods(strct, struct_symbol);
         }
 
         // Check all function bodies in the module
@@ -649,6 +639,7 @@ fn staticCoerceKinds(self: *TypeChecker, op: Token, static_kind: KindId, rhs_kin
                 return CoercionResult.init(static_kind, false, false);
             }
             // Else no implicit coercion defined
+            std.debug.print("static_kind: {any}\nrhs_kind: {any}\n\n", .{ static_kind, rhs_kind });
             return self.reportError(SemanticError.TypeMismatch, op, "Incompatible types");
         },
     }
@@ -1167,6 +1158,11 @@ fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, 
 }
 
 fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol: *Symbol) SemanticError!void {
+    if (symbol.kind.STRUCT.fields.methods_declared) {
+        return;
+    }
+    symbol.kind.STRUCT.fields.methods_declared = true;
+
     // Add each method to the struct, but do not analyze body yet
     for (structStmt.methods) |*method| {
         _ = method.return_kind.update(self.stm, self) catch {
@@ -1207,6 +1203,26 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
             return self.reportDuplicateError(method.name, old_field.dcl_line, old_field.dcl_column);
         };
     }
+}
+
+fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol) void {
+    if (symbol.kind.STRUCT.fields.method_bodies_eval) {
+        return;
+    }
+    symbol.kind.STRUCT.fields.method_bodies_eval = true;
+
+    symbol.kind.STRUCT.fields.open();
+    for (structStmt.STRUCT.methods) |*method| {
+        // Get args size
+        const method_field = symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
+        // analyze all function bodies, continue if there was an error
+        self.visitFunctionStmt(method, method_field.kind) catch {
+            self.panic = false;
+            self.had_error = true;
+            continue;
+        };
+    }
+    symbol.kind.STRUCT.fields.close();
 }
 
 /// Declare a function, but do not check its body
@@ -1748,8 +1764,7 @@ fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!I
         .DEREFERENCE => return self.visitDereferenceExprWrapped(node),
         .FIELD => return self.visitFieldExprWrapped(node),
         .CALL => {
-            const update_call_chain = true;
-            const call_result = try self.visitCallExpr(node, update_call_chain);
+            const call_result = try self.visitCallExpr(node);
             return IDResult{ .kind = call_result, .mutable = true };
         },
         else => return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array for assignment"),
@@ -1766,7 +1781,7 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .NATIVE => self.visitNativeExpr(node),
         .DEREFERENCE => self.visitDereferenceExpr(node),
         .FIELD => self.visitFieldExpr(node),
-        .CALL => self.visitCallExpr(node, false),
+        .CALL => self.visitCallExpr(node),
         .CONVERSION => self.visitConvExpr(node),
         .INDEX => self.visitIndexExpr(node),
         .UNARY => self.visitUnaryExpr(node),
@@ -1885,7 +1900,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
         .GLOBAL, .FUNC, .METHOD => {},
-        .STRUCT, .ENUM, .ENUM_VARIANT, .MODULE, .UNION, .KIND, .GENERIC, .GENERIC_STRUCT => return self.reportError(SemanticError.TypeMismatch, token, "Cannot modify kind values (enum and variants or structs)"),
+        .STRUCT, .ENUM, .ENUM_VARIANT, .MODULE, .UNION, .KIND, .GENERIC => return self.reportError(SemanticError.TypeMismatch, token, "Cannot modify kind values (enum and variants or structs)"),
     }
 
     // Wrap in id_result with constant status of symbol
@@ -1920,7 +1935,7 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
         .GLOBAL, .FUNC, .METHOD => {},
-        .STRUCT, .ENUM, .MODULE, .UNION, .KIND, .GENERIC, .GENERIC_STRUCT => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, or module types"),
+        .STRUCT, .ENUM, .MODULE, .UNION, .KIND, .GENERIC => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, or module types"),
         .ENUM_VARIANT => {
             const new_literal = self.allocator.create(Expr.LiteralExpr) catch unreachable;
             new_literal.* = Expr.LiteralExpr{ .literal = token, .value = Value.newUInt(symbol.mem_loc, 16) };
@@ -2028,16 +2043,13 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     return native.ret_kind.*;
 }
 
-fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) SemanticError!KindId {
+fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract nativeExpr
     const callExpr = node.expr.CALL;
 
-    const old_call_chain = self.call_chain;
-    self.call_chain = if (update_call_chain) true else old_call_chain;
     // Parse caller_expr
     const callee_result = try self.analyzeIDExpr(&callExpr.caller_expr, callExpr.op);
     const callee_kind = callee_result.kind;
-    self.call_chain = old_call_chain;
 
     // Check if function
     if (callee_kind != .FUNC) {
@@ -2093,7 +2105,9 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
     }
 
     const pre_arg_call_chain = self.call_chain;
+    const pre_arg_func_return_ptr = self.current_function_return_ptr;
     self.call_chain = false;
+    self.current_function_return_ptr = null;
     // Check arg types
     for (call_args, callee_args) |*caller_arg, callee_arg| {
         // Evaluate argument type
@@ -2122,6 +2136,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
         }
     }
     self.call_chain = pre_arg_call_chain;
+    self.current_function_return_ptr = pre_arg_func_return_ptr;
 
     // Check if returning struct by value
     if (callee.ret_kind.* == .STRUCT or callee.ret_kind.* == .UNION) {
@@ -2133,18 +2148,27 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode, update_call_chain: bool) S
             callExpr.chain = true;
             self.call_chain_max_size = @max(self.call_chain_max_size, callee.ret_kind.size());
         } else {
-            const anon_struct_name = std.fmt.allocPrint(self.allocator, "@anon_struct{d}", .{self.anon_struct_count}) catch unreachable;
-            self.anon_struct_count += 1;
-
-            const stack_offset = self.stm.declareSymbol(
-                anon_struct_name,
-                callee.ret_kind.*,
-                self.current_scope_kind,
-                undefined,
-                undefined,
-                false,
-                false,
-            ) catch unreachable;
+            const struct_type_name = switch (callee.ret_kind.*) {
+                .STRUCT => |strct| strct.name,
+                .UNION => |unin| unin.name,
+                else => unreachable,
+            };
+            const name_template = if (self.current_scope_kind == .LOCAL) "@anon" else "@ganon";
+            const anon_struct_name = std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ name_template, struct_type_name }) catch unreachable;
+            const stack_offset = blk: {
+                const symbol = self.stm.getSymbol(anon_struct_name) catch {
+                    break :blk self.stm.declareSymbol(
+                        anon_struct_name,
+                        callee.ret_kind.*,
+                        self.current_scope_kind,
+                        undefined,
+                        undefined,
+                        false,
+                        false,
+                    ) catch unreachable;
+                };
+                break :blk symbol.mem_loc;
+            };
 
             if (self.current_scope_kind == .GLOBAL) {
                 callExpr.non_chain_ptr = anon_struct_name;
@@ -2662,6 +2686,7 @@ fn visitLambdaExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         lambdaExpr.ret_kind,
         lambdaExpr.body,
     );
+
     const temp_node = StmtNode{ .FUNCTION = functionStmt };
     self.lambda_functions.append(temp_node) catch unreachable;
 
@@ -2687,7 +2712,7 @@ fn visitGenericExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     }
     const generic_symbol_kind_extracted = generic_symbol.kind.GENERIC;
 
-    if (generic_symbol.kind.GENERIC.generic_names.len != generic_expr.kinds.len) {
+    if (generic_symbol_kind_extracted.generic_names.len != generic_expr.kinds.len) {
         return self.reportError(SemanticError.TypeMismatch, generic_expr.op, "Inconsistant number of generic types");
     }
 
@@ -2696,7 +2721,7 @@ fn visitGenericExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const generic_name = try self.genericVersionName(generic_symbol.name, generic_expr.kinds, generic_expr.op);
     const generic_version_symbol = parent_stm.getSymbol(generic_name) catch try self.makeGenericVersion(
         generic_expr.kinds,
-        generic_symbol.kind,
+        generic_symbol_kind_extracted,
         generic_name,
         parent_module,
     );
@@ -2714,8 +2739,6 @@ fn visitGenericExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     new_node.id.lexeme = generic_name;
     node.*.expr = Expr.ExprUnion{ .IDENTIFIER = new_node };
     node.result_kind = generic_version_symbol.kind;
-    var str_rep = std.ArrayList(u8).init(self.allocator);
-    node.result_kind.to_str(&str_rep, self.stm);
 
     return node.result_kind;
 }
@@ -2723,14 +2746,12 @@ fn visitGenericExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 fn makeGenericVersion(
     self: *TypeChecker,
     generic_expr_kinds: []KindId,
-    generic_blueprint: KindId,
+    generic_blueprint_extracted: Symbols.Generic,
     generic_version_name: []const u8,
     source_module: *Module,
 ) SemanticError!*Symbol {
-    const old_call_chain = self.call_chain;
     const old_switch_depth = self.switch_depth;
     const old_loop_depth = self.loop_depth;
-    self.call_chain = true;
     self.switch_depth = 0;
     self.loop_depth = 0;
     const old_return_kind = self.current_return_kind;
@@ -2738,13 +2759,11 @@ fn makeGenericVersion(
     defer {
         self.current_return_kind = old_return_kind;
         self.current_function_return_ptr = old_return_ptr;
-        self.call_chain = old_call_chain;
         self.switch_depth = old_switch_depth;
         self.loop_depth = old_loop_depth;
     }
     self.generic_error = false;
 
-    const generic_blueprint_extracted = generic_blueprint.GENERIC;
     for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |*kind, generic_name| {
         _ = kind.update(self.stm, self) catch {
             return self.reportError(SemanticError.UnresolvableIdentifier, generic_name, "Unresolvable type in generic expression");
@@ -2756,6 +2775,11 @@ fn makeGenericVersion(
     self.setModule(source_module);
     const old_scope = self.stm.active_scope;
     self.stm.active_scope = self.stm.scopes.items[0];
+    defer {
+        self.stm.active_scope = old_scope;
+        self.stm = old_stm;
+        self.current_module_path = old_mod_path;
+    }
 
     self.stm.addScope();
     for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |kind, generic_name| {
@@ -2771,6 +2795,22 @@ fn makeGenericVersion(
             const old_id = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
             return self.reportDuplicateError(generic_name, old_id.dcl_line, old_id.dcl_column);
         };
+        const new_symbol = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
+        switch (kind) {
+            .STRUCT => |strct| {
+                const struct_symbol = old_stm.getSymbol(strct.name) catch unreachable;
+                new_symbol.name = struct_symbol.name;
+            },
+            .ENUM => |enm| {
+                const enm_symbol = old_stm.getSymbol(enm.name) catch unreachable;
+                new_symbol.name = enm_symbol.name;
+            },
+            .UNION => |unin| {
+                const unin_symbol = old_stm.getSymbol(unin.name) catch unreachable;
+                new_symbol.name = unin_symbol.name;
+            },
+            else => {},
+        }
     }
 
     const generic_node_copy = generic_blueprint_extracted.body.copy(self.allocator);
@@ -2782,10 +2822,6 @@ fn makeGenericVersion(
 
     self.stm.popScope();
     self.stm.importSymbol(gen_symbol.*, generic_version_name) catch unreachable;
-
-    self.stm.active_scope = old_scope;
-    self.stm = old_stm;
-    self.current_module_path = old_mod_path;
 
     source_module.addStmt(generic_node_copy) catch unreachable;
 
@@ -2834,35 +2870,40 @@ fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_v
 
     // Get from stm
     const symbol = self.stm.getSymbol(struct_stmt.id.lexeme) catch unreachable;
-    symbol.scope = .GENERIC_STRUCT;
 
     // Declare the new kind with its fields, checking for circular dependencies
     try self.declareStructFields(symbol.source_module, symbol, struct_stmt, self.stm);
-    try self.declareStructMethods(struct_stmt, symbol);
 
-    symbol.kind.STRUCT.fields.open();
-    for (struct_stmt.methods) |*method| {
-        // Get args size
-        const method_field = symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
-        // analyze all function bodies, continue if there was an error
-        self.visitFunctionStmt(method, method_field.kind) catch {
-            self.panic = false;
-            continue;
-        };
-        if (self.generic_error) {
-            const fake_token = Token{
-                .lexeme = generic_version_name,
-                .column = method.name.column,
-                .kind = method.name.kind,
-                .line = method.name.line,
-            };
-            self.reportError(SemanticError.TypeMismatch, fake_token, "^^^ Error creating generic version") catch {};
-            self.generic_error = false;
-            self.panic = false;
-        }
-        self.stm.active_scope.next_address = 0;
+    if (self.declare_generic_methods) {
+        try self.declareStructMethods(struct_stmt, symbol);
     }
-    symbol.kind.STRUCT.fields.close();
+
+    if (self.eval_generic_method_bodies) {
+        symbol.kind.STRUCT.fields.open();
+        for (struct_stmt.methods) |*method| {
+            // Get args size
+            const method_field = symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
+            // analyze all function bodies, continue if there was an error
+            self.visitFunctionStmt(method, method_field.kind) catch {
+                self.panic = false;
+                continue;
+            };
+            if (self.generic_error) {
+                const fake_token = Token{
+                    .lexeme = generic_version_name,
+                    .column = method.name.column,
+                    .kind = method.name.kind,
+                    .line = method.name.line,
+                };
+                self.reportError(SemanticError.TypeMismatch, fake_token, "^^^ Error creating generic version") catch {};
+                self.generic_error = false;
+                self.panic = false;
+            }
+            self.stm.active_scope.next_address = 0;
+        }
+        symbol.kind.STRUCT.fields.close();
+        symbol.kind.STRUCT.fields.method_bodies_eval = true;
+    }
 
     return symbol;
 }
@@ -2872,6 +2913,7 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
     const generic_symbol = self.stm.getSymbol(generic_user_kind.id.lexeme) catch {
         return self.reportError(SemanticError.UnresolvableIdentifier, generic_user_kind.id, "Generic function blueprint never declared");
     };
+    const generic_symbol_extracted_kind = generic_symbol.kind.GENERIC;
     const parent_module = generic_symbol.source_module;
     const parent_stm = &parent_module.stm;
 
@@ -2883,13 +2925,14 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
 
     const generic_version_symbol = parent_stm.getSymbol(generic_name) catch try self.makeGenericVersion(
         generic_user_kind.generic_kinds,
-        generic_symbol.kind,
+        generic_symbol_extracted_kind,
         generic_name,
         parent_module,
     );
+    const generic_symbol_kind_extracted = generic_version_symbol.kind;
 
     self.stm.importSymbol(generic_version_symbol.*, generic_name) catch {};
 
-    generic_kind.* = generic_version_symbol.kind;
+    generic_kind.* = generic_symbol_kind_extracted;
     return generic_kind.size();
 }

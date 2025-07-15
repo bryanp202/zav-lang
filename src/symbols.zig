@@ -500,6 +500,8 @@ pub const StructScope = struct {
     is_open: bool,
     declared: bool = false,
     visited: bool = false,
+    methods_declared: bool = false,
+    method_bodies_eval: bool = false,
 
     /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
     pub fn init(allocator: std.mem.Allocator) StructScope {
@@ -605,7 +607,10 @@ pub const Symbol = struct {
 
     /// Make a new symbol
     pub fn init(module: *Module, name: []const u8, kind: KindId, scope: ScopeKind, dcl_line: u64, dcl_column: u64, is_mutable: bool, public: bool, mem_loc: u64, size: u64) Symbol {
-        const symbol_name = std.fmt.allocPrint(module.stm.allocator, "{s}__{s}", .{ module.path, name }) catch unreachable;
+        const symbol_name = if (scope != .LOCAL)
+            std.fmt.allocPrint(module.stm.allocator, "{s}__{s}", .{ module.path, name }) catch unreachable
+        else
+            name;
         return Symbol{
             .source_module = module,
             .borrowing_module = module,
@@ -692,7 +697,13 @@ pub const KindId = union(Kinds) {
                 for (0..new_arg_kinds.len) |i| {
                     new_arg_kinds[i] = func.arg_kinds[i].copy(allocator);
                 }
-                const new_func = Function{ .arg_kinds = new_arg_kinds, .ret_kind = new_ret_kind, .variadic = func.variadic, .args_size = func.args_size };
+                const new_func = Function{
+                    .arg_kinds = new_arg_kinds,
+                    .ret_kind = new_ret_kind,
+                    .variadic = func.variadic,
+                    .args_size = func.args_size,
+                    .made_anon_ptr = func.made_anon_ptr,
+                };
                 return KindId{ .FUNC = new_func };
             },
             .GENERIC_USER_KIND => |gen_user_kind| {
@@ -830,12 +841,14 @@ pub const KindId = union(Kinds) {
             new_arg_kinds[new_arg_kinds.len - 1] = KindId.newPtr(allocator, ret_kind, false);
             break :blk new_arg_kinds;
         } else arg_kinds;
+        const made_anon_ptr = ret_kind == .STRUCT or ret_kind == .UNION;
 
         const func = Function{
             .arg_kinds = final_arg_kinds,
             .variadic = variadic,
             .ret_kind = ret_ptr,
             .args_size = undefined,
+            .made_anon_ptr = made_anon_ptr,
         };
         return KindId{ .FUNC = func };
     }
@@ -945,14 +958,17 @@ pub const KindId = union(Kinds) {
                 switch (symbol.kind) {
                     .STRUCT => {
                         self.* = symbol.kind;
+                        self.STRUCT.name = name;
                         return self.STRUCT.updateFields(stm, name);
                     },
                     .UNION => {
                         self.* = symbol.kind;
+                        self.UNION.name = name;
                         return self.UNION.updateFields(stm, name);
                     },
                     .ENUM => {
                         self.* = symbol.kind;
+                        self.ENUM.name = name;
                         return self.ENUM.updateVariants(stm, name);
                     },
                     else => {
@@ -985,7 +1001,6 @@ pub const ScopeKind = enum {
     MODULE,
     KIND,
     GENERIC,
-    GENERIC_STRUCT,
 };
 
 // *********************** //
@@ -1066,6 +1081,7 @@ const Function = struct {
     ret_kind: *KindId,
     // How much stack offset
     args_size: usize,
+    made_anon_ptr: bool,
 
     /// Returns true if this func is the same as another func
     pub fn equal(self: Function, other: Function) bool {
@@ -1094,6 +1110,17 @@ const Function = struct {
 
     /// Resolve the arg size of a user defined fn kind
     pub fn updateArgSize(self: *Function, stm: *SymbolTableManager, checker: *TypeChecker) ScopeError!usize {
+        _ = try self.ret_kind.update(stm, checker);
+        if (!self.made_anon_ptr) {
+            if (self.ret_kind.* == .STRUCT or self.ret_kind.* == .UNION) {
+                const new_arg_kinds = stm.allocator.alloc(KindId, self.arg_kinds.len + 1) catch unreachable;
+                std.mem.copyForwards(KindId, new_arg_kinds, self.arg_kinds);
+                new_arg_kinds[new_arg_kinds.len - 1] = KindId.newPtr(stm.allocator, self.ret_kind.*, false);
+                self.arg_kinds = new_arg_kinds;
+            }
+            self.made_anon_ptr = true;
+        }
+
         var size: usize = 0;
         for (self.arg_kinds) |*kind| {
             const child_size = try kind.update(stm, checker);
@@ -1105,7 +1132,7 @@ const Function = struct {
             }
         }
         self.args_size = size;
-        _ = try self.ret_kind.update(stm, checker);
+
         return 8;
     }
 };
@@ -1119,7 +1146,7 @@ pub const Struct = struct {
 
     /// Returns true if two structs are the same
     pub fn equal(self: Struct, other: Struct) bool {
-        return self.name.ptr == other.name.ptr and self.name.len == other.name.len and self.fields == other.fields;
+        return self.fields == other.fields;
     }
 
     /// Resolve the struct size of a user defined struct kind
@@ -1138,7 +1165,7 @@ pub const Union = struct {
     stm: *SymbolTableManager = undefined,
 
     pub fn equal(self: Union, other: Union) bool {
-        return self.name.ptr == other.name.ptr and self.name.len == other.name.len and self.fields == other.fields;
+        return self.fields == other.fields;
     }
 
     pub fn updateFields(self: *Union, stm: *SymbolTableManager, name: []const u8) ScopeError!usize {
@@ -1157,7 +1184,7 @@ pub const Enum = struct {
     variants: *std.StringHashMap(Symbol),
 
     pub fn equal(self: Enum, other: Enum) bool {
-        return self.name.ptr == other.name.ptr and self.name.len == other.name.len and self.variants == other.variants;
+        return self.variants == other.variants;
     }
 
     /// Resolve the struct size of a user defined struct kind

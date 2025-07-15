@@ -424,7 +424,7 @@ const GenericKinds = struct {
 };
 
 fn parse_generic_data(self: *Parser) SyntaxError!?GenericData {
-    if (!self.match(.{TokenKind.LESS}) and self.previous.kind != .LESS) {
+    if (self.previous.kind != .LESS and !self.match(.{TokenKind.LESS})) {
         return null;
     }
 
@@ -443,7 +443,7 @@ fn parse_generic_data(self: *Parser) SyntaxError!?GenericData {
 }
 
 fn parse_generic_kinds(self: *Parser) SyntaxError!?GenericKinds {
-    if (!self.match(.{TokenKind.LESS}) and self.previous.kind != .LESS) {
+    if (self.previous.kind != .LESS and !self.match(.{TokenKind.LESS})) {
         return null;
     }
 

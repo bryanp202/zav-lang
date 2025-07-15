@@ -105,7 +105,7 @@ pub fn open(
         if (symbol.public and symbol.used and symbol.source_module == symbol.borrowing_module) {
             switch (symbol.scope) {
                 .GLOBAL, .FUNC, .METHOD => _ = try writer.print("global {s}\n", .{symbol.name}),
-                .STRUCT, .GENERIC_STRUCT => {
+                .STRUCT => {
                     var field_iter = symbol.kind.STRUCT.fields.fields.iterator();
                     while (field_iter.next()) |field_entry| {
                         const field = field_entry.value_ptr;
