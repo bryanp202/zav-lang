@@ -1082,7 +1082,18 @@ fn declareStructFields(
 
 fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, visited: *bool, stm: *STM) SemanticError!void {
     switch (kind.*) {
-        .GENERIC_USER_KIND => _ = kind.update(stm, self) catch return SemanticError.TypeMismatch,
+        .GENERIC_USER_KIND => {
+            _ = kind.update(stm, self) catch return SemanticError.TypeMismatch;
+            const generic_was_visited = switch (kind.*) {
+                .STRUCT => |strct| strct.fields.visited,
+                .UNION => |unin| unin.fields.visited,
+                else => false,
+            };
+            if (generic_was_visited) {
+                visited.* = false;
+                return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected", module);
+            }
+        },
         .USER_KIND => |unknown_name| {
             // Get from stm
             const field_symbol = stm.getSymbol(unknown_name) catch {
