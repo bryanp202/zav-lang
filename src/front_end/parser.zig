@@ -251,7 +251,7 @@ fn parseArrayKind(self: *Parser) SyntaxError!KindId {
 
 /// Parse a generic kind '<' kind_list '>' IDENTIFIER
 fn parseGenericKind(self: *Parser) SyntaxError!KindId {
-    const generic_data = try self.parse_generic_kinds() orelse unreachable;
+    const generic_data = try self.parse_generic_kinds();
     try self.consume(TokenKind.IDENTIFIER, "Expected generic type identifier");
     const id = self.previous;
 
@@ -423,11 +423,14 @@ const GenericKinds = struct {
     names: []KindId,
 };
 
-fn parse_generic_data(self: *Parser) SyntaxError!?GenericData {
-    if (self.previous.kind != .LESS and !self.match(.{TokenKind.LESS})) {
+fn maybe_parse_generic_data(self: *Parser) SyntaxError!?GenericData {
+    if (!self.match(.{TokenKind.LESS})) {
         return null;
     }
+    return try self.parse_generic_data();
+}
 
+fn parse_generic_data(self: *Parser) SyntaxError!GenericData {
     const op = self.previous;
     var generic_names = std.ArrayList(Token).init(self.allocator);
 
@@ -442,11 +445,14 @@ fn parse_generic_data(self: *Parser) SyntaxError!?GenericData {
     return GenericData{ .op = op, .names = generic_names.items };
 }
 
-fn parse_generic_kinds(self: *Parser) SyntaxError!?GenericKinds {
-    if (self.previous.kind != .LESS and !self.match(.{TokenKind.LESS})) {
+fn maybe_parse_generic_kinds(self: *Parser) SyntaxError!?GenericKinds {
+    if (!self.match(.{TokenKind.LESS})) {
         return null;
     }
+    return try self.parse_generic_kinds();
+}
 
+fn parse_generic_kinds(self: *Parser) SyntaxError!GenericKinds {
     const op = self.previous;
     var generic_names = std.ArrayList(KindId).init(self.allocator);
 
@@ -570,7 +576,7 @@ fn globalStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 fn functionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
     // Get op
     const op = self.previous;
-    const maybe_generic_data = try self.parse_generic_data();
+    const maybe_generic_data = try self.maybe_parse_generic_data();
     // Get name
     try self.consume(TokenKind.IDENTIFIER, "Expected function identifier");
     const name = self.previous;
@@ -664,7 +670,7 @@ fn parseArgList(self: *Parser, closing_token_kind: TokenKind) SyntaxError!ArgLis
 /// Field -> identifier ':' KindId ';'
 /// Method -> fn identifier '(' arglist ')' block
 fn structStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
-    const maybe_generic_data = try self.parse_generic_data();
+    const maybe_generic_data = try self.maybe_parse_generic_data();
 
     try self.consume(TokenKind.IDENTIFIER, "Expected identifier after 'struct' keyword");
     const id = self.previous;
@@ -742,7 +748,7 @@ fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) 
 }
 
 fn unionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
-    const maybe_generic_data = try self.parse_generic_data();
+    const maybe_generic_data = try self.maybe_parse_generic_data();
 
     try self.consume(TokenKind.IDENTIFIER, "Expected union identifier");
     const id = self.previous;
@@ -1604,7 +1610,7 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
         try self.consume(TokenKind.RIGHT_PAREN, "Unclosed parenthesis");
         return expr;
     }
-    const maybe_generic_data = try self.parse_generic_kinds();
+    const maybe_generic_data = try self.maybe_parse_generic_kinds();
     if (maybe_generic_data) |generic_data| {
         try self.consume(TokenKind.IDENTIFIER, "Expected identifier after generic expr");
         const id = self.previous;
