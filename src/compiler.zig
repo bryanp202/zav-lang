@@ -120,7 +120,7 @@ pub fn compile(self: *Compiler, source: []const u8) void {
             self.root_path,
             self.output_name,
         }) catch unreachable;
-        std.debug.print("Outputting to: {s}\n", .{output_path});
+        std.debug.print("Outputting to: \"{s}\"\n", .{output_path});
         var base_link_args = [_][]const u8{ "gcc", "-nostartfiles", "-o", output_path, "-Wl,-e_start" };
 
         // Concat with obj file args
