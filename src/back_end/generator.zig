@@ -412,7 +412,7 @@ fn realignStack(next_address: u64, size: u64) u64 {
 /// Return the keyword such as "byte", "dword" for a given KindId size
 fn getSizeKeyword(size: u64) []const u8 {
     return switch (size) {
-        1 => "byte",
+        0, 1 => "byte",
         2 => "word",
         4 => "dword",
         else => "qword",

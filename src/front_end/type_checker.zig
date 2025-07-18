@@ -639,7 +639,6 @@ fn staticCoerceKinds(self: *TypeChecker, op: Token, static_kind: KindId, rhs_kin
                 return CoercionResult.init(static_kind, false, false);
             }
             // Else no implicit coercion defined
-            std.debug.print("static_kind: {any}\nrhs_kind: {any}\n\n", .{ static_kind, rhs_kind });
             return self.reportError(SemanticError.TypeMismatch, op, "Incompatible types");
         },
     }
@@ -2828,6 +2827,7 @@ fn makeGenericVersion(
     const gen_symbol = switch (generic_node_copy) {
         .FUNCTION => try self.makeGenericFunctionVersion(generic_node_copy, generic_version_name),
         .STRUCT => try self.makeGenericStructVersion(generic_node_copy, generic_version_name),
+        .UNION => try self.makeGenericUnionVersion(generic_node_copy, generic_version_name),
         else => unreachable,
     };
 
@@ -2915,6 +2915,20 @@ fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_v
         symbol.kind.STRUCT.fields.close();
         symbol.kind.STRUCT.fields.method_bodies_eval = true;
     }
+
+    return symbol;
+}
+
+fn makeGenericUnionVersion(self: *TypeChecker, union_node: StmtNode, generic_version_name: []const u8) SemanticError!*Symbol {
+    const union_stmt = union_node.UNION;
+    union_stmt.id.lexeme = generic_version_name;
+
+    try self.indexUnion(union_stmt.id, union_stmt, union_stmt.public);
+
+    // Get from stm
+    const symbol = self.stm.getSymbol(union_stmt.id.lexeme) catch unreachable;
+    // Declare the new kind with its fields, checking for circular dependencies
+    try self.declareUnion(symbol.source_module, symbol, union_stmt, self.stm);
 
     return symbol;
 }

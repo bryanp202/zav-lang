@@ -742,6 +742,8 @@ fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) 
 }
 
 fn unionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
+    const maybe_generic_data = try self.parse_generic_data();
+
     try self.consume(TokenKind.IDENTIFIER, "Expected union identifier");
     const id = self.previous;
 
@@ -762,7 +764,15 @@ fn unionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 
     const new_union = self.allocator.create(Stmt.UnionStmt) catch unreachable;
     new_union.* = Stmt.UnionStmt.init(is_public, id, field_name_list.items, field_kind_list.items);
-    return StmtNode{ .UNION = new_union };
+    const union_node = StmtNode{ .UNION = new_union };
+
+    if (maybe_generic_data) |generic_data| {
+        const new_generic = self.allocator.create(Stmt.GenericStmt) catch unreachable;
+        new_generic.* = Stmt.GenericStmt.init(generic_data.op, generic_data.names, union_node);
+        return StmtNode{ .GENERIC = new_generic };
+    } else {
+        return union_node;
+    }
 }
 
 fn enumStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
