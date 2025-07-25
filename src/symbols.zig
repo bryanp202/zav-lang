@@ -692,7 +692,7 @@ pub const KindId = union(Kinds) {
             },
             .FUNC => |func| {
                 const new_ret_kind = allocator.create(KindId) catch unreachable;
-                new_ret_kind.* = func.ret_kind.*;
+                new_ret_kind.* = func.ret_kind.copy(allocator);
                 const new_arg_kinds = allocator.alloc(KindId, func.arg_kinds.len) catch unreachable;
                 for (0..new_arg_kinds.len) |i| {
                     new_arg_kinds[i] = func.arg_kinds[i].copy(allocator);

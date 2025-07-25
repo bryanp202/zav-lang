@@ -59,7 +59,10 @@ pub const ExprNode = struct {
             .IDENTIFIER => |idExpr| idExpr.copy(allocator),
             .LITERAL => |litExpr| litExpr.copy(allocator),
             .NATIVE => |nativeExpr| nativeExpr.copy(allocator),
-            .CONVERSION => |convExpr| convExpr.copy(allocator),
+            .CONVERSION => |convExpr| {
+                const expr = convExpr.copy(allocator);
+                return ExprNode{ .result_kind = self.result_kind.copy(allocator), .expr = expr };
+            },
             .DEREFERENCE => |derefExpr| derefExpr.copy(allocator),
             .FIELD => |fieldExpr| fieldExpr.copy(allocator),
             .CALL => |callExpr| callExpr.copy(allocator),
