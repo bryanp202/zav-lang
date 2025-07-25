@@ -1224,7 +1224,7 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
     symbol.kind.STRUCT.fields.open();
     for (structStmt.STRUCT.methods) |*method| {
         // Get args size
-        const method_field = symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
+        const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
         // analyze all function bodies, continue if there was an error
         self.visitFunctionStmt(method, method_field.kind) catch {
             self.panic = false;
@@ -2893,7 +2893,7 @@ fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_v
         symbol.kind.STRUCT.fields.open();
         for (struct_stmt.methods) |*method| {
             // Get args size
-            const method_field = symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
+            const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
             // analyze all function bodies, continue if there was an error
             self.visitFunctionStmt(method, method_field.kind) catch {
                 self.panic = false;
