@@ -588,12 +588,6 @@ fn staticCoerceKinds(self: *TypeChecker, op: Token, static_kind: KindId, rhs_kin
         .PTR => |l_ptr| switch (rhs_kind) {
             .PTR => |r_ptr| {
                 if (!l_ptr.equal(r_ptr)) {
-                    var str = std.ArrayList(u8).init(self.allocator);
-                    static_kind.to_str(&str, self.stm);
-                    std.debug.print("static_kind: {s}, ", .{str.items});
-                    str.clearRetainingCapacity();
-                    rhs_kind.to_str(&str, self.stm);
-                    std.debug.print("rhs: {s}\n", .{str.items});
                     return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
                 }
                 // Check if making constant data mutable
