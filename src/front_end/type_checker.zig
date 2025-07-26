@@ -243,10 +243,13 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                     ) catch {};
                 },
                 error.InvalidScope => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.op, "Expected a valid scope") catch {},
-                error.SymbolNotPublic => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename.?, "Attempted to use a private symbol") catch {},
-                error.UndeclaredSymbol => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename.?, "Could not resolve used symbol") catch {},
-                else => unreachable,
+                error.SymbolNotPublic => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename orelse use.USE.op, "Attempted to use a private symbol") catch {},
+                error.UndeclaredSymbol => self.reportError(SemanticError.UnresolvableIdentifier, use.USE.rename orelse use.USE.op, "Could not resolve used symbol") catch {},
+                else => {},
             };
+            if (self.had_error) {
+                return;
+            }
         }
 
         // Look for function called main and make sure it has proper arguments
@@ -889,8 +892,18 @@ fn checkUse(self: *TypeChecker, use_stmt: *Stmt.UseStmt) !void {
 
     var current_scope = use_stmt.scopes;
     while (current_scope.expr == .SCOPE) {
-        try self.stm.changeTargetScope(current_scope.expr.SCOPE.scope.lexeme);
+        const scope_name = switch (current_scope.expr.SCOPE.scope.expr) {
+            .IDENTIFIER => |idExpr| idExpr.id.lexeme,
+            .GENERIC => |genExpr| return self.reportError(SemanticError.UnsafeCoercion, genExpr.op, "Expected a non-generic scope target"),
+            else => unreachable,
+        };
+        try self.stm.changeTargetScope(scope_name);
         current_scope = current_scope.expr.SCOPE.operand;
+    }
+
+    if (current_scope.expr == .GENERIC) {
+        self.stm.current_scope_target = null;
+        return self.reportError(SemanticError.TypeMismatch, current_scope.expr.GENERIC.op, "Expected a non-generic use target");
     }
 
     const import_name = use_stmt.rename orelse current_scope.expr.IDENTIFIER.id;
@@ -1808,9 +1821,15 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
 fn visitScopeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const scope_expr = node.expr.SCOPE;
-    self.stm.changeTargetScope(scope_expr.scope.lexeme) catch |err| switch (err) {
-        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Attempted to access a non-public symbol from another module"),
-        else => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Expected a valid scope target"),
+    const scope_name = switch (scope_expr.scope.expr) {
+        .IDENTIFIER => |idExpr| idExpr.id.lexeme,
+        .GENERIC => |genericExpr| try self.scope_generic_user_kind(genericExpr.kinds, genericExpr.operand),
+        else => unreachable,
+    };
+
+    self.stm.changeTargetScope(scope_name) catch |err| switch (err) {
+        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.op, "Attempted to access a non-public symbol from another module"),
+        else => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.op, "Expected a valid scope target"),
     };
 
     const operand_kind = try self.analyzeExpr(&scope_expr.operand);
@@ -1820,9 +1839,15 @@ fn visitScopeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
 fn visitScopeExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
     const scope_expr = node.expr.SCOPE;
-    self.stm.changeTargetScope(scope_expr.scope.lexeme) catch |err| switch (err) {
-        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Attempted to access a non-public symbol from another module"),
-        else => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.scope, "Expected a valid scope target"),
+    const scope_name = switch (scope_expr.scope.expr) {
+        .IDENTIFIER => |idExpr| idExpr.id.lexeme,
+        .GENERIC => |genericExpr| try self.scope_generic_user_kind(genericExpr.kinds, genericExpr.operand),
+        else => unreachable,
+    };
+
+    self.stm.changeTargetScope(scope_name) catch |err| switch (err) {
+        error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.op, "Attempted to access a non-public symbol from another module"),
+        else => return self.reportError(SemanticError.UnresolvableIdentifier, scope_expr.op, "Expected a valid scope target"),
     };
 
     const result = try self.analyzeIDExpr(&scope_expr.operand, scope_expr.op);
@@ -2938,6 +2963,9 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
     const generic_symbol = self.stm.getSymbol(generic_user_kind.id.lexeme) catch {
         return self.reportError(SemanticError.UnresolvableIdentifier, generic_user_kind.id, "Generic function blueprint never declared");
     };
+    if (generic_symbol.kind != .GENERIC) {
+        return self.reportError(SemanticError.TypeMismatch, generic_user_kind.id, "Expected generic function blueprint");
+    }
     const generic_symbol_extracted_kind = generic_symbol.kind.GENERIC;
     const parent_module = generic_symbol.source_module;
     const parent_stm = &parent_module.stm;
@@ -2960,4 +2988,32 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
 
     generic_kind.* = generic_symbol_kind_extracted;
     return generic_kind.size();
+}
+
+pub fn scope_generic_user_kind(self: *TypeChecker, generic_kinds: []KindId, generic_id: Token) SemanticError![]const u8 {
+    const generic_symbol = self.stm.getSymbol(generic_id.lexeme) catch {
+        return self.reportError(SemanticError.UnresolvableIdentifier, generic_id, "Generic function blueprint never declared");
+    };
+    if (generic_symbol.kind != .GENERIC) {
+        return self.reportError(SemanticError.TypeMismatch, generic_id, "Expected generic function blueprint");
+    }
+    const generic_symbol_extracted_kind = generic_symbol.kind.GENERIC;
+    const parent_module = generic_symbol.source_module;
+    const parent_stm = &parent_module.stm;
+
+    const generic_name = try self.genericVersionName(
+        generic_id.lexeme,
+        generic_kinds,
+        generic_id,
+    );
+
+    const generic_version_symbol = parent_stm.getSymbol(generic_name) catch try self.makeGenericVersion(
+        generic_kinds,
+        generic_symbol_extracted_kind,
+        generic_name,
+        parent_module,
+    );
+
+    self.stm.importSymbol(generic_version_symbol.*, generic_name) catch {};
+    return generic_name;
 }

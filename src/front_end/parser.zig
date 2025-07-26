@@ -250,12 +250,15 @@ fn parseArrayKind(self: *Parser) SyntaxError!KindId {
 }
 
 /// Parse a generic kind '<' kind_list '>' IDENTIFIER
-fn parseGenericKind(self: *Parser) SyntaxError!KindId {
-    const generic_data = try self.parse_generic_kinds();
-    try self.consume(TokenKind.IDENTIFIER, "Expected generic type identifier");
+fn parseUserKind(self: *Parser) SyntaxError!KindId {
     const id = self.previous;
 
-    return KindId{ .GENERIC_USER_KIND = .{ .id = id, .generic_kinds = generic_data.names } };
+    if (self.match(.{TokenKind.LESS})) {
+        const generic_data = try self.parse_generic_kinds();
+        return KindId{ .GENERIC_USER_KIND = .{ .id = id, .generic_kinds = generic_data.names } };
+    } else {
+        return KindId{ .USER_KIND = id.lexeme };
+    }
 }
 
 /// Parse a kind into a KindId
@@ -277,9 +280,8 @@ fn parseKind(self: *Parser) SyntaxError!KindId {
         .F64_TYPE => KindId.FLOAT64,
         .LEFT_SQUARE => try self.parseArrayKind(),
         .STAR => try self.parsePtrKind(),
-        .IDENTIFIER => KindId{ .USER_KIND = token.lexeme },
+        .IDENTIFIER => try self.parseUserKind(),
         .FN => try self.parseFuncKind(),
-        .LESS => try self.parseGenericKind(),
         else => self.errorAt("Expected type"),
     };
 }
@@ -446,7 +448,7 @@ fn parse_generic_data(self: *Parser) SyntaxError!GenericData {
 }
 
 fn maybe_parse_generic_kinds(self: *Parser) SyntaxError!?GenericKinds {
-    if (!self.match(.{TokenKind.LESS})) {
+    if (!self.match(.{TokenKind.SCOPE_LESS})) {
         return null;
     }
     return try self.parse_generic_kinds();
@@ -486,34 +488,18 @@ fn modStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 fn useStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
     const use_token = self.previous;
 
-    const next_scope = self.advance();
-    const scope = get_scope: switch (next_scope.kind) {
+    const token = self.advance();
+    const scope = get_scope: switch (token.kind) {
         .SCOPE => {
-            const scoper = self.previous;
-            const global_scope_token = Token{
-                .kind = .IDENTIFIER,
-                .lexeme = "",
-                .line = scoper.line,
-                .column = scoper.column,
-            };
+            // Make fake target scope for global
+            const global_token = Token{ .column = token.column, .lexeme = "", .kind = .IDENTIFIER, .line = token.line };
+            const global_id_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+            global_id_expr.* = Expr.IdentifierExpr{ .id = global_token, .lexical_scope = undefined };
+            const global_scope = ExprNode.init(.{ .IDENTIFIER = global_id_expr });
 
-            break :get_scope try self.scopeExpr(global_scope_token, scoper);
+            break :get_scope try self.scopeExpr(global_scope, token);
         },
-        .IDENTIFIER => {
-            const id_token: Token = self.previous;
-
-            if (self.match(.{TokenKind.SCOPE})) {
-                const first_scope_op = self.previous;
-                break :get_scope try self.scopeExpr(id_token, first_scope_op);
-            } else {
-                // Make new constant expression
-                const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-                identifier_expr.* = .{ .id = id_token, .lexical_scope = undefined };
-                const node = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
-                // Wrap in ExprResult
-                break :get_scope ExprResult.init(node, 0);
-            }
-        },
+        .IDENTIFIER => try self.idExpr(token),
         else => return self.reportError(self.previous, "Expected a scope expression after use keyword"),
     };
 
@@ -670,10 +656,9 @@ fn parseArgList(self: *Parser, closing_token_kind: TokenKind) SyntaxError!ArgLis
 /// Field -> identifier ':' KindId ';'
 /// Method -> fn identifier '(' arglist ')' block
 fn structStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
-    const maybe_generic_data = try self.maybe_parse_generic_data();
-
     try self.consume(TokenKind.IDENTIFIER, "Expected identifier after 'struct' keyword");
     const id = self.previous;
+    const maybe_generic_data = try self.maybe_parse_generic_data();
     try self.consume(TokenKind.LEFT_BRACE, "Expected '{' before struct field list");
 
     var field_name_list = std.ArrayList(Token).init(self.allocator);
@@ -748,11 +733,9 @@ fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) 
 }
 
 fn unionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
-    const maybe_generic_data = try self.maybe_parse_generic_data();
-
     try self.consume(TokenKind.IDENTIFIER, "Expected union identifier");
     const id = self.previous;
-
+    const maybe_generic_data = try self.maybe_parse_generic_data();
     try self.consume(TokenKind.LEFT_BRACE, "Expected '{' before union fields");
 
     var field_name_list = std.ArrayList(Token).init(self.allocator);
@@ -1610,19 +1593,11 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
         try self.consume(TokenKind.RIGHT_PAREN, "Unclosed parenthesis");
         return expr;
     }
-    const maybe_generic_data = try self.maybe_parse_generic_kinds();
-    if (maybe_generic_data) |generic_data| {
-        try self.consume(TokenKind.IDENTIFIER, "Expected identifier after generic expr");
-        const id = self.previous;
 
-        const new_gen_expr = self.allocator.create(Expr.GenericExpr) catch unreachable;
-        new_gen_expr.* = .{ .kinds = generic_data.names, .op = generic_data.op, .operand = id };
-        const new_node = ExprNode.init(ExprUnion{ .GENERIC = new_gen_expr });
-        return ExprResult.init(new_node, 0);
-    }
     // Store current token and advance
     const token = self.advance();
     switch (token.kind) {
+        .IDENTIFIER => return self.idExpr(token),
         .NULLPTR => {
             // Make new constant expression
             const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;
@@ -1725,30 +1700,13 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             return self.errorAt("Do not use arrays yet please thanks");
         },
         .SCOPE => {
-            const scoper = self.previous;
-            const global_scope_token = Token{
-                .kind = .IDENTIFIER,
-                .lexeme = "",
-                .line = scoper.line,
-                .column = scoper.column,
-            };
+            // Make fake target scope for global
+            const global_token = Token{ .column = token.column, .lexeme = "", .kind = .IDENTIFIER, .line = token.line };
+            const global_id_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+            global_id_expr.* = Expr.IdentifierExpr{ .id = global_token, .lexical_scope = undefined };
+            const global_scope = ExprNode.init(.{ .IDENTIFIER = global_id_expr });
 
-            return self.scopeExpr(global_scope_token, scoper);
-        },
-        .IDENTIFIER => {
-            const id_token: Token = token;
-
-            if (self.match(.{TokenKind.SCOPE})) {
-                const first_scope_op = self.previous;
-                return self.scopeExpr(id_token, first_scope_op);
-            }
-
-            // Make new constant expression
-            const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-            identifier_expr.* = .{ .id = id_token, .lexical_scope = undefined };
-            const node = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
-            // Wrap in ExprResult
-            return ExprResult.init(node, 0);
+            return self.scopeExpr(global_scope, token);
         },
         .NATIVE => {
             // Consume the '('
@@ -1785,32 +1743,33 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
     }
 }
 
-fn scopeExpr(self: *Parser, first_scope: Token, first_scope_op: Token) SyntaxError!ExprResult {
-    const expr = self.allocator.create(Expr.ScopeExpr) catch unreachable;
-    expr.* = Expr.ScopeExpr.init(first_scope, first_scope_op, undefined);
-    const new_node = ExprNode.init(ExprUnion{ .SCOPE = expr });
+fn idExpr(self: *Parser, id_token: Token) SyntaxError!ExprResult {
+    const maybe_generic_data = try self.maybe_parse_generic_kinds();
+    const new_id_expr = if (maybe_generic_data) |generic_data| blk: {
+        const new_gen_expr = self.allocator.create(Expr.GenericExpr) catch unreachable;
+        new_gen_expr.* = .{ .kinds = generic_data.names, .op = generic_data.op, .operand = id_token };
+        break :blk ExprNode.init(ExprUnion{ .GENERIC = new_gen_expr });
+    } else blk: {
+        const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+        identifier_expr.* = .{ .id = id_token, .lexical_scope = undefined };
+        break :blk ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
+    };
 
-    try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
-    var next_scope = self.previous;
-
-    var current_node = new_node;
-
-    while (self.match(.{TokenKind.SCOPE})) {
-        const next_scoper = self.previous;
-        const new_scope = self.allocator.create(Expr.ScopeExpr) catch unreachable;
-        current_node.expr.SCOPE.operand = ExprNode.init(ExprUnion{ .SCOPE = new_scope });
-        current_node = current_node.expr.SCOPE.operand;
-
-        current_node.expr.SCOPE.* = Expr.ScopeExpr.init(next_scope, next_scoper, undefined);
-        try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
-        next_scope = self.previous;
+    if (self.match(.{TokenKind.SCOPE})) {
+        const first_scope_op = self.previous;
+        return self.scopeExpr(new_id_expr, first_scope_op);
     }
+    return ExprResult.init(new_id_expr, 0);
+}
 
-    const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-    identifier_expr.* = Expr.IdentifierExpr{ .id = next_scope, .lexical_scope = undefined };
-    current_node.expr.SCOPE.operand = ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
-
-    return ExprResult.init(new_node, 0);
+fn scopeExpr(self: *Parser, scope: ExprNode, scope_op: Token) SyntaxError!ExprResult {
+    try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
+    const id_token = self.previous;
+    const operand = try self.idExpr(id_token);
+    const expr = self.allocator.create(Expr.ScopeExpr) catch unreachable;
+    expr.* = Expr.ScopeExpr.init(scope, scope_op, operand.expr);
+    const scope_node = ExprNode.init(ExprUnion{ .SCOPE = expr });
+    return ExprResult.init(scope_node, 0);
 }
 
 fn lambdaExpr(self: *Parser) SyntaxError!ExprResult {

@@ -83,7 +83,8 @@ pub const ExprNode = struct {
     pub fn display(self: ExprNode) void {
         switch (self.expr) {
             .SCOPE => |scopeExpr| {
-                std.debug.print("{s}::", .{scopeExpr.scope.lexeme});
+                scopeExpr.scope.display();
+                std.debug.print("::", .{});
                 scopeExpr.operand.display();
             },
             .IDENTIFIER => |idExpr| {
@@ -317,11 +318,11 @@ pub const CallExpr = struct {
 
 /// Scope through the stm
 pub const ScopeExpr = struct {
-    scope: Token,
+    scope: ExprNode,
     op: Token,
     operand: ExprNode,
 
-    pub fn init(scope: Token, op: Token, operand: ExprNode) ScopeExpr {
+    pub fn init(scope: ExprNode, op: Token, operand: ExprNode) ScopeExpr {
         return ScopeExpr{
             .scope = scope,
             .op = op,
@@ -332,7 +333,7 @@ pub const ScopeExpr = struct {
     pub fn copy(self: ScopeExpr, allocator: std.mem.Allocator) ExprUnion {
         const new_expr = allocator.create(ScopeExpr) catch unreachable;
         new_expr.* = ScopeExpr{
-            .scope = self.scope,
+            .scope = self.scope.copy(allocator),
             .op = self.op,
             .operand = self.operand.copy(allocator),
         };
