@@ -1081,8 +1081,8 @@ fn declareStructFields(
         try self.updateField(module, name, kind, &struct_kind.fields.visited, stm);
 
         // Add field to struct
-        symbol.kind.STRUCT.fields.addField(structStmt.id.lexeme, stm.parent_module, ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*, true) catch {
-            const old_field = symbol.kind.STRUCT.fields.getField(stm, name.lexeme) catch unreachable;
+        struct_kind.fields.addField(structStmt.id.lexeme, stm.parent_module, ScopeKind.LOCAL, name.lexeme, name.line, name.column, kind.*, true) catch {
+            const old_field = struct_kind.fields.getField(stm, name.lexeme) catch unreachable;
             return self.reportDuplicateErrorFrom(name, old_field.dcl_line, old_field.dcl_column, module);
         };
     }
