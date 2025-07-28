@@ -2027,7 +2027,7 @@ fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: Kin
             const dest_reg = try self.getNextSSEReg();
             try self.print("    movsd {s}, [{s}+{d}] ; Field access\n", .{ dest_reg.name, source_reg.name, offset });
         },
-        .STRUCT, .UNION => {
+        .STRUCT, .UNION, .ARRAY => {
             const reg = try self.getNextCPUReg();
             if (offset != 0) {
                 try self.print("    lea {s}, [{s}+{d}] ; Field access\n", .{ reg.name, source_reg.name, offset });
