@@ -892,12 +892,17 @@ fn checkUse(self: *TypeChecker, use_stmt: *Stmt.UseStmt) !void {
 
     var current_scope = use_stmt.scopes;
     while (current_scope.expr == .SCOPE) {
-        const scope_name = switch (current_scope.expr.SCOPE.scope.expr) {
-            .IDENTIFIER => |idExpr| idExpr.id.lexeme,
+        switch (current_scope.expr.SCOPE.scope.expr) {
+            .IDENTIFIER => |idExpr| if (idExpr.id.kind == .SUPER) {
+                self.stm.superTargetScope() catch {
+                    return self.reportError(SemanticError.UnresolvableIdentifier, idExpr.id, "Root module has no super module");
+                };
+            } else {
+                try self.stm.changeTargetScope(idExpr.id.lexeme);
+            },
             .GENERIC => |genExpr| return self.reportError(SemanticError.UnsafeCoercion, genExpr.op, "Expected a non-generic scope target"),
             else => unreachable,
-        };
-        try self.stm.changeTargetScope(scope_name);
+        }
         current_scope = current_scope.expr.SCOPE.operand;
     }
 

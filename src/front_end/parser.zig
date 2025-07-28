@@ -499,7 +499,7 @@ fn useStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 
             break :get_scope try self.scopeExpr(global_scope, token);
         },
-        .IDENTIFIER => try self.idExpr(token),
+        .IDENTIFIER, .SUPER => try self.idExpr(token),
         else => return self.reportError(self.previous, "Expected a scope expression after use keyword"),
     };
 
@@ -1597,7 +1597,7 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
     // Store current token and advance
     const token = self.advance();
     switch (token.kind) {
-        .IDENTIFIER => return self.idExpr(token),
+        .IDENTIFIER, .SUPER => return self.idExpr(token),
         .NULLPTR => {
             // Make new constant expression
             const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;
@@ -1763,7 +1763,9 @@ fn idExpr(self: *Parser, id_token: Token) SyntaxError!ExprResult {
 }
 
 fn scopeExpr(self: *Parser, scope: ExprNode, scope_op: Token) SyntaxError!ExprResult {
-    try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scope operator");
+    if (!self.match(.{ TokenKind.IDENTIFIER, TokenKind.SUPER })) {
+        return self.errorAt("Expected identifier or super after scope operator");
+    }
     const id_token = self.previous;
     const operand = try self.idExpr(id_token);
     const expr = self.allocator.create(Expr.ScopeExpr) catch unreachable;

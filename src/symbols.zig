@@ -210,6 +210,20 @@ pub const SymbolTableManager = struct {
         }
     }
 
+    pub fn superTargetScope(self: *SymbolTableManager) !void {
+        if (self.current_scope_target) |current_scope_target| {
+            if (current_scope_target == .MODULE and current_scope_target.MODULE.super_module != null) {
+                self.current_scope_target = KindId{ .MODULE = current_scope_target.MODULE.super_module.? };
+            } else {
+                return ScopeError.InvalidScope;
+            }
+        } else if (self.parent_module.super_module) |super_module| {
+            self.current_scope_target = KindId{ .MODULE = super_module };
+        } else {
+            return ScopeError.InvalidScope;
+        }
+    }
+
     /// Add a new symbol to the top scope on the stack, assign it a memory location
     /// if it has not been assigned one. Global scope variables will use a static memory location
     /// and Local scope variables use a relative stack location

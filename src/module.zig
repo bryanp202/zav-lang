@@ -22,6 +22,7 @@ unions: std.ArrayList(StmtNode),
 generics: std.ArrayList(StmtNode),
 /// Scope handlers
 stm: STM,
+super_module: ?*Module,
 
 pub const ModuleKind = enum {
     ROOT,
@@ -29,7 +30,7 @@ pub const ModuleKind = enum {
 };
 
 /// Init a new program stmt
-pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleKind, global_module: *Module) Module {
+pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleKind, global_module: *Module, super_module: ?*Module) Module {
     return Module{
         .path = path,
         .kind = module_kind,
@@ -41,6 +42,7 @@ pub fn init(allocator: std.mem.Allocator, path: []const u8, module_kind: ModuleK
         .unions = std.ArrayList(StmtNode).init(allocator),
         .generics = std.ArrayList(StmtNode).init(allocator),
         .stm = STM.init(allocator, global_module),
+        .super_module = super_module,
     };
 }
 

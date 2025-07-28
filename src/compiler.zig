@@ -180,7 +180,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
     // Make modules list and root module
     var modules = std.StringHashMap(*Module).init(self.allocator);
     var root_module: Module = undefined;
-    root_module = Module.init(self.allocator, "", Module.ModuleKind.ROOT, &root_module);
+    root_module = Module.init(self.allocator, "", Module.ModuleKind.ROOT, &root_module, null);
     root_module.stm.setParentModule(&root_module);
     modules.put(root_module.path, &root_module) catch unreachable;
 
@@ -228,7 +228,7 @@ pub fn compileToAsm(self: *Compiler, source: []const u8) bool {
             };
             parser.reset(dependency_source, module_path);
             const new_module = self.allocator.create(Module) catch unreachable;
-            new_module.* = Module.init(self.allocator, module_path, Module.ModuleKind.DEPENDENCY, &root_module);
+            new_module.* = Module.init(self.allocator, module_path, Module.ModuleKind.DEPENDENCY, &root_module, requesting_module);
             new_module.stm.setParentModule(new_module);
             getOrPut.value_ptr.* = new_module;
             const sub_dependencies = parser.parse(new_module);

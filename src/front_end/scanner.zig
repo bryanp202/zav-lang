@@ -562,6 +562,10 @@ pub const Scanner = struct {
                             _ = self.advance();
                             return self.checkKeyword("ruct", TokenKind.STRUCT);
                         },
+                        'u' => {
+                            _ = self.advance();
+                            return self.checkKeyword("per", TokenKind.SUPER);
+                        },
                         'w' => {
                             _ = self.advance();
                             return self.checkKeyword("itch", TokenKind.SWITCH);
@@ -767,6 +771,7 @@ pub const TokenKind = enum {
     RETURN_ARROW,
     UNION,
     SCOPE_LESS,
+    SUPER,
 
     //// Parser Tokens ////
     ERROR,

@@ -103,7 +103,7 @@
 		"operator-keywords": {
 			"patterns": [{
 				"name": "keyword.zav",
-				"match": "\\b(or|and|use|pub|mod|as|fn|var|const|union|struct|enum)\\b"
+				"match": "\\b(or|and|use|pub|mod|as|fn|var|const|union|struct|enum|super)\\b"
 			}]
 		},
 		"strings": {
