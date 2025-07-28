@@ -1073,6 +1073,7 @@ fn declareStructFields(
     if (struct_kind.fields.declared) {
         return;
     }
+
     // If not, mark as visited
     struct_kind.fields.visited = true;
 
@@ -1185,6 +1186,11 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
         return;
     }
     symbol.kind.STRUCT.fields.methods_declared = true;
+    const old_scope = self.stm.active_scope;
+    defer self.stm.active_scope = old_scope;
+    if (symbol.kind.STRUCT.fields.generics_scope) |gen_scope| {
+        self.stm.active_scope = gen_scope;
+    }
 
     // Add each method to the struct, but do not analyze body yet
     for (structStmt.methods) |*method| {
@@ -1234,6 +1240,12 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
     }
     symbol.kind.STRUCT.fields.method_bodies_eval = true;
 
+    const old_scope = self.stm.active_scope;
+    defer self.stm.active_scope = old_scope;
+    if (symbol.kind.STRUCT.fields.generics_scope) |gen_scope| {
+        self.stm.active_scope = gen_scope;
+    }
+
     symbol.kind.STRUCT.fields.open();
     for (structStmt.STRUCT.methods) |*method| {
         // Get args size
@@ -1244,8 +1256,10 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
             self.had_error = true;
             continue;
         };
+        self.stm.active_scope.next_address = 0;
     }
     symbol.kind.STRUCT.fields.close();
+    self.stm.active_scope = old_scope;
 }
 
 /// Declare a function, but do not check its body
@@ -2410,7 +2424,7 @@ fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 fn visitConvExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const convExpr = node.expr.CONVERSION;
     _ = node.result_kind.update(self.stm, self) catch {
-        return self.reportError(SemanticError.UnresolvableIdentifier, convExpr.op, "Could not resolve struct type in this argument");
+        return self.reportError(SemanticError.UnresolvableIdentifier, convExpr.op, "Could not resolve struct type in this conversion statement");
     };
     const convKind = node.result_kind;
     const operandKind = try self.analyzeExpr(&convExpr.operand);
@@ -2906,6 +2920,7 @@ fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_v
 
     // Get from stm
     const symbol = self.stm.getSymbol(struct_stmt.id.lexeme) catch unreachable;
+    symbol.kind.STRUCT.fields.generics_scope = self.stm.active_scope;
 
     // Declare the new kind with its fields, checking for circular dependencies
     try self.declareStructFields(symbol.source_module, symbol, struct_stmt, self.stm);
@@ -2915,6 +2930,7 @@ fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_v
     }
 
     if (self.eval_generic_method_bodies) {
+        symbol.kind.STRUCT.fields.method_bodies_eval = true;
         symbol.kind.STRUCT.fields.open();
         for (struct_stmt.methods) |*method| {
             // Get args size
@@ -2938,7 +2954,6 @@ fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_v
             self.stm.active_scope.next_address = 0;
         }
         symbol.kind.STRUCT.fields.close();
-        symbol.kind.STRUCT.fields.method_bodies_eval = true;
     }
 
     return symbol;
@@ -2987,10 +3002,11 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
     self.stm.importSymbol(generic_version_symbol.*, generic_name) catch {};
 
     generic_kind.* = generic_symbol_kind_extracted;
+
     return generic_kind.size();
 }
 
-pub fn scope_generic_user_kind(self: *TypeChecker, generic_kinds: []KindId, generic_id: Token) SemanticError![]const u8 {
+fn scope_generic_user_kind(self: *TypeChecker, generic_kinds: []KindId, generic_id: Token) SemanticError![]const u8 {
     const generic_symbol = self.stm.getSymbol(generic_id.lexeme) catch {
         return self.reportError(SemanticError.UnresolvableIdentifier, generic_id, "Generic function blueprint never declared");
     };

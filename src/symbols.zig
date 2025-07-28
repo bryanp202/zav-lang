@@ -502,6 +502,7 @@ pub const StructScope = struct {
     visited: bool = false,
     methods_declared: bool = false,
     method_bodies_eval: bool = false,
+    generics_scope: ?*Scope = null,
 
     /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
     pub fn init(allocator: std.mem.Allocator) StructScope {
