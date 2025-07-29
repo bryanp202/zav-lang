@@ -2582,11 +2582,7 @@ fn visitIfExpr(self: *Generator, ifExpr: *Expr.IfExpr, result_kind: KindId) Gene
     // Generate the then branch
     try self.genExpr(ifExpr.then_branch);
     // Pop then branch register
-    if (result_kind == .FLOAT32 or result_kind == .FLOAT64) {
-        _ = self.popSSEReg();
-    } else {
-        _ = self.popCPUReg();
-    }
+    const then_branch_reg = if (result_kind == .FLOAT32 or result_kind == .FLOAT64) self.popSSEReg() else self.popCPUReg();
 
     // Get second label
     const label_c2 = self.label_count;
@@ -2602,6 +2598,25 @@ fn visitIfExpr(self: *Generator, ifExpr: *Expr.IfExpr, result_kind: KindId) Gene
 
     // Generate the else branch
     try self.genExpr(ifExpr.else_branch);
+
+    if (result_kind == .FLOAT32 or result_kind == .FLOAT64) {
+        const else_branch_reg = self.popSSEReg();
+        if (else_branch_reg.index != then_branch_reg.index) {
+            try self.print("    movsd {s}, {s}\n", .{ then_branch_reg.name, else_branch_reg.name });
+            self.pushSSEReg(then_branch_reg);
+        } else {
+            self.pushSSEReg(else_branch_reg);
+        }
+    } else {
+        const else_branch_reg = self.popCPUReg();
+        if (else_branch_reg.index != then_branch_reg.index) {
+            try self.print("    mov {s}, {s}\n", .{ then_branch_reg.name, else_branch_reg.name });
+            self.pushCPUReg(then_branch_reg);
+        } else {
+            self.pushCPUReg(else_branch_reg);
+        }
+    }
+
     // Write the asm for jump to end label
     try self.print(".L{d}: ; End of If Expr\n", .{label_c2});
 }
