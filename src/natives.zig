@@ -123,8 +123,8 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
 
     // Threading and processes
     new_table.natives_table.put(allocator, "run", run_native(allocator)) catch unreachable;
-    //new_table.natives_table.put(allocator, "thread", thread_native(allocator)) catch unreachable;
-    //new_table.natives_table.put(allocator, "wait", wait_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "spawn_thread", thread_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "join", join_native(allocator)) catch unreachable;
     //new_table.natives_table.put(allocator, "WaitAll", waitAll_native(allocator)) catch unreachable;
     //new_table.natives_table.put(allocator, "mutex", mutex_native(allocator)) catch unreachable;
 
@@ -200,7 +200,7 @@ fn printf_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Inline printf call
+                \\    sub rsp, 32
                 \\    call printf
                 \\    add rsp, 32
                 \\
@@ -231,7 +231,7 @@ fn sprintf_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Inline sprintf call
+                \\    sub rsp, 32
                 \\    call sprintf
                 \\    add rsp, 32
                 \\
@@ -262,7 +262,7 @@ fn sizeof_native(allocator: std.mem.Allocator) Native {
             // Get size
             const size = args[0].size();
             // Extract first args size
-            try generator.print("    mov rax, {d} ; Inline sizeof\n", .{size});
+            try generator.print("    mov rax, {d}\n", .{size});
         }
     }.gen;
 
@@ -289,7 +289,7 @@ fn len_native(allocator: std.mem.Allocator) Native {
             // Get length if array
             const len = if (args[0] == .ARRAY) args[0].ARRAY.length else 0;
             // Extract first args length
-            try generator.print("    mov rax, {d} ; Inline len\n", .{len});
+            try generator.print("    mov rax, {d}\n", .{len});
         }
     }.gen;
 
@@ -566,7 +566,7 @@ fn malloc_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Inline malloc call
+                \\    sub rsp, 32
                 \\    call malloc
                 \\    add rsp, 32
                 \\
@@ -596,7 +596,7 @@ fn calloc_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Inline calloc call
+                \\    sub rsp, 32
                 \\    call calloc
                 \\    add rsp, 32
                 \\
@@ -626,7 +626,7 @@ fn realloc_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Inline realloc call
+                \\    sub rsp, 32
                 \\    call realloc
                 \\    add rsp, 32
                 \\
@@ -655,7 +655,7 @@ fn free_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Inline free call
+                \\    sub rsp, 32
                 \\    call free
                 \\    add rsp, 32
                 \\
@@ -688,7 +688,7 @@ fn input_native(allocator: std.mem.Allocator) Native {
                 \\    mov r8, rdx
                 \\    mov rdx, rcx
                 \\    mov rcx, 0
-                \\    sub rsp, 32 ; Input call
+                \\    sub rsp, 32
                 \\    call _read
                 \\    add rsp, 32
                 \\
@@ -724,7 +724,7 @@ fn open_native(allocator: std.mem.Allocator) Native {
                 \\    push 0
                 \\    push 0x80
                 \\    push 3
-                \\    sub rsp, 32 ; Open file call
+                \\    sub rsp, 32
                 \\    call CreateFileA
                 \\    add rsp, 64
                 \\
@@ -760,7 +760,7 @@ fn create_native(allocator: std.mem.Allocator) Native {
                 \\    push 0
                 \\    push 0x80
                 \\    push 1
-                \\    sub rsp, 32 ; Open file call
+                \\    sub rsp, 32
                 \\    call CreateFileA
                 \\    add rsp, 64
                 \\
@@ -789,7 +789,7 @@ fn delete_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Delete file call
+                \\    sub rsp, 32
                 \\    call DeleteFileA
                 \\    add rsp, 32
                 \\
@@ -819,7 +819,7 @@ fn getFileSize_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Get size of file call
+                \\    sub rsp, 32
                 \\    call GetFileSizeEx
                 \\    add rsp, 32
                 \\
@@ -853,7 +853,7 @@ fn read_native(allocator: std.mem.Allocator) Native {
             try generator.write(
                 \\    push 0
                 \\    push 0
-                \\    sub rsp, 32 ; Read call
+                \\    sub rsp, 32
                 \\    call ReadFile
                 \\    add rsp, 48
                 \\
@@ -887,7 +887,7 @@ fn write_native(allocator: std.mem.Allocator) Native {
             try generator.write(
                 \\    push 0
                 \\    push 0
-                \\    sub rsp, 32 ; Write call
+                \\    sub rsp, 32
                 \\    call WriteFile
                 \\    add rsp, 48
                 \\
@@ -916,7 +916,7 @@ fn close_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    sub rsp, 32 ; Close handle call
+                \\    sub rsp, 32
                 \\    call CloseHandle
                 \\    add rsp, 32
                 \\
@@ -941,7 +941,7 @@ fn run_native(allocator: std.mem.Allocator) Native {
         \\@run:
         \\    push rbp
         \\    mov rbp, rsp
-        \\    lea r8, [@STARTUP_INFO] ; Zero out STARTUP_INFO
+        \\    lea r8, [@STARTUP_INFO]
         \\    mov dword [r8], 96
         \\    mov r9d, 1
         \\    xor r10, r10
@@ -952,12 +952,12 @@ fn run_native(allocator: std.mem.Allocator) Native {
         \\    inc r9
         \\    jmp .STARTUP_ZERO
         \\.STARTUP_ZERO_EXIT:
-        \\    lea r8, [@PROCESS_INFO] ; Zero out PROCESS_INFO
+        \\    lea r8, [@PROCESS_INFO]
         \\    mov qword [r8], 0
         \\    mov qword [r8+8], 0
         \\    mov qword [r8+16], 0
         \\
-        \\    mov rdx, rcx ; Move parameters
+        \\    mov rdx, rcx
         \\    mov rcx, 0
         \\    mov r8, 0
         \\    mov r9, 0
@@ -969,17 +969,15 @@ fn run_native(allocator: std.mem.Allocator) Native {
         \\    push 0
         \\    push 0
         \\    push 0
-        \\    sub rsp, 32 ; Create a new cmd process
+        \\    sub rsp, 32
         \\    call CreateProcessA
         \\    add rsp, 80
-        \\
-        \\    mov rcx, [@PROCESS_INFO] ; Wait until it finishes
+        \\    mov rcx, [@PROCESS_INFO]
         \\    mov rdx, 0xFFFFFFFF
         \\    sub rsp, 32
         \\    call WaitForSingleObject
         \\    add rsp, 32
-        \\    
-        \\    mov rcx, [@PROCESS_INFO] ; Close handels
+        \\    mov rcx, [@PROCESS_INFO]
         \\    sub rsp, 32
         \\    call CloseHandle
         \\    mov rcx, [@PROCESS_INFO+8]
@@ -998,5 +996,107 @@ fn run_native(allocator: std.mem.Allocator) Native {
     ;
 
     const native = Native.newNative(kind, source, data, null, 0);
+    return native;
+}
+
+/// Close file
+fn thread_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    const func_arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    func_arg_kinds[0] = KindId.newPtr(allocator, KindId.VOID, false);
+    arg_kinds[0] = KindId.newFunc(allocator, func_arg_kinds, false, KindId.newInt(64));
+    arg_kinds[1] = KindId.newPtr(allocator, KindId.VOID, false);
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source =
+        \\ @spawn_thread:
+        \\    push rbp
+        \\    mov rbp, rsp
+        \\    mov r12, rcx
+        \\    mov r13, rdx
+        \\    mov rcx, 16
+        \\    sub rsp, 32
+        \\    call malloc
+        \\    add rsp, 32
+        \\    test rax, rax
+        \\    jnz .THREAD_SPAWN_MALLOC_OK
+        \\    mov rax, 0
+        \\    pop rbp
+        \\    ret
+        \\.THREAD_SPAWN_MALLOC_OK:
+        \\    mov r9, rax
+        \\    mov [r9], r12
+        \\    mov [r9+8], r13
+        \\    lea r8, [@setup_thread]
+        \\    mov rcx, 0
+        \\    mov rdx, 0
+        \\    push 0
+        \\    push 0
+        \\    sub rsp, 32
+        \\    call CreateThread
+        \\    add rsp, 48
+        \\    test rax, rax
+        \\    jnz .THREAD_SPAWN_CREATE_THREAD_OK
+        \\    mov rcx, r14
+        \\    sub rsp, 32
+        \\    call free
+        \\    add rsp, 32
+        \\    mov rax, 0
+        \\.THREAD_SPAWN_CREATE_THREAD_OK
+        \\    pop rbp
+        \\    ret
+        \\
+        \\@setup_thread:
+        \\    push rbp
+        \\    mov rbp, rsp
+        \\    sub rsp, 16
+        \\    mov r12, [rcx]
+        \\    mov rdx, [rcx+8]
+        \\    mov [rsp], rdx
+        \\    sub rsp, 32
+        \\    call free
+        \\    add rsp, 32
+        \\    call r12
+        \\    add rsp, 16
+        \\    pop rbp
+        \\    ret
+        \\    
+    ;
+    const data = "    extern CreateThread\n";
+
+    const native = Native.newNative(kind, source, data, null, 0);
+    return native;
+}
+
+/// Close file
+fn join_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newInt(64);
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern WaitForSingleObject";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    mov rdx, 0xFFFFFFFF
+                \\    sub rsp, 32
+                \\    call WaitForSingleObject
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
     return native;
 }
