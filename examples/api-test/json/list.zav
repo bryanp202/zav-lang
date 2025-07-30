@@ -1,0 +1,64 @@
+use ::json::value::Value;
+
+pub struct List {
+    items: *Value;
+    len: u64;
+    capacity: u64;
+
+    pub fn init(self: *List) void {
+        self.items = nullptr;
+        self.len = 0 as u64;
+        self.capacity = 0 as u64;
+    }
+
+    pub fn deinit(self: *const List) void {
+        for (0..self.len, self.items) |_, item| {
+            item.deinit();
+        }
+        @free(self.items);
+    }
+
+    pub fn display(self: *const List, shift: u64) void {
+        @printf("[\n");
+        for (0..self.len, self.items) |_, item| {
+            for (0..shift + 1) |_| {
+                @printf("  ");
+            }
+            item.display_shift(shift + 1 as u64);
+            @printf(",\n");
+        }
+
+        for (0..shift) |_| {
+            @printf("  ");
+        }
+        @printf("]");
+    }
+
+    pub fn get(self: *const List, index: i64) Value {
+        return self.items[index];
+    }
+
+    pub fn get_ptr(self: *const List, index: i64) *Value {
+        return &self.items[index];
+    }
+
+    pub fn append(self: *List, item: Value) void {
+        if (self.len == self.capacity) self.resize();
+
+        self.items[self.len] = item;
+        self.len += 1 as u64;
+    }
+
+    fn resize(self: *List) void {
+        const old_capacity = self.capacity;
+        const new_capacity = old_capacity == 0 ? 8 as u64 : old_capacity * 2 as u64;
+        const new_items = @malloc(@sizeof(self.items.*) * new_capacity) as *Value;
+
+        for (0..old_capacity, self.items) |i, item| {
+            new_items[i] = item.*;
+        }
+
+        self.capacity = new_capacity;
+        self.items = new_items;
+    }
+}

@@ -1,0 +1,143 @@
+use ::json::value::Value;
+use ::string::String;
+use ::string::Slice;
+
+pub enum Error {
+    Okay,
+    Null
+}
+
+pub struct Result {
+    status: Error;
+    data: Value;
+}
+
+pub struct Entry {
+    key: Slice;
+    value: Value;
+
+    pub fn deinit(self: *const Entry) void {
+        @free(self.key.data);
+        self.value.deinit();
+    }
+}
+
+pub struct Object {
+    items: *Entry;
+    len: u64;
+    capacity: u64;
+
+    pub fn init(self: *Object) void {
+        self.items = nullptr;
+        self.len = 0 as u64;
+        self.capacity = 0 as u64;
+    }
+
+    pub fn deinit(self: *const Object) void {
+        for (0..self.capacity, self.items) |_, entry| {
+            if (entry.key.data > 1) entry.deinit();
+        }
+        @free(self.items);
+    }
+
+    /// Takes ownership of string used as key
+    pub fn put(self: *Object, key: String, value: Value) bool {
+        if ((self.len + 1) as f64 / self.capacity > 0.75) self.resize();
+
+        const key_slice = key.into_slice();
+
+        var entry_ptr: *Entry = undefined;
+        const found_existing = self.get_entry(&key_slice, &entry_ptr);
+
+        if (!found_existing) {
+            self.len += 1 as u64;
+        }
+        entry_ptr.key = key_slice;
+        entry_ptr.value = value;
+
+        return found_existing;
+    }
+
+    pub fn get_ptr(self: *const Object, key: String) *Value {
+        const key_slice = key.into_slice();
+
+        var entry_ptr: *Entry = undefined;
+        const found_existing = self.get_entry(&key_slice, &entry_ptr);
+
+        return found_existing ? &entry_ptr.value : nullptr;
+    }
+
+    /// Remove a key value entry, freeing both
+    pub fn remove(self: *Object, key: *Slice) bool {
+        var entry_ptr: *Entry = undefined;
+        const found_existing = self.get_entry(key, &entry_ptr);
+
+        if (found_existing) {
+            entry_ptr.key.data = 1 as *u8;
+            entry_ptr.key.len = 0 as u64;
+            self.len -= 1 as u64;
+        }
+
+        return found_existing;
+    }
+
+    pub fn display(self: *const Object, shift: u64) void {
+        @printf("{\n");
+
+        for (0..self.capacity, self.items) |_, entry| {
+            if (entry.key.data > 1) {
+                for (0..shift + 1) |_| {
+                    @printf("  ");
+                }
+                @printf("\"%.*s\" : ", entry.key.len, entry.key.data);
+                entry.value.display_shift(shift + 1 as u64);
+                @printf(",\n");
+            }
+        }
+
+        for (0..shift) |_| {
+            @printf("  ");
+        }
+        @printf("}");
+    }
+
+    /* Helpers */
+
+    fn resize(self: *Object) void {
+        const old_capacity = self.capacity;
+        const new_capacity = old_capacity == 0 ? 8 : old_capacity * 2;
+
+        const old_items = self.items;
+        self.items = @calloc(@sizeof(self.items.*), new_capacity) as *Entry;
+        self.capacity = new_capacity as u64;
+
+        var current = 0;
+        while (current < old_capacity) {
+            const entry_ptr = &old_items[current];
+            if (entry_ptr.key.data as u64 > 1 as u64) self.insert_no_check(entry_ptr);
+        } loop current += 1;
+
+        @free(old_items);
+    }
+
+    fn insert_no_check(self: *Object, old_entry_ptr: *Entry) void {
+        var entry_ptr: *Entry = undefined;
+        self.get_entry(&old_entry_ptr.key, &entry_ptr);
+        entry_ptr.* = old_entry_ptr.*;
+    }
+
+    fn get_entry(self: *const Object, key_ptr: *const Slice, entry_ptr: **Entry) bool {
+        const capacity = self.capacity;
+        const items = self.items;
+
+        var start = key_ptr.hash() % capacity;
+        var found_existing = items[start].key.eql(key_ptr);
+        while (!found_existing and items[start].key.data as u64 >= 1 as u64) {
+            start = (start + 1 as u64) % capacity;
+            found_existing = items[start].key.eql(key_ptr);
+        }
+
+        entry_ptr.* = &items[start];
+        return found_existing;
+    }
+}

@@ -1,0 +1,12 @@
+pub mod fs;
+pub mod buffered_printer;
+
+pub enum IOError {
+    Okay,
+    FailedToOpen,
+    FileEmpty,
+    OutOfMemory,
+    FailedToRead,
+    FailedToWrite,
+    InvalidFormat
+}

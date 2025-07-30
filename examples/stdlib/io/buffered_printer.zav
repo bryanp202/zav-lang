@@ -1,0 +1,66 @@
+pub struct BufferedPrinter {
+    buf: *u8;
+    len: u64;
+    capacity: u64;
+
+    pub fn new(capacity: u64) BufferedPrinter {
+        var new_bp: BufferedPrinter = undefined;
+        new_bp.buf = @malloc(@sizeof(new_bp.buf.*) * capacity) as *u8;
+        new_bp.len = 0 as u64;
+        new_bp.capacity = capacity;
+        return new_bp;
+    }
+
+    pub fn init(self: *BufferedPrinter, capacity: u64) void {
+        self.buf = @malloc(@sizeof(self.buf.*) * capacity) as *u8;
+        self.len = 0 as u64;
+        self.capacity = capacity;
+    }
+
+    pub fn free(self: *const BufferedPrinter) void {
+        @free(self.buf);
+    }
+
+    pub fn print(self: *BufferedPrinter, cstr: *const u8) void {
+        const len = cstr_len(cstr);
+        self.nprint(len, cstr);
+    }
+
+    pub fn nprint(self: *BufferedPrinter, n: u64, nstr: *const u8) void {
+        var written = 0 as u64;
+
+        while (self.len + n - written >= self.capacity) {
+            const write_len = self.capacity - self.len;
+            for (0..write_len, &self.buf[self.len]) |i, c| {
+                c.* = nstr[written + i];
+            }
+            written += write_len;
+            self.len += write_len;
+            self.flush();
+        }
+
+        const write_len = n - written;
+        for (0..write_len, &self.buf[self.len]) |i, c| {
+            c.* = nstr[written + i];
+        }
+        self.len += write_len;
+    }
+
+    pub fn flush(self: *BufferedPrinter) void {
+        @printf("%.*s", self.len, self.buf);
+        self.len = 0 as u64;
+    }
+
+    pub fn close(self: *BufferedPrinter) void {
+        self.flush();
+        @free(self.buf);
+    }
+}
+
+fn cstr_len(str: *const u8) u64 {
+    var i = 0;
+    while (str[i] != 0 as u8) {
+        i += 1;
+    }
+    return i as u64;
+}

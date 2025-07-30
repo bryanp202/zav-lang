@@ -1,0 +1,119 @@
+use ::string::Slice;
+use ::string;
+
+pub enum ParseError {
+    Okay,
+    Error
+}
+
+pub struct ParseResult {
+    status: ParseError;
+    data: Point;
+}
+
+pub struct Point {
+    x: f64;
+    y: f64;
+
+    pub fn new(x: f64, y: f64) Point {
+        var point: Point = undefined;
+        point.x = x;
+        point.y = y;
+        return point;
+    }
+
+    pub fn parse(src: Slice) ParseResult {
+        var result: ParseResult = undefined;
+
+        var out_slice: Slice = undefined;
+        var split_index = string::split_slice(&src, &out_slice, ',', 0);
+        if (split_index == -1) {
+            result.status = ParseError::Error;
+            return result;
+        }
+
+        out_slice.strip();
+        var parse_result = parse_f64(out_slice);
+        if (parse_result.status != ParseError::Okay) {
+            result.status = ParseError::Error;
+            return result;
+        }
+        result.data.x = parse_result.data;
+
+        split_index = string::split_slice(&src, &out_slice, ',', split_index);
+        if (split_index == -1) {
+            result.status = ParseError::Error;
+            return result;
+        }
+
+        out_slice.strip();
+        parse_result = parse_f64(out_slice);
+        if (parse_result.status != ParseError::Okay) {
+            result.status = ParseError::Error;
+            return result;
+        }
+        result.data.y = parse_result.data;
+
+        result.status = ParseError::Okay;
+        return result;
+    }
+}
+
+pub struct FloatParseResult {
+    status: ParseError;
+    data: f64;
+}
+
+fn parse_f64(src: Slice) FloatParseResult {
+    var result: FloatParseResult = undefined;
+
+    var index = 0;
+    var digit = 0.0;
+    var negative = false;
+
+    if (src.data[0] == '-') {
+        index += 1;
+        negative = true;
+    }
+
+    while(index < src.len and is_digit(src.data[index])) {
+        digit *= 10.0;
+        digit += (src.data[index] - '0') as f64;
+        index += 1;
+    }
+
+    if (src.data[index] == '.') {
+        index += 1;
+        var decimal = 0.0;
+        var mag = 1.0;
+
+        while(index < src.len and is_digit(src.data[index])) {
+            decimal *= 10.0;
+            decimal += (src.data[index] - '0') as f64;
+            mag *= 10;
+            index += 1;
+        }
+
+        if (mag == 1.0) {
+            result.status = ParseError::Error;
+            return result;
+        }
+
+        digit += decimal / mag;
+    }
+
+    // TODO: e[+-]Integer, scientific notation
+
+    if (index != src.len) {
+        result.status = ParseError::Error;
+        return result;
+    }
+
+    result.status = ParseError::Okay;
+    result.data = negative ? -digit : digit;
+    return result;
+}
+
+fn is_digit(c: u8) bool {
+    return c >= '0' and c <= '9';
+}

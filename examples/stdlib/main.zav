@@ -1,0 +1,180 @@
+pub mod collections;
+pub mod io;
+pub mod rc;
+pub mod result;
+pub mod str;
+pub mod wave;
+
+use collections::list::List;
+use io::buffered_printer::BufferedPrinter;
+use rc::Rc;
+
+// Can now hold generics in regular structs
+pub struct Wrapper {
+    list: List<*const u8>;
+}
+
+pub struct Complex {
+    real: f64;
+    imag: f64;
+
+    pub fn new(real: f64, imag: f64) Complex {
+        var new_complex: Complex = undefined;
+        new_complex.real = real;
+        new_complex.imag = imag;
+        return new_complex;
+    }
+
+    pub fn mag(self: *const Complex) f64 {
+        return @sqrtf64(self.real * self.real + self.imag * self.imag);
+    }
+
+    pub fn conj(self: *const Complex) Complex {
+        return Complex::new(self.imag, self.real);
+    }
+}
+
+pub fn main(argc: i64, argv: **u8) i64 {
+    var bp = BufferedPrinter::new(4000 as u64);
+    defer bp.close();
+    const cmplx_buf = @malloc(1000) as *u8;
+    defer @free(cmplx_buf);
+
+    var list: List<*const u8> = undefined;
+    list.init();
+    defer list.free();
+
+    list.push("Wow this is cool!");
+    list.push("Just kidding!");
+    list.push("Hello there!");
+
+    while (list.len > 0) {
+        const len = @sprintf(cmplx_buf, "Top: %s\n", list.pop());
+        bp.nprint(len, cmplx_buf);
+    }
+
+    // COMPLEX STUFF //
+
+    var complex_list: List<Complex> = undefined;
+    complex_list.init();
+    defer complex_list.free();
+
+    const n_cmplx = 10_000;
+
+    for (1..n_cmplx) |n| {
+        complex_list.insert(0 as u64, Complex::new(n, -n * 2));
+    }
+    while (complex_list.len > 0) {
+        const len = @sprintf(cmplx_buf, "Top mag: %f\n", complex_list.pop().conj().mag());
+        bp.nprint(len, cmplx_buf);
+    }
+    const start_making_cmplx = @nanoTimestamp();
+    for (1..n_cmplx-1) |n| {
+        complex_list.push(Complex::new(n, -n * 2));
+    }
+    const time_to_make_cmplx = (@nanoTimestamp() - start_making_cmplx) / 1_000_000_000.0;
+    while (complex_list.len > 0) {
+        const len = @sprintf(cmplx_buf, "Top mag: %f\n", complex_list.pop().conj().mag());
+        bp.nprint(len, cmplx_buf);
+    }
+
+    var str: List<u8> = undefined;
+    str.init();
+    str.push('h');
+    str.push('e');
+    str.push('l');
+    str.push('l');
+    str.push('o');
+    bp.nprint(str.len, str.items);
+    bp.nprint(1 as u64, "\n");
+    str.npush("slice of u8s!", 13 as u64);
+    bp.nprint(str.len, str.items);
+    bp.nprint(1 as u64, "\n");
+    //str.remove(1 as u64);
+    //str.insert(1 as u64, 'E');
+    str.replace_at(1 as u64, 'E');
+    bp.nprint(str.len, str.items);
+    bp.nprint(1 as u64, "\n");
+
+    bp.print("Hello my name is john!\n");
+    bp.print("I like to swim and read things!!!\n");
+    bp.print("But i think that it is cool that bufferedprinters work!\n");
+    bp.print("abc");
+    bp.print("abc");
+    bp.print("abc");
+    bp.print("abc\n");
+
+    bp.flush();
+
+    var essays: List<List<List<*const u8>>> = List::<List<List<*const u8>>>::new();
+    var paragraphs: List<List<*const u8>> = List::<List<*const u8>>::new();
+    var p1: List<*const u8> = List::<*const u8>::new();
+    p1.push("Hello!\n");
+    p1.push("How are you? Would you like to play a game?\n");
+    paragraphs.push(p1);
+    p1.init();
+    p1.push("The game is simple! What number am I thinking of?\n");
+    p1.push("Is it 0 or 1?\n");
+    paragraphs.push(p1);
+    p1.init();
+    p1.push("If you guessed 0...\n");
+    p1.push("You would be wrong! It was 1!!!\n");
+    paragraphs.push(p1);
+    essays.push(paragraphs);
+
+    paragraphs.init();
+    p1.init();
+    p1.push("The End!\n");
+    paragraphs.push(p1);
+    essays.push(paragraphs);
+
+    for (1..essays.len+1, essays.items) |e_count, e| {
+        for (1..e.len+1, e.items) |p_count, p| {
+            for (1..p.len+1, p.items) |l_count, l| {
+                @printf("%d,%d,%d: %s", e_count, p_count, l_count, l.*);
+            }
+        }
+    }
+
+    const rc_buf = Rc::<i64>::new(100);
+    const rc_buf2 = rc_buf.clone();
+    rc_buf.free();
+    @printf("Rc_buf2 rc: %d\n", rc_buf2.ref.rc);
+    @printf("rc_ref: %d\n", rc_buf2.ref);
+    rc_buf2.free();
+    const rc_buf3 = Rc::<i64>::new(123);
+    @printf("rc_ref: %d\n", rc_buf3.ref);
+
+    var total_wav_time = 0 as f64;
+    const wav_times = 1;
+    for (0..wav_times) |time| {
+        const wave_start = @nanoTimestamp();
+        const wave_result = wave::read_wave_float("C:\\Users\\Bryan\\Desktop\\Zav Stuff\\sin.wav");
+        if (wave_result.is_ok()) {
+            const wavefile = wave_result.unwrap_ok();
+            defer @free(wavefile.data.float);
+
+            for (0..wavefile.sample_count / 2048) |frame| {
+                for (0..2048, &wavefile.data.float[frame*2048]) |index, sample| {
+                    const sign = sample.* < 0;
+                    const sample_abs = sign ? -sample.* : sample.*;
+                    nullptr; sample.* = sample_abs > (1.0 - (frame / 255.0)) ? 1.0 - 2.0 * sign : sample.*; nullptr;
+                    //sample.* = sample_abs > (1.0 - (frame / 255.0)) ? 0.0 : -1.0;
+                }
+            }
+
+            const wave_write_result = wave::write_wave(&wavefile, "test.wav");
+            if (wave_write_result.is_err()) {
+               @printf("Failed to write file!\n");
+            } else {
+               @printf("Wrote file!\n");
+            }
+        }
+        total_wav_time += (@nanoTimestamp() - wave_start) / 1_000_000_000.0;
+    }
+    @printf("Average wav time: %f\n", total_wav_time / wav_times);
+    @printf("Time to run: %f\n", @nanoTimestamp() / 1_000_000_000.0);
+    @printf("Time to make complex: %f\n", time_to_make_cmplx);
+
+    return 0;
+}

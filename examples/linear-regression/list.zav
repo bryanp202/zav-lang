@@ -1,0 +1,87 @@
+use ::point::Point;
+use ::point;
+
+use ::string::String;
+use ::string::Slice;
+use ::string::split;
+
+pub struct List {
+    items: *Point;
+    len: u64;
+    capacity: u64;
+
+    pub fn new() List {
+        var list: List = undefined;
+        list.items = nullptr;
+        list.len = 0 as u64;
+        list.capacity = 0 as u64;
+        return list;
+    }
+
+    pub fn deinit(self: *const List) void {
+        @free(self.items);
+    }
+
+    pub fn push(self: *List, point: Point) void {
+        if (self.len >= self.capacity) {
+            self.resize();
+        }
+
+        self.items[self.len] = point;
+        self.len += 1 as u64;
+    }
+
+    pub fn pop(self: *List) Point {
+        self.len -= 1 as u64;
+        return self.items[self.len];
+    }
+
+    /* Helper Functions */
+
+    fn resize(self: *List) void {
+        const old_capacity = self.capacity;
+        self.capacity = ((old_capacity == 0) ? 8 : old_capacity * 2) as u64;
+        const old_items = self.items;
+        self.items = @malloc(self.capacity * @sizeof(self.items.*)) as *Point;
+
+        for (0..old_capacity, old_items) |i, old_item| {
+            self.items[i] = old_item.*;
+        }
+
+        @free(old_items);
+    }
+}
+
+pub enum SplitError {
+    Okay,
+    InvalidCsv
+}
+
+pub struct SplitResult {
+    status: SplitError;
+    data: List;
+}
+
+pub fn split_points(src: String) SplitResult {
+    var result: SplitResult = undefined;
+    result.data = List::new();
+
+    var out_slice: Slice = undefined;
+    var split_index = split(&src, &out_slice, 10 as u8, 0);
+    while (split_index != -1) {
+        out_slice.strip();
+        const parse_result = Point::parse(out_slice);
+        if (parse_result.status != point::ParseError::Okay) {
+            result.data.deinit();
+            result.status = SplitError::InvalidCsv;
+            return result;
+        }
+
+        result.data.push(parse_result.data);
+
+        split_index = split(&src, &out_slice, 10 as u8, split_index);
+    }
+
+    result.status = SplitError::Okay;
+    return result;
+}

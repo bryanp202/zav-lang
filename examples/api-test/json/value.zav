@@ -1,0 +1,63 @@
+use ::json::list::List;
+use ::json::object::Object;
+use ::string::String;
+
+pub enum ValueType {
+    List,
+    Number,
+    Object,
+    String,
+    Boolean,
+    Null
+}
+
+pub union ValueUnion {
+    list: List;
+    num: f64;
+    obj: Object;
+    str: String;
+    boolean: bool;
+}
+
+pub struct Value {
+    type: ValueType;
+    val: ValueUnion;
+
+    pub fn deinit(self: *const Value) void {
+        switch (self.type) {
+            ValueType::List => self.val.list.deinit();
+            ValueType::Object => self.val.obj.deinit();
+            ValueType::String => self.val.str.deinit();
+        }
+    }
+
+    pub fn display(self: *const Value) void {
+        self.display_shift(0 as u64);
+        @printf("\n");
+    }
+
+    pub fn display_shift(self: *const Value, shift: u64) void {
+        switch (self.type) {
+            ValueType::List => self.val.list.display(shift);
+            ValueType::Object => self.val.obj.display(shift);
+            ValueType::String => @printf("\"%.*s\"", self.val.str.len, self.val.str.data);
+            ValueType::Number => @printf("%f", self.val.num);
+            ValueType::Boolean => {
+                if (self.val.boolean) {
+                    @printf("true");
+                } else {
+                    @printf("false");
+                }
+            }
+            ValueType::Null => @printf("null");
+        }
+    }
+}
+
+pub fn new_value(type: ValueType, val: ValueUnion) Value {
+    var new_value: Value = undefined;
+    new_value.type = type;
+    new_value.val = val;
+
+    return new_value;
+}

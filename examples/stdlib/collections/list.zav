@@ -1,0 +1,124 @@
+pub struct List<T> {
+    items: *T;
+    len: u64;
+    capacity: u64;
+
+    pub fn new() List<T> {
+        var new_list: List<T> = undefined;
+        new_list.items = nullptr;
+        new_list.len = 0 as u64;
+        new_list.capacity = 0 as u64;
+        return new_list;
+    }
+
+    pub fn with_capacity(capacity: u64) List<T> {
+        var new_list: List<T> = undefined;
+        new_list.items = @malloc(@sizeof(new_list.items.*) * capacity) as *T;
+        new_list.len = 0 as u64;
+        new_list.capacity = capacity;
+        return new_list;
+    }
+
+    pub fn init(self: *List<T>) void {
+        self.items = nullptr;
+        self.len = 0 as u64;
+        self.capacity = 0 as u64;
+    }
+
+    pub fn init_with_capacity(self: *List<T>, capacity: u64) void {
+        self.items = @malloc(@sizeof(self.items.*) * capacity) as *T;
+        self.len = 0 as u64;
+        self.capacity = capacity;
+    }
+
+    pub fn free(self: *const List<T>) void {
+        @free(self.items);
+    }
+
+    pub fn clear(self: *List<T>) void {
+        self.free();
+        self.init();
+    }
+
+    pub fn clear_retain_capacity(self: *List<T>) void {
+        self.len = 0 as u64;
+    }
+
+    pub fn push(self: *List<T>, item: T) void {
+        if (self.len >= self.capacity) {
+            self.resize();
+        }
+        self.items[self.len] = item;
+        self.len += 1 as u64;
+    }
+
+    pub fn npush(self: *List<T>, items: *const T, n: u64) void {
+        while (self.len + n > self.capacity) {
+            self.resize();
+        }
+        for (self.len..self.len+n, items) |i, item| {
+            self.items[i] = item.*;
+        }
+        self.len += n;
+    }
+
+    pub fn pop(self: *List<T>) T {
+        self.len -= 1 as u64;
+        return self.items[self.len];
+    }
+
+    pub fn insert(self: *List<T>, index: u64, item: T) void {
+        if (self.len >= self.capacity) {
+            self.resize_with_gap(index);
+            self.items[index] = item;
+        } else {
+            var i = self.len as i64;
+            while (i > index) {
+                self.items[i] = self.items[i - 1];
+            } loop i -= 1;
+            self.items[index] = item;
+        }
+        self.len += 1 as u64;
+    }
+
+    pub fn remove(self: *List<T>, index: u64) T {
+        const item = self.items[index];
+        for (0.. self.len-index, &self.items[index]) |_, item| {
+            item.* = item[1];
+        }
+        self.len -= 1 as u64;
+        return item;
+    }
+
+    pub fn replace_at(self: *List<T>, index: u64, item: T) T {
+        const removed_item = self.items[index];
+        self.items[index] = item;
+        return removed_item;
+    }
+
+    /* Private Helpers */
+
+    fn resize(self: *List<T>) void {
+        const new_capacity = self.capacity != 0 ? self.capacity * 2 as u64 : 8 as u64;
+        const old_items = self.items;
+        self.items = @malloc(@sizeof(self.items.*) * new_capacity) as *T;
+        for(0..self.capacity, old_items) |i, old_item_ptr| {
+            self.items[i] = old_item_ptr.*;
+        }
+        self.capacity = new_capacity;
+    }
+
+    fn resize_with_gap(self: *List<T>, gap_index: u64) void {
+        const new_capacity = self.capacity != 0 ? self.capacity * 2 as u64 : 8 as u64;
+        const old_items = self.items;
+        self.items = @malloc(@sizeof(self.items.*) * new_capacity) as *T;
+        for(0..gap_index, old_items) |i, old_item_ptr| {
+            self.items[i] = old_item_ptr.*;
+        }
+        for (gap_index+1..=self.capacity, &old_items[gap_index]) |i, old_item_ptr| {
+            self.items[i] = old_item_ptr.*;
+        }
+        self.capacity = new_capacity;
+        @free(old_items);
+    }
+}

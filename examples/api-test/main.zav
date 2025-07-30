@@ -1,0 +1,123 @@
+pub mod json;
+pub mod string;
+pub mod fs;
+pub mod random;
+
+use string::String;
+
+use json::object::Object;
+use json::value::Value;
+use json::value::ValueType;
+use json::value::ValueType::Number;
+
+fn main(argc: i64, argv: **u8) i64 {
+    trivia();
+
+    @printf("Time to run: %f s", @nanoTimestamp() / 1_000_000_000.0);
+
+    return 0;
+}
+
+fn trivia() void {
+    @printf("Retrieving questions...\n");
+
+    const url = String::from_cstr("https://opentdb.com/api.php?type=multiple&amount=10");
+
+    const json_result = json::get(url.data, url.len);
+    if (json_result.status != json::Error::Okay) {
+        @printf("Failed to get trivia\n");
+        return;
+    }
+
+    const json = json_result.data;
+    defer json.deinit();
+
+    const response_code = json.val.obj.get_ptr(String::from_cstr("response_code"));
+    if (response_code == nullptr or response_code.type != ValueType::Number or response_code.val.num != 0.0) {
+        @printf("Failed to get trivia\n");
+        return;
+    }
+
+    random::init(@nanoTimestamp());
+
+    const question_list = json.val.obj.get_ptr(String::from_cstr("results")).val.list;
+    const question_count = question_list.len;
+    var score = 0;
+    for (1..question_count + 1, question_list.items) |i, question| {
+        if(ask_question(i, &question.val.obj)) {
+            score += 1;
+        }
+    }
+
+    @printf("%d / %d correct!\n", score, question_count);
+}
+
+fn ask_question(num: i64, question_obj: *Object) bool {
+    const category = question_obj.get_ptr(String::from_cstr("category")).val.str;
+    const question = question_obj.get_ptr(String::from_cstr("question")).val.str;
+    const correct_answer = question_obj.get_ptr(String::from_cstr("correct_answer")).val.str;
+    const wrong_answers = question_obj.get_ptr(String::from_cstr("incorrect_answers")).val.list;
+
+    @printf("Category: %.*s\n", category.len, category.data);
+    @printf("Question #%d: %.*s\n", num, question.len, question.data);
+
+    const correct_pos = (random::rand() / 134217728) % (wrong_answers.len+1) + 1;
+
+    var question_index = 0;
+    for (1..wrong_answers.len+2) |i| {
+        if (i == correct_pos) {
+            @printf("  %d) %.*s\n", i, correct_answer.len, correct_answer.data);
+        } else {
+            @printf("  %d) %.*s\n", i, wrong_answers.items[question_index].val.str.len, wrong_answers.items[question_index].val.str.data);
+            question_index += 1;
+        }
+    }
+
+    @printf("> ");
+
+    const answer_buf_len = 100 as u64;
+    const answer_buf = @malloc(answer_buf_len) as *u8;
+    defer @free(answer_buf);
+
+    const player_response_len = @input(answer_buf, answer_buf_len) - 1;
+    
+    const correct_answer_char = '0' + correct_pos as u8;
+    var correct = false;
+    if (string::nstr_eql(1 as u64, answer_buf, &correct_answer_char)) {
+        @printf("Correct!\n");
+        correct = true;
+    } else {
+        @printf("Wrong!\n");
+    }
+    @printf("Answer was: %d) %.*s\n\n", correct_pos, correct_answer.len, correct_answer.data);
+    return correct;
+}
+
+fn pokemon(pokemon_name: *const u8) void {
+    const api_url = "https://pokeapi.co/api/v2/pokemon/";
+
+    const cmd_buf = @malloc(2000) as *u8;
+    defer @free(cmd_buf);
+
+    const url_len = @sprintf(cmd_buf, "%s%s", api_url, pokemon_name);
+
+    const json_result = json::get(cmd_buf, url_len);
+    if (json_result.status != json::Error::Okay) {
+        @printf("Failed to get %s\n", pokemon_name);
+        return;
+    }
+
+    const json = json_result.data;
+    defer json.deinit();
+    json.display();
+
+    const base_experience_str = String::from_cstr("base_experience");
+
+    const base_experience = json.val.obj.get_ptr(base_experience_str);
+    if (base_experience == nullptr) {
+        @printf("Failed to get %s\n", pokemon_name);
+        return;
+    }
+
+    @printf("%s base experience: %f\n", pokemon_name, base_experience.val.num);
+}

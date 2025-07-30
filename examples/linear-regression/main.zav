@@ -1,0 +1,74 @@
+pub mod string;
+pub mod fs;
+pub mod point;
+pub mod list;
+
+use string::String;
+
+use list::List;
+
+use point::Point;
+
+pub fn main(argc: i64, argv: **u8) i64 {
+    if (argc != 2) {
+        @printf("Usage: linear_regression.exe [path/to/file]");
+        return 1;
+    }
+
+    const file_result = fs::read_file(argv[1]);
+    if (file_result.status != fs::Error::Okay) {
+        @printf("Could not open file: %s\n", argv[1]);
+        return 1;
+    }
+    const file_contents = file_result.data;
+    defer file_contents.deinit();
+
+    const split_result = list::split_points(file_contents);
+    if (split_result.status != list::SplitError::Okay) {
+        @printf("Invalid .csv format\n");
+        return 1;
+    }
+
+    const points = split_result.data;
+    defer points.deinit();
+
+    calculate_coef(points);
+
+    return 0;
+}
+
+fn calculate_coef(points: List) void {
+    var x_sum = 0.0;
+    var y_sum = 0.0;
+    var x_2_sum = 0.0;
+    var x_y_sum = 0.0;
+    const n = points.len;
+
+    for (0..n, points.items) |_, point| {
+        x_sum += point.x;
+        y_sum += point.y;
+        x_2_sum += point.x * point.x;
+        x_y_sum += point.x * point.y;
+    }
+
+    const b = (y_sum * x_2_sum - x_sum * x_y_sum) / (n * x_2_sum - x_sum * x_sum);
+    const m = (n * x_y_sum - x_sum * y_sum) / (n * x_2_sum - x_sum * x_sum);
+
+    var sst = 0.0;
+    var ssr = 0.0;
+    const y_mean = y_sum / n;
+    
+    for (0..n, points.items) |_, point| {
+        const diff = point.y - y_mean;
+        sst += diff * diff;
+
+        const predicted = point.x * m + b;
+        const error = point.y - predicted;
+        ssr += error * error;
+    }
+
+    const r_2 = 1.0 - ssr / sst;
+
+    @printf("Linear Regression Formula: y = %fx + %f\n", m, b);
+    @printf("R^2: %f\n", r_2);
+}
