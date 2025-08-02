@@ -112,8 +112,20 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "bool", cvt2bool_native(allocator)) catch unreachable;
 
     // Math natives
+    new_table.natives_table.put(allocator, "pow", pow_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "fmod", fmod_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sqrtf32", sqrtf32_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sqrtf64", sqrtf64_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "sin", sin_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "cos", cos_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "tan", tan_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "asin", asin_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "acos", acos_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "atan", atan_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "atan2", atan2_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "exp", exp_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "ln", ln_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "log", log_native(allocator)) catch unreachable;
 
     // Allocation natives
     new_table.natives_table.put(allocator, "malloc", malloc_native(allocator)) catch unreachable;
@@ -499,6 +511,72 @@ fn cvt2bool_native(allocator: std.mem.Allocator) Native {
     return native;
 }
 
+fn pow_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    arg_kinds[1] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern pow";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    movq xmm1, rdx
+                \\    sub rsp, 32
+                \\    call pow
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn fmod_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    arg_kinds[1] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern fmod";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    movq xmm1, rdx
+                \\    sub rsp, 32
+                \\    call fmod
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
 /// Square root of a float
 fn sqrtf32_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
@@ -542,6 +620,318 @@ fn sqrtf64_native(allocator: std.mem.Allocator) Native {
             _ = args;
             // Test and see if not zero
             try generator.write("    sqrtsd xmm0, xmm0\n    movq rax, xmm0\n");
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn sin_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern sin";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call sin
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn asin_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern asin";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call asin
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn cos_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern cos";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call cos
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn acos_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern acos";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call acos
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn tan_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern tan";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call tan
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn atan_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern atan";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call atan
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn atan2_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    arg_kinds[1] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern atan2";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    movq xmm1, rdx
+                \\    sub rsp, 32
+                \\    call atan2
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn exp_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern exp";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call exp
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn ln_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern log";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call log
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn log_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern log10";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call log10
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
         }
     }.gen;
 

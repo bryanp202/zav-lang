@@ -1545,6 +1545,7 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
     self.func_stack_alignment += if (args.len > 4) (args.len - 4) * 8 else 0;
     const call_align = (16 - ((self.func_stack_alignment) % 16)) & 15;
     self.func_stack_alignment += call_align;
+    self.func_stack_alignment += @as(usize, @min(args.len, 4)) * 8;
     const args_size = args.len * 8;
     const arg_space = args_size + call_align;
     if (arg_space > 0) {
@@ -1658,6 +1659,7 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
         // Pop one arg to proper register
         _ = try self.write("    pop rcx\n");
     }
+    self.func_stack_alignment -= @as(usize, @min(args.len, 4)) * 8;
 
     // Attempt to write inline
     const wrote_inline = try self.stm.natives_table.writeNativeInline(
