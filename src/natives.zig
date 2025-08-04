@@ -116,6 +116,8 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "fmod", fmod_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sqrtf32", sqrtf32_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sqrtf64", sqrtf64_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "floor", floor_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "ceil", ceil_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sin", sin_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "cos", cos_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "tan", tan_native(allocator)) catch unreachable;
@@ -620,6 +622,68 @@ fn sqrtf64_native(allocator: std.mem.Allocator) Native {
             _ = args;
             // Test and see if not zero
             try generator.write("    sqrtsd xmm0, xmm0\n    movq rax, xmm0\n");
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn floor_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern floor";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call floor
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn ceil_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern ceil";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call ceil
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
         }
     }.gen;
 
