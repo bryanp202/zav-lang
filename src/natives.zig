@@ -128,6 +128,7 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "exp", exp_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "ln", ln_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "log", log_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "log2", log2_native(allocator)) catch unreachable;
 
     // Allocation natives
     new_table.natives_table.put(allocator, "malloc", malloc_native(allocator)) catch unreachable;
@@ -992,6 +993,37 @@ fn log_native(allocator: std.mem.Allocator) Native {
                 \\    movq xmm0, rcx
                 \\    sub rsp, 32
                 \\    call log10
+                \\    add rsp, 32
+                \\    movq rax, xmm0
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+fn log2_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.FLOAT64;
+    // Make return kind
+    const ret_kind = KindId.FLOAT64;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern log";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            // Test and see if not zero
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sub rsp, 32
+                \\    call log
                 \\    add rsp, 32
                 \\    movq rax, xmm0
                 \\
