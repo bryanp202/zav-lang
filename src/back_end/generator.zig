@@ -933,9 +933,9 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                     \\    mov {s}, {s} [{s}]
                     \\    xor edx, edx
                     \\    idiv {s}
-                    \\    mov [{s}], rax
+                    \\    mov [{s}], {s}
                     \\
-                , .{ sized_rax, size_keyword, id_reg.name, expr_reg.name, id_reg.name });
+                , .{ sized_rax, size_keyword, id_reg.name, expr_reg.name, id_reg.name, sized_rax });
             },
             .PERCENT_EQUAL => {
                 const sized_rax = switch (size) {
@@ -944,15 +944,21 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                     4 => "eax",
                     else => "rax",
                 };
+                const sized_rdx = switch (size) {
+                    1 => "dl",
+                    2 => "dx",
+                    4 => "edx",
+                    else => "rdx",
+                };
                 const size_keyword = getSizeKeyword(size);
                 try self.print(
                     \\    xor rax, rax ; Mutate
                     \\    mov {s}, {s} [{s}]
                     \\    xor edx, edx
                     \\    idiv {s}
-                    \\    mov [{s}], rdx
+                    \\    mov [{s}], {s}
                     \\
-                , .{ sized_rax, size_keyword, id_reg.name, expr_reg.name, id_reg.name });
+                , .{ sized_rax, size_keyword, id_reg.name, expr_reg.name, id_reg.name, sized_rdx });
             },
             .CARET_EQUAL => try self.print("    xor [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
             .AMPERSAND_EQUAL => try self.print("    and [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
