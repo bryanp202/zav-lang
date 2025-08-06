@@ -31,6 +31,10 @@ pub const ExprUnion = union(enum) {
     IF: *IfExpr,
     LAMBDA: *LambdaExpr,
     GENERIC: *GenericExpr,
+    SHIFT: *ShiftExpr,
+    BIT_OR: *BitOrExpr,
+    BIT_AND: *BitAndExpr,
+    BIT_XOR: *BitXorExpr,
 };
 
 /// Generic node for all expression types
@@ -75,6 +79,10 @@ pub const ExprNode = struct {
             .IF => |ifExpr| ifExpr.copy(allocator),
             .LAMBDA => |lambdaExpr| lambdaExpr.copy(allocator),
             .GENERIC => |genericExpr| genericExpr.copy(allocator),
+            .BIT_AND => |bitAndExpr| bitAndExpr.copy(allocator),
+            .BIT_OR => |bitOrExpr| bitOrExpr.copy(allocator),
+            .BIT_XOR => |bitXorExpr| bitXorExpr.copy(allocator),
+            .SHIFT => |shiftExpr| shiftExpr.copy(allocator),
         };
         return ExprNode{ .result_kind = self.result_kind, .expr = expr };
     }
@@ -183,6 +191,26 @@ pub const ExprNode = struct {
                 std.debug.print(":", .{});
                 ifExpr.else_branch.display();
                 std.debug.print(")", .{});
+            },
+            .BIT_AND => |bitAndExpr| {
+                bitAndExpr.lhs.display();
+                std.debug.print("&", .{});
+                bitAndExpr.rhs.display();
+            },
+            .BIT_OR => |bitOrExpr| {
+                bitOrExpr.lhs.display();
+                std.debug.print("|", .{});
+                bitOrExpr.rhs.display();
+            },
+            .BIT_XOR => |bitXorExpr| {
+                bitXorExpr.lhs.display();
+                std.debug.print("^", .{});
+                bitXorExpr.rhs.display();
+            },
+            .SHIFT => |shiftExpr| {
+                shiftExpr.lhs.display();
+                std.debug.print("{s}", .{shiftExpr.op.lexeme});
+                shiftExpr.rhs.display();
             },
             .LAMBDA => |lambdaExpr| lambdaExpr.display(),
             .GENERIC => |genericExpr| genericExpr.display(),
@@ -447,6 +475,119 @@ pub const UnaryExpr = struct {
             .op = self.op,
         };
         return ExprUnion{ .UNARY = new_expr };
+    }
+};
+
+/// Bit manipulation nodes
+pub const ShiftExpr = struct {
+    lhs: ExprNode,
+    rhs: ExprNode,
+    op: Token,
+    reversed: bool,
+
+    /// Make a new Logic Expr with a void return type
+    pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token, reversed: bool) ShiftExpr {
+        return ShiftExpr{
+            .lhs = lhs,
+            .rhs = rhs,
+            .op = op,
+            .reversed = reversed,
+        };
+    }
+
+    pub fn copy(self: ShiftExpr, allocator: std.mem.Allocator) ExprUnion {
+        const new_expr = allocator.create(ShiftExpr) catch unreachable;
+        new_expr.* = ShiftExpr{
+            .lhs = self.lhs.copy(allocator),
+            .rhs = self.rhs.copy(allocator),
+            .op = self.op,
+            .reversed = self.reversed,
+        };
+        return ExprUnion{ .SHIFT = new_expr };
+    }
+};
+
+pub const BitOrExpr = struct {
+    lhs: ExprNode,
+    rhs: ExprNode,
+    op: Token,
+    reversed: bool,
+
+    /// Make a new Logic Expr with a void return type
+    pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token, reversed: bool) BitOrExpr {
+        return BitOrExpr{
+            .lhs = lhs,
+            .rhs = rhs,
+            .op = op,
+            .reversed = reversed,
+        };
+    }
+
+    pub fn copy(self: BitOrExpr, allocator: std.mem.Allocator) ExprUnion {
+        const new_expr = allocator.create(BitOrExpr) catch unreachable;
+        new_expr.* = BitOrExpr{
+            .lhs = self.lhs.copy(allocator),
+            .rhs = self.rhs.copy(allocator),
+            .op = self.op,
+            .reversed = self.reversed,
+        };
+        return ExprUnion{ .BIT_OR = new_expr };
+    }
+};
+
+pub const BitAndExpr = struct {
+    lhs: ExprNode,
+    rhs: ExprNode,
+    op: Token,
+    reversed: bool,
+
+    /// Make a new Logic Expr with a void return type
+    pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token, reversed: bool) BitAndExpr {
+        return BitAndExpr{
+            .lhs = lhs,
+            .rhs = rhs,
+            .op = op,
+            .reversed = reversed,
+        };
+    }
+
+    pub fn copy(self: BitAndExpr, allocator: std.mem.Allocator) ExprUnion {
+        const new_expr = allocator.create(BitAndExpr) catch unreachable;
+        new_expr.* = BitAndExpr{
+            .lhs = self.lhs.copy(allocator),
+            .rhs = self.rhs.copy(allocator),
+            .op = self.op,
+            .reversed = self.reversed,
+        };
+        return ExprUnion{ .BIT_AND = new_expr };
+    }
+};
+
+pub const BitXorExpr = struct {
+    lhs: ExprNode,
+    rhs: ExprNode,
+    op: Token,
+    reversed: bool,
+
+    /// Make a new Logic Expr with a void return type
+    pub fn init(lhs: ExprNode, rhs: ExprNode, op: Token, reversed: bool) BitXorExpr {
+        return BitXorExpr{
+            .lhs = lhs,
+            .rhs = rhs,
+            .op = op,
+            .reversed = reversed,
+        };
+    }
+
+    pub fn copy(self: BitXorExpr, allocator: std.mem.Allocator) ExprUnion {
+        const new_expr = allocator.create(BitXorExpr) catch unreachable;
+        new_expr.* = BitXorExpr{
+            .lhs = self.lhs.copy(allocator),
+            .rhs = self.rhs.copy(allocator),
+            .op = self.op,
+            .reversed = self.reversed,
+        };
+        return ExprUnion{ .BIT_XOR = new_expr };
     }
 };
 

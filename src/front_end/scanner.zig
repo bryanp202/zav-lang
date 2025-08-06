@@ -116,11 +116,17 @@ pub const Scanner = struct {
             },
             // Logical Operations and Assignment
             '<' => {
-                const kind = if (self.match('=')) TokenKind.LESS_EQUAL else TokenKind.LESS;
+                const kind = if (self.match('<'))
+                    (if (self.match('=')) TokenKind.SHIFT_LEFT_EQUAL else TokenKind.SHIFT_LEFT)
+                else
+                    (if (self.match('=')) TokenKind.LESS_EQUAL else TokenKind.LESS);
                 return self.emitToken(kind);
             },
             '>' => {
-                const kind = if (self.match('=')) TokenKind.GREATER_EQUAL else TokenKind.GREATER;
+                const kind = if (self.match('>'))
+                    (if (self.match('=')) TokenKind.SHIFT_RIGHT_EQUAL else TokenKind.SHIFT_RIGHT)
+                else
+                    (if (self.match('=')) TokenKind.GREATER_EQUAL else TokenKind.GREATER);
                 return self.emitToken(kind);
             },
             '=' => {
@@ -772,6 +778,10 @@ pub const TokenKind = enum {
     UNION,
     SCOPE_LESS,
     SUPER,
+    SHIFT_LEFT,
+    SHIFT_RIGHT,
+    SHIFT_LEFT_EQUAL,
+    SHIFT_RIGHT_EQUAL,
 
     //// Parser Tokens ////
     ERROR,

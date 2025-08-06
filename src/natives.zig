@@ -635,7 +635,7 @@ fn floor_native(allocator: std.mem.Allocator) Native {
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
     arg_kinds[0] = KindId.FLOAT64;
     // Make return kind
-    const ret_kind = KindId.FLOAT64;
+    const ret_kind = KindId.newInt(64);
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;

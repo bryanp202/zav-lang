@@ -886,6 +886,8 @@ fn statement(self: *Parser) SyntaxError!StmtNode {
             TokenKind.AMPERSAND_EQUAL,
             TokenKind.PIPE_EQUAL,
             TokenKind.CARET_EQUAL,
+            TokenKind.SHIFT_LEFT_EQUAL,
+            TokenKind.SHIFT_RIGHT_EQUAL,
         })) {
             return self.mutStmt(expr);
         }
@@ -1303,7 +1305,7 @@ fn logic_and(self: *Parser) SyntaxError!ExprResult {
 /// Parse a compare statement
 /// compare -> term (("<"|">"|"<="|">="|"=="|"!=") term)*
 fn compare(self: *Parser) SyntaxError!ExprResult {
-    const lhs = try self.term();
+    const lhs = try self.bitOr();
     // Extract expression
     var expr = lhs.expr;
     // Extract precedence
@@ -1321,7 +1323,7 @@ fn compare(self: *Parser) SyntaxError!ExprResult {
         // Get operator
         const operator = self.previous;
         // Parse rhs
-        const rhs = try self.term();
+        const rhs = try self.bitOr();
 
         // Make new inner expression, with operator
         const new_expr = self.allocator.create(Expr.CompareExpr) catch unreachable;
@@ -1337,6 +1339,144 @@ fn compare(self: *Parser) SyntaxError!ExprResult {
         }
         // Update expr
         expr = ExprNode.init(ExprUnion{ .COMPARE = new_expr });
+        // Update precedence
+        precedence = newPrecedence(precedence);
+    }
+    // Wrap and return
+    return ExprResult.init(expr, precedence);
+}
+
+fn bitOr(self: *Parser) SyntaxError!ExprResult {
+    const lhs = try self.bitXor();
+    // Extract expression
+    var expr = lhs.expr;
+    // Extract precedence
+    var precedence = lhs.precedence;
+
+    // While there are still '+' or '-' tokens
+    while (self.match(.{TokenKind.PIPE})) {
+        // Get operator
+        const operator = self.previous;
+        // Parse rhs
+        const rhs = try self.bitXor();
+
+        // Make new inner expression, with operator
+        const new_expr = self.allocator.create(Expr.BitOrExpr) catch unreachable;
+
+        // Check if reversed or not
+        if (checkReversed(precedence, rhs.precedence)) {
+            // Rhs is bigger, swap lh and rh sides
+            precedence = rhs.precedence;
+            new_expr.* = Expr.BitOrExpr.init(rhs.expr, expr, operator, true);
+        } else {
+            // Lhs is bigger, do not swap
+            new_expr.* = Expr.BitOrExpr.init(expr, rhs.expr, operator, false);
+        }
+        // Update expr
+        expr = ExprNode.init(ExprUnion{ .BIT_OR = new_expr });
+        // Update precedence
+        precedence = newPrecedence(precedence);
+    }
+    // Wrap and return
+    return ExprResult.init(expr, precedence);
+}
+
+fn bitXor(self: *Parser) SyntaxError!ExprResult {
+    const lhs = try self.bitAnd();
+    // Extract expression
+    var expr = lhs.expr;
+    // Extract precedence
+    var precedence = lhs.precedence;
+
+    while (self.match(.{TokenKind.CARET})) {
+        // Get operator
+        const operator = self.previous;
+        // Parse rhs
+        const rhs = try self.bitAnd();
+
+        // Make new inner expression, with operator
+        const new_expr = self.allocator.create(Expr.BitXorExpr) catch unreachable;
+
+        // Check if reversed or not
+        if (checkReversed(precedence, rhs.precedence)) {
+            // Rhs is bigger, swap lh and rh sides
+            precedence = rhs.precedence;
+            new_expr.* = Expr.BitXorExpr.init(rhs.expr, expr, operator, true);
+        } else {
+            // Lhs is bigger, do not swap
+            new_expr.* = Expr.BitXorExpr.init(expr, rhs.expr, operator, false);
+        }
+        // Update expr
+        expr = ExprNode.init(ExprUnion{ .BIT_XOR = new_expr });
+        // Update precedence
+        precedence = newPrecedence(precedence);
+    }
+    // Wrap and return
+    return ExprResult.init(expr, precedence);
+}
+
+fn bitAnd(self: *Parser) SyntaxError!ExprResult {
+    const lhs = try self.shift();
+    // Extract expression
+    var expr = lhs.expr;
+    // Extract precedence
+    var precedence = lhs.precedence;
+
+    while (self.match(.{TokenKind.AMPERSAND})) {
+        // Get operator
+        const operator = self.previous;
+        // Parse rhs
+        const rhs = try self.shift();
+
+        // Make new inner expression, with operator
+        const new_expr = self.allocator.create(Expr.BitAndExpr) catch unreachable;
+
+        // Check if reversed or not
+        if (checkReversed(precedence, rhs.precedence)) {
+            // Rhs is bigger, swap lh and rh sides
+            precedence = rhs.precedence;
+            new_expr.* = Expr.BitAndExpr.init(rhs.expr, expr, operator, true);
+        } else {
+            // Lhs is bigger, do not swap
+            new_expr.* = Expr.BitAndExpr.init(expr, rhs.expr, operator, false);
+        }
+        // Update expr
+        expr = ExprNode.init(ExprUnion{ .BIT_AND = new_expr });
+        // Update precedence
+        precedence = newPrecedence(precedence);
+    }
+    // Wrap and return
+    return ExprResult.init(expr, precedence);
+}
+
+// Shift -> Term ('<<' | '>>') Term)*
+fn shift(self: *Parser) SyntaxError!ExprResult {
+    const lhs = try self.term();
+    // Extract expression
+    var expr = lhs.expr;
+    // Extract precedence
+    var precedence = lhs.precedence;
+
+    while (self.match(.{ TokenKind.SHIFT_LEFT, TokenKind.SHIFT_RIGHT })) {
+        // Get operator
+        const operator = self.previous;
+        // Parse rhs
+        const rhs = try self.term();
+
+        // Make new inner expression, with operator
+        const new_expr = self.allocator.create(Expr.ShiftExpr) catch unreachable;
+
+        // Check if reversed or not
+        if (checkReversed(precedence, rhs.precedence)) {
+            // Rhs is bigger, swap lh and rh sides
+            precedence = rhs.precedence;
+            new_expr.* = Expr.ShiftExpr.init(rhs.expr, expr, operator, true);
+        } else {
+            // Lhs is bigger, do not swap
+            new_expr.* = Expr.ShiftExpr.init(expr, rhs.expr, operator, false);
+        }
+        // Update expr
+        expr = ExprNode.init(ExprUnion{ .SHIFT = new_expr });
         // Update precedence
         precedence = newPrecedence(precedence);
     }

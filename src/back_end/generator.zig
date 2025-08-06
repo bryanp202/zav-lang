@@ -963,6 +963,22 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
             .CARET_EQUAL => try self.print("    xor [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
             .AMPERSAND_EQUAL => try self.print("    and [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
             .PIPE_EQUAL => try self.print("    or [{s}], {s} ; Mutate\n", .{ id_reg.name, sized_reg }),
+            .SHIFT_RIGHT_EQUAL => {
+                const size_keyword = getSizeKeyword(size);
+                const tiny_reg = getSizedCPUReg(expr_reg.index, 1);
+                try self.print("    mov cl, {s}\n", .{tiny_reg});
+                if (mutStmt.id_kind == .INT) {
+                    try self.print("    sar {s} [{s}], cl ; Mutate\n", .{ size_keyword, id_reg.name });
+                } else {
+                    try self.print("    shr {s} [{s}], cl ; Mutate\n", .{ size_keyword, id_reg.name });
+                }
+            },
+            .SHIFT_LEFT_EQUAL => {
+                const size_keyword = getSizeKeyword(size);
+                const tiny_reg = getSizedCPUReg(expr_reg.index, 1);
+                try self.print("    mov cl, {s}\n", .{tiny_reg});
+                try self.print("    sal {s} [{s}], cl ; Mutate\n", .{ size_keyword, id_reg.name });
+            },
             else => unreachable,
         }
     }
@@ -1332,6 +1348,10 @@ fn genExpr(self: *Generator, node: ExprNode) GenerationError!void {
         .AND => |andExpr| try self.visitAndExpr(andExpr),
         .OR => |orExpr| try self.visitOrExpr(orExpr),
         .IF => |ifExpr| try self.visitIfExpr(ifExpr, result_kind),
+        .SHIFT => |shiftExpr| try self.visitShiftExpr(shiftExpr, node.result_kind),
+        .BIT_AND => |bitAndExpr| try self.visitBitAndExpr(bitAndExpr),
+        .BIT_OR => |bitOrExpr| try self.visitBitOrExpr(bitOrExpr),
+        .BIT_XOR => |bitXorExpr| try self.visitBitXorExpr(bitXorExpr),
         .LAMBDA, .GENERIC => unreachable,
         //else => unreachable,
     }
@@ -2648,4 +2668,92 @@ fn copy_struct(self: *Generator, output_reg: Register, input_reg: Register, stru
     try self.print("    lea rdi, [{s}+{d}]\n", .{ output_name, offset });
     try self.print("    mov rcx, {d}\n", .{struct_size});
     try self.write("    rep movsb\n");
+}
+
+// *******************************
+// Bit-wise expressions
+// *******************************
+fn visitShiftExpr(self: *Generator, shiftExpr: *Expr.ShiftExpr, returnKind: KindId) GenerationError!void {
+    try self.genExpr(shiftExpr.lhs);
+    try self.genExpr(shiftExpr.rhs);
+
+    var lhs_reg: Register = undefined;
+    var rhs_reg: Register = undefined;
+    // Get register names, checking if reversed
+    if (shiftExpr.reversed) {
+        lhs_reg = self.popCPUReg();
+        rhs_reg = self.popCPUReg();
+    } else {
+        rhs_reg = self.popCPUReg();
+        lhs_reg = self.popCPUReg();
+    }
+    self.pushCPUReg(lhs_reg);
+
+    const tiny_reg = getSizedCPUReg(rhs_reg.index, 1);
+    try self.print("    mov cl, {s}\n", .{tiny_reg});
+
+    const shift_op = switch (shiftExpr.op.kind) {
+        .SHIFT_LEFT => "sal",
+        .SHIFT_RIGHT => if (returnKind == .INT) "sar" else "shr",
+        else => unreachable,
+    };
+
+    try self.print("    {s} {s}, cl\n", .{ shift_op, lhs_reg.name });
+}
+
+fn visitBitAndExpr(self: *Generator, bitAndExpr: *Expr.BitAndExpr) GenerationError!void {
+    try self.genExpr(bitAndExpr.lhs);
+    try self.genExpr(bitAndExpr.rhs);
+
+    var lhs_reg: Register = undefined;
+    var rhs_reg: Register = undefined;
+    // Get register names, checking if reversed
+    if (bitAndExpr.reversed) {
+        lhs_reg = self.popCPUReg();
+        rhs_reg = self.popCPUReg();
+    } else {
+        rhs_reg = self.popCPUReg();
+        lhs_reg = self.popCPUReg();
+    }
+    self.pushCPUReg(lhs_reg);
+
+    try self.print("    and {s}, {s}\n", .{ lhs_reg.name, rhs_reg.name });
+}
+
+fn visitBitOrExpr(self: *Generator, bitOrExpr: *Expr.BitOrExpr) GenerationError!void {
+    try self.genExpr(bitOrExpr.lhs);
+    try self.genExpr(bitOrExpr.rhs);
+
+    var lhs_reg: Register = undefined;
+    var rhs_reg: Register = undefined;
+    // Get register names, checking if reversed
+    if (bitOrExpr.reversed) {
+        lhs_reg = self.popCPUReg();
+        rhs_reg = self.popCPUReg();
+    } else {
+        rhs_reg = self.popCPUReg();
+        lhs_reg = self.popCPUReg();
+    }
+    self.pushCPUReg(lhs_reg);
+
+    try self.print("    or {s}, {s}\n", .{ lhs_reg.name, rhs_reg.name });
+}
+
+fn visitBitXorExpr(self: *Generator, bitXorExpr: *Expr.BitXorExpr) GenerationError!void {
+    try self.genExpr(bitXorExpr.lhs);
+    try self.genExpr(bitXorExpr.rhs);
+
+    var lhs_reg: Register = undefined;
+    var rhs_reg: Register = undefined;
+    // Get register names, checking if reversed
+    if (bitXorExpr.reversed) {
+        lhs_reg = self.popCPUReg();
+        rhs_reg = self.popCPUReg();
+    } else {
+        rhs_reg = self.popCPUReg();
+        lhs_reg = self.popCPUReg();
+    }
+    self.pushCPUReg(lhs_reg);
+
+    try self.print("    xor {s}, {s}\n", .{ lhs_reg.name, rhs_reg.name });
 }

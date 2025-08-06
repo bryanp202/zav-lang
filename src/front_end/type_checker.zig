@@ -1834,6 +1834,10 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .IF => self.visitIfExpr(node),
         .LAMBDA => self.visitLambdaExpr(node),
         .GENERIC => self.visitGenericExpr(node),
+        .SHIFT => self.visitShiftExpr(node),
+        .BIT_AND => self.visitBitAndExpr(node),
+        .BIT_OR => self.visitBitOrExpr(node),
+        .BIT_XOR => self.visitBitXorExpr(node),
         //else => unreachable,
     };
 }
@@ -3037,4 +3041,60 @@ fn scope_generic_user_kind(self: *TypeChecker, generic_kinds: []KindId, generic_
 
     self.stm.importSymbol(generic_version_symbol.*, generic_name) catch {};
     return generic_name;
+}
+
+// *************
+// Bit-wise expr
+// *************
+fn visitShiftExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    const shiftExpr = node.expr.SHIFT;
+
+    const lhs_kind = try self.analyzeExpr(&shiftExpr.lhs);
+    const rhs_kind = try self.analyzeExpr(&shiftExpr.rhs);
+
+    if (lhs_kind != .INT and lhs_kind != .UINT or rhs_kind != .INT and rhs_kind != .UINT) {
+        return self.reportError(SemanticError.TypeMismatch, shiftExpr.op, "Expected integer operands for shift operator");
+    }
+
+    node.result_kind = lhs_kind;
+    return lhs_kind;
+}
+
+fn visitBitAndExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    const bitAndExpr = node.expr.BIT_AND;
+
+    const lhs_kind = try self.analyzeExpr(&bitAndExpr.lhs);
+    const rhs_kind = try self.analyzeExpr(&bitAndExpr.rhs);
+
+    _ = try self.staticCoerceKinds(bitAndExpr.op, KindId.newInt(64), lhs_kind);
+    _ = try self.staticCoerceKinds(bitAndExpr.op, KindId.newInt(64), rhs_kind);
+
+    node.result_kind = lhs_kind;
+    return lhs_kind;
+}
+
+fn visitBitOrExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    const bitOrExpr = node.expr.BIT_OR;
+
+    const lhs_kind = try self.analyzeExpr(&bitOrExpr.lhs);
+    const rhs_kind = try self.analyzeExpr(&bitOrExpr.rhs);
+
+    _ = try self.staticCoerceKinds(bitOrExpr.op, KindId.newInt(64), lhs_kind);
+    _ = try self.staticCoerceKinds(bitOrExpr.op, KindId.newInt(64), rhs_kind);
+
+    node.result_kind = lhs_kind;
+    return lhs_kind;
+}
+
+fn visitBitXorExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
+    const bitXorExpr = node.expr.BIT_XOR;
+
+    const lhs_kind = try self.analyzeExpr(&bitXorExpr.lhs);
+    const rhs_kind = try self.analyzeExpr(&bitXorExpr.rhs);
+
+    _ = try self.staticCoerceKinds(bitXorExpr.op, KindId.newInt(64), lhs_kind);
+    _ = try self.staticCoerceKinds(bitXorExpr.op, KindId.newInt(64), rhs_kind);
+
+    node.result_kind = lhs_kind;
+    return lhs_kind;
 }
