@@ -1013,7 +1013,7 @@ fn log2_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = "    extern log";
+    const data = "    extern log2";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
@@ -1023,7 +1023,7 @@ fn log2_native(allocator: std.mem.Allocator) Native {
             try generator.write(
                 \\    movq xmm0, rcx
                 \\    sub rsp, 32
-                \\    call log
+                \\    call log2
                 \\    add rsp, 32
                 \\    movq rax, xmm0
                 \\
