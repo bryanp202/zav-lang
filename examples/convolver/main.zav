@@ -1,0 +1,53 @@
+pub mod stdlib;
+
+use stdlib::wave;
+use stdlib::fft;
+
+pub fn main(argc: i64, argv: **u8) i64 {
+    if (argc != 3 and argc != 4) {
+        @printf("Usage: convolver.exe [path\\to\\target\\wave\\file] [path\\to\\convolver\\wave\\file] (path\\to\\output\\wave\\file)\n");
+        return 0;
+    }
+
+    const target_wave_path = argv[1];
+    const convolver_wave_path = argv[2];
+    const output_wave_path = argc == 4 ? argv[3] : "out.wav";
+
+    const target_wave_result = wave::read_wave_float(target_wave_path);
+    if (target_wave_result.is_err()) {
+        @printf("[Err: %d] Failed to read wave file at: \"%s\"\n", target_wave_result.unwrap_err(), target_wave_path);
+        return 1;
+    }
+    const convolver_wave_result = wave::read_wave_float(convolver_wave_path);
+    if (convolver_wave_result.is_err()) {
+        @printf("[Err: %d] Failed to read wave file at: \"%s\"\n", convolver_wave_result.unwrap_err(), convolver_wave_path);
+        return 1;
+    }
+
+    const target_wave = target_wave_result.unwrap_ok();
+    defer @free(target_wave.data.float);
+    const convolver_wave = convolver_wave_result.unwrap_ok();
+    defer @free(convolver_wave.data.float);
+
+    const convolved_wave_result = wave::convolve_freq_domain(&target_wave, &convolver_wave);
+    if (convolved_wave_result.is_err()) {
+        @printf("[Err: 0] %s\n", convolved_wave_result.unwrap_err());
+        return 1;
+    }
+    const convolved_wave = convolved_wave_result.unwrap_ok();
+    defer @free(convolved_wave.data.float);
+
+    const write_out_result = wave::write_wave(&convolved_wave, output_wave_path);
+    if (write_out_result.is_err()) {
+        @printf("[Err: %d] Failed to write wave file to: \"%s\"\n", write_out_result.unwrap_err(), output_wave_path);
+        return 1;
+    }
+
+
+    @printf("Outputted to: \"%s\"\n", output_wave_path);
+    @printf("Time to run: %f\n", @nanoTimestamp() / 1_000_000_000.0);
+
+    return 0;
+}
+
+use stdlib::math::Complex;

@@ -1,0 +1,248 @@
+/// A mutatable string
+/// Owns the data it holds
+pub struct String {
+    data: *u8;
+    len: u64;
+    capacity: u64;
+
+    pub fn new(data: *u8, len: u64, capacity: u64) String {
+        var new_str: String = undefined;
+        new_str.data = data;
+        new_str.len = len;
+        new_str.capacity = capacity;
+        return new_str;
+    }
+
+    /// Make a new string from a cstr
+    pub fn from_cstr(cstr: *const u8) String {
+        const len = cstr_len(cstr);
+        const buf = @malloc(len) as *u8;
+        cpy_nstr(len, cstr, buf);
+
+        var self: String = undefined;
+        self.data = buf;
+        self.len = len;
+        self.capacity = len;
+        return self;
+    }
+
+    /// Copy a cstr into an owned String struct
+    pub fn from_cstr_with_sentinel(cstr: *const u8, sentinel: u8) String {
+        const len = cstr_len(cstr);
+        const buf = @malloc(len + 1) as *u8;
+        cpy_nstr(len, cstr, buf);
+        buf[len] = 0 as u8;
+
+        var self: String = undefined;
+        self.data = buf;
+        self.len = len;
+        self.capacity = len;
+        return self;
+    }
+
+    /// Free up memory
+    pub fn free(self: *const String) void {
+        @free(self.data);
+    }
+
+    /// Copy a String into a owned String
+    pub fn init_cpy(self: *String, src: *String) void {
+        self.len = src.len;
+        self.capacity = src.len;
+        self.data = @malloc(self.len) as *u8;
+
+        cpy_nstr(self.len, src.data, self.data);
+    }
+
+    /// Copy a nstr into an owned String struct
+    pub fn from_nstr(self: *String, n: u64, nstr: *const u8) void {
+        const buf = @malloc(n) as *u8;
+        cpy_nstr(n, nstr, buf);
+
+        self.data = buf;
+        self.len = n;
+        self.capacity = n;
+    }
+
+    /// Turn into an owned slice
+    pub fn into_slice(self: *const String) Slice {
+        var slice: Slice = undefined;
+        slice.data = self.data;
+        slice.len = self.len;
+        return slice;
+    }
+
+    /// Append owned data to an existing String struct
+    pub fn append_cstr(self: *String, cstr: *const u8) void {
+        const len = cstr_len(cstr);
+
+        if (self.len + len > self.capacity) {
+            self.resize();
+        }
+
+        cpy_nstr(len, cstr, &self.data[self.len]);
+        self.len += len;
+    }
+
+    /// Get the u8 at index i
+    pub fn get(self: *const String, i: i64) u8 {
+        return self.data[i];
+    }
+
+    /// Find the first instance of a specified u8
+    /// Returns -1 if not found
+    pub fn find(self: *const String, needle: u8) i64 {
+        return nstr_find(self.len, self.data, needle);
+    }
+
+    /// Returns true if the strings are identical
+    pub fn eql(self: *const String, other: *const String) bool {
+        if (self.len != other.len) return false;
+        return nstr_eql(self.len, self.data, other.data);
+    }
+
+    /// Converts string to u32 hash
+    /// Not collision resistant
+    pub fn hash(self: *const String) u32 {
+        return nstr_hash(self.len, self.data);
+    }
+
+    /// For debugging purposes
+    pub fn display(self: *const String) void {
+        @printf("\"%.*s\"\n", self.len, self.data);
+    }
+
+    /* PRIVATE HELPERS */
+
+    fn resize(self: *String) void {
+        const new_buf = @realloc(self.data, self.capacity * 2) as *u8;
+        self.data = new_buf;        
+    }
+}
+
+/// An immutable string with ptr and len
+/// Does not own the data it holds
+pub struct Slice {
+    data: *const u8;
+    len: u64;
+
+    pub fn init(self: *Slice, data: *const u8) void {
+        self.data = data;
+        self.len = cstr_len(data);
+    }
+
+    pub fn eql(self: *const Slice, other: *const Slice) bool {
+        if (self.len != other.len) return false;
+        return nstr_eql(self.len, self.data, other.data);
+    }
+
+    pub fn hash(self: *const Slice) u32 {
+        return nstr_hash(self.len, self.data);
+    }
+
+    pub fn strip(self: *Slice) void {
+        var quit = false;
+        while (!quit) {
+            switch (self.data[0] as i64) {
+                10 | 13 | 32 | 9 => {
+                    self.data = &self.data[1];
+                    self.len -= 1 as u64;
+                }
+                else => quit = true;
+            }
+        }
+        quit = false;
+        while (!quit) {
+            switch (self.data[self.len - 1] as i64) {
+                10 | 13 | 32 | 9 => self.len -= 1 as u64;
+                else => quit = true;
+            }
+        }
+    }
+}
+
+pub fn cstr_len(cstr: *const u8) u64 {
+    var i = 0 as u64;
+    while (cstr[i] != 0 as u8) {
+        i += 1 as u64;
+    }
+    return i;
+}
+
+pub fn cpy_nstr(n: u64, src: *const u8, buf: *u8) void {
+    for (0..n, src) |i, char| {
+        buf[i] = char.*;
+    }
+}
+
+/// Hashes a nstr in u32
+/// Not collision resistant
+pub fn nstr_hash(n: u64, str: *const u8) u32 {
+    var hash = 2166126261 as u32;
+
+    var index = 0;
+    while (index < n) {
+        hash ^= str[index];
+        hash *= 1677619 as u32;
+    } loop index += 1;
+
+    return hash;
+}
+
+/// Returns true if nstr are equal
+pub fn nstr_eql(n: u64, lhs: *const u8, rhs: *const u8) bool {
+    var current = 0;
+
+    while (current < n) {
+        if (lhs[current] != rhs[current]) return false;
+        current += 1;
+    }
+
+    return true;
+}
+
+/// Find the first instance of a specified u8 in a str of known length
+pub fn nstr_find(n: u64, str: *const u8, needle: u8) i64 {
+    for (0..n, str) |i, char| {
+        if (char.* == needle) return i;
+    }
+    return -1;
+}
+
+/// Split a String based on a specified delimiter
+/// Returns -1 if last_split is out of bounds, otherwise outputs slice into out_slice
+/// out_slice does not own the data
+pub fn split(src_str: *const String, out_slice: *Slice, delimiter: u8, last_split: i64) i64 {
+    if (last_split > src_str.len) return -1;
+
+    const slice = &src_str.data[last_split];
+
+    const len_remainder = (src_str.len - last_split) as u64;
+    const split_index = nstr_find(len_remainder, slice, delimiter);
+
+    const slice_len = (split_index == -1) ? len_remainder : split_index;
+
+    out_slice.data = slice;
+    out_slice.len = slice_len as u64;
+
+    return slice_len + last_split + 1;
+}
+
+/// Split a String based on a specified delimiter
+/// Returns -1 if last_split is out of bounds, otherwise outputs slice into out_slice
+/// out_slice does not own the data
+pub fn split_slice(src_slice: *const Slice, out_slice: *Slice, delimiter: u8, last_split: i64) i64 {
+    if (last_split > src_slice.len) return -1;
+
+    const slice = &src_slice.data[last_split];
+
+    const len_remainder = (src_slice.len - last_split) as u64;
+    const split_index = nstr_find(len_remainder, slice, delimiter);
+
+    const slice_len = (split_index == -1) ? len_remainder : split_index;
+
+    out_slice.data = slice;
+    out_slice.len = slice_len as u64;
+
+    return slice_len + last_split + 1;
+}

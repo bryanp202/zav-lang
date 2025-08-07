@@ -1,0 +1,51 @@
+pub struct Complex<T> {
+    real: T;
+    imag: T;
+
+    pub fn new(real: T, imag: T) Complex<T> {
+        var new_complex: Complex<T> = undefined;
+        new_complex.real = real;
+        new_complex.imag = imag;
+        return new_complex;
+    }
+
+    pub fn mag(self: *Complex<T>) T {
+        return @sqrtf64(@pow(self.real, 2) + @pow(self.imag, 2));
+    } 
+
+    pub fn scale(self: *const Complex<T>, c: T) Complex<T> {
+        var scaled: Complex<T> = undefined;
+        scaled.real = self.real * c;
+        scaled.imag = self.imag * c;
+        return scaled;
+    }
+
+    pub fn add(self: *const Complex<T>, other: *const Complex<T>) Complex<T> {
+        var sum: Complex<T> = undefined;
+        sum.real = self.real + other.real;
+        sum.imag = self.imag + other.imag;
+        return sum;
+    }
+
+    pub fn sub(self: *const Complex<T>, other: *const Complex<T>) Complex<T> {
+        var diff: Complex<T> = undefined;
+        diff.real = self.real - other.real;
+        diff.imag = self.imag - other.imag;
+        return diff;
+    }
+
+    pub fn mul(self: *const Complex<T>, other: *const Complex<T>) Complex<T> {
+        var prod: Complex<T> = undefined;
+        prod.real = self.real * other.real - self.imag * other.imag;
+        prod.imag = self.real * other.imag + self.imag * other.real;
+        return prod;
+    }
+
+    pub fn div(self: *const Complex<T>, other: *const Complex<T>) Complex<T> {
+        var quot: Complex<T> = undefined;
+        const c_d_2 = other.real * other.real + other.imag * other.imag;
+        quot.real = (self.real * other.real + self.imag * other.imag) / c_d_2;
+        quot.imag = (self.imag * other.real - self.real * other.imag) / c_d_2;
+        return quot;
+    }
+}

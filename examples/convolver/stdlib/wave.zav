@@ -1,0 +1,368 @@
+use super::result::Result;
+use super::str;
+use super::io;
+use io::IOError;
+use io::fs;
+
+struct HeaderFields {
+    chunk_id: [4]u8; // "RIFF"
+    file_length: u32; // Total length in bytes
+    file_type: [4]u8; // "WAVE"
+    format_chunk: [4]u8; // "fmt\0"
+    format_length: u32; // 16
+    audio_format: u16; // 1
+    num_channels: u16;
+    sample_rate: u32; // 44100 is standard
+    bytes_per_second: u32; // sample_rate * sample_size * channels
+    bytes_per_block: u16; // sample_size * channels
+    sample_size: u16; // In bytes
+    data_chunk: [4]u8; // "data"
+    data_length: u32; // length in bytes
+}
+
+
+struct RiffFileHeader {
+    chunk_id: [4]u8; // "RIFF"
+    file_length: u32; // Total length in bytes
+    file_type: [4]u8; // "WAVE"
+}
+
+struct WaveChunk {
+    chunk_id: [4]u8; // "fmt\0"
+    chunk_len: u32; // 16
+    audio_format: u16; // 1
+    num_channels: u16;
+    sample_rate: u32; // 44100 is standard
+    bytes_per_second: u32; // sample_rate * sample_size * channels
+    bytes_per_block: u16; // sample_size * channels
+    sample_size: u16; // In bytes
+    data_chunk: [4]u8; // "data"
+    data_length: u32; // length in bytes
+}
+
+pub enum SampleFmt { Int, Float }
+
+pub union Samples {
+    int8: *i8;
+    int16: *i16;
+    int32: *i32;
+    float: *f64;
+}
+
+pub struct WaveFile {
+    data: Samples;
+    sample_count: u32;
+    sample_rate: u32;
+    num_channels: u16;
+    sample_size: u16;
+    sample_fmt: SampleFmt;
+}
+
+pub fn read_wave_int(path: *const u8) Result<WaveFile, IOError> {
+    return read_wave(path, -1 as u32, -1 as u16, SampleFmt::Int);
+}
+
+pub fn read_wave_float(path: *const u8) Result<WaveFile, IOError> {
+    return read_wave(path, -1 as u32, -1 as u16, SampleFmt::Float);
+}
+
+/*
+    Attempt to read a wave file from "path"
+    Samples are valid for 
+*/
+fn read_wave(path: *const u8, max_samples: u32, max_channels: u16, format: SampleFmt) Result<WaveFile, IOError> {
+    const file_result = fs::read_file(path);
+    if (file_result.is_err()) {
+        return Result::<WaveFile, IOError>::new_err(file_result.unwrap_err());
+    }
+    const wave_contents = file_result.unwrap_ok();
+    defer @free(wave_contents.data);
+
+    const header = wave_contents.data as *RiffFileHeader;
+    if (
+        wave_contents.len < 44
+        or !str::nstr_eql(4 as u64, header.chunk_id, "RIFF")
+        or !str::nstr_eql(4 as u64, header.file_type, "WAVE")
+    ) {
+        return Result::<WaveFile, IOError>::new_err(IOError::InvalidFormat);
+    }
+
+    // Skip to start of "fmt " chunk
+    const last_chunk_id_pos = (wave_contents.data + wave_contents.len - 4) as u64;
+    var fmt_chunk = &wave_contents.data[12] as *WaveChunk;
+    while (
+        fmt_chunk < last_chunk_id_pos
+        and !str::nstr_eql(4 as u64, fmt_chunk.chunk_id, "fmt ")
+    ) {
+        fmt_chunk = &(fmt_chunk as *u8)[fmt_chunk.chunk_len+8] as *WaveChunk;
+    }
+
+    if (
+        !str::nstr_eql(4 as u64, fmt_chunk.data_chunk, "data")
+        or fmt_chunk.chunk_len != 16 as u32
+        or (fmt_chunk.audio_format != 1 as u16 and fmt_chunk.audio_format != 3 as u16)
+    ) {
+        return Result::<WaveFile, IOError>::new_err(IOError::InvalidFormat);
+    }
+    
+    const raw_data = &(fmt_chunk as *u8)[fmt_chunk.chunk_len+16] as *void;
+    var wavefile: WaveFile = undefined;
+    wavefile.sample_size = fmt_chunk.sample_size;
+    wavefile.sample_rate = fmt_chunk.sample_rate;
+    wavefile.num_channels = (max_channels <= fmt_chunk.num_channels) ? max_channels : fmt_chunk.num_channels;
+    wavefile.sample_count = (max_samples <= fmt_chunk.data_length) ? max_samples : fmt_chunk.data_length / (wavefile.num_channels * wavefile.sample_size) * 8 as u32;
+    wavefile.sample_fmt = format;
+
+    switch (fmt_chunk.audio_format as i64) {
+        1 => switch (format) {
+            SampleFmt::Int => switch (wavefile.sample_size as i64) {
+                8 => {
+                    wavefile.data.int8 = @malloc(wavefile.sample_count * wavefile.num_channels * @sizeof(wavefile.data.int8.*)) as *i8;
+                    for (0..wavefile.sample_count) |i| {
+                        for (0..wavefile.num_channels) |c| {
+                            wavefile.data.int8[i * wavefile.num_channels + c] = (raw_data as *i8)[i * fmt_chunk.num_channels + c];
+                        }
+                    }
+                }
+                16 => {
+                    wavefile.data.int16 = @malloc(wavefile.sample_count * wavefile.num_channels * @sizeof(wavefile.data.int16.*)) as *i16;
+                    for (0..wavefile.sample_count) |i| {
+                        for (0..wavefile.num_channels) |c| {
+                            wavefile.data.int16[i * wavefile.num_channels + c] = (raw_data as *i16)[i * fmt_chunk.num_channels + c];
+                        }
+                    }
+                }
+                32 => {
+                    wavefile.data.int32 = @malloc(wavefile.sample_count * wavefile.num_channels * @sizeof(wavefile.data.int32.*)) as *i32;
+                    for (0..wavefile.sample_count) |i| {
+                        for (0..wavefile.num_channels) |c| {
+                            wavefile.data.int32[i * wavefile.num_channels + c] = (raw_data as *i32)[i * fmt_chunk.num_channels + c];
+                        }
+                    }
+                }
+                else => return Result::<WaveFile, IOError>::new_err(IOError::InvalidFormat);
+            }
+            SampleFmt::Float => {
+                wavefile.data.float = @malloc(wavefile.sample_count * wavefile.num_channels * @sizeof(wavefile.data.float.*)) as *f64;
+                switch (fmt_chunk.sample_size as i64) {
+                    8 => {
+                        for (0..wavefile.sample_count) |i| {
+                            for (0..wavefile.num_channels) |c| {
+                                wavefile.data.float[i * wavefile.num_channels + c] = (raw_data as *i8)[i * fmt_chunk.num_channels + c] / 127.0;
+                            }
+                        }
+                    }
+                    16 => {
+                        for (0..wavefile.sample_count) |i| {
+                            for (0..wavefile.num_channels) |c| {
+                                wavefile.data.float[i * wavefile.num_channels + c] = (raw_data as *i16)[i * fmt_chunk.num_channels + c] / 32767.0;
+                            }
+                        }
+                    }
+                    32 => {
+                        for (0..wavefile.sample_count) |i| {
+                            for (0..wavefile.num_channels) |c| {
+                                wavefile.data.float[i * wavefile.num_channels + c] = (raw_data as *i32)[i * fmt_chunk.num_channels + c] / 2147483647.0;
+                            }
+                        }
+                    }
+                    else => return Result::<WaveFile, IOError>::new_err(IOError::InvalidFormat);
+                }
+            }
+            else => return Result::<WaveFile, IOError>::new_err(IOError::InvalidFormat);
+        }
+
+        3 => switch (format) {
+                SampleFmt::Int => {
+                    wavefile.data.float = @malloc(wavefile.sample_count * wavefile.num_channels * @sizeof(wavefile.data.float.*)) as *f64;
+                    switch (wavefile.sample_size as i64) {
+                    8 => {
+                        for (0..wavefile.sample_count) |i| {
+                            for (0..wavefile.num_channels) |c| {
+                                wavefile.data.int8[i * wavefile.num_channels + c] = ((raw_data as *f32)[i * fmt_chunk.num_channels + c] * 127.0) as i8;
+                            }
+                        }
+                    }
+                    16 => {
+                        for (0..wavefile.sample_count) |i| {
+                            for (0..wavefile.num_channels) |c| {
+                                wavefile.data.int16[i * wavefile.num_channels + c] = ((raw_data as *f32)[i * fmt_chunk.num_channels + c] * 32767.0) as i16;
+                            }
+                        }
+                    }
+                    32 => {
+                        for (0..wavefile.sample_count) |i| {
+                            for (0..wavefile.num_channels) |c| {
+                                wavefile.data.int32[i * wavefile.num_channels + c] = ((raw_data as *f32)[i * fmt_chunk.num_channels + c] * 2147483647.0) as i32;
+                            }
+                        }
+                    }
+                    else => return Result::<WaveFile, IOError>::new_err(IOError::InvalidFormat);
+                }
+            }
+            SampleFmt::Float => {
+                wavefile.data.float = @malloc(wavefile.sample_count * wavefile.num_channels * @sizeof(wavefile.data.float.*)) as *f64;
+                switch (fmt_chunk.sample_size as i64) {
+                    8 => {
+                        for (0..wavefile.sample_count) |i| {
+                            for (0..wavefile.num_channels) |c| {
+                                wavefile.data.float[i * wavefile.num_channels + c] = (raw_data as *f32)[i * fmt_chunk.num_channels + c];
+                            }
+                        }
+                    }
+                    16 => {
+                        for (0..wavefile.sample_count) |i| {
+                            for (0..wavefile.num_channels) |c| {
+                                wavefile.data.float[i * wavefile.num_channels + c] = (raw_data as *f32)[i * fmt_chunk.num_channels + c];
+                            }
+                        }
+                    }
+                    32 => {
+                        for (0..wavefile.sample_count) |i| {
+                            for (0..wavefile.num_channels) |c| {
+                                wavefile.data.float[i * wavefile.num_channels + c] = (raw_data as *f32)[i * fmt_chunk.num_channels + c];
+                            }
+                        }
+                    }
+                    else => return Result::<WaveFile, IOError>::new_err(IOError::InvalidFormat);
+                }
+            }
+            else => return Result::<WaveFile, IOError>::new_err(IOError::InvalidFormat);
+        }
+    }
+
+    return Result::<WaveFile, IOError>::new_ok(wavefile);
+}
+
+pub fn write_wave(wavefile: *const WaveFile, path: *const u8) Result<i64, IOError> {
+    if (wavefile.sample_size != 8 and wavefile.sample_size != 16 and wavefile.sample_size != 32) {
+        return Result::<i64, IOError>::new_err(IOError::InvalidFormat);
+    }
+    const sample_size_in_bytes = wavefile.sample_size / 8 as u16;
+    const total_samples = wavefile.sample_count * wavefile.num_channels;
+    
+    var data_buf: *void = undefined;
+    switch (wavefile.sample_fmt) {
+        SampleFmt::Int => data_buf = wavefile.data.int8 as *void;
+        SampleFmt::Float => {
+            var abs_max_val = 0.0;
+            for (0..total_samples, wavefile.data.float) |_, val| {
+                const val_abs = val.* < 0 ? -val.* : val.*;
+                if (abs_max_val < val_abs) {
+                    abs_max_val = val_abs;
+                }
+            }
+
+            data_buf = @malloc(sample_size_in_bytes * total_samples) as *void;
+            switch (wavefile.sample_size as i64) {
+                8 => for (0..total_samples) |i| {
+                    (data_buf as *i8)[i] = (wavefile.data.float[i] / abs_max_val * 127.0) as i8;
+                }
+                16 => for (0..total_samples) |i| {
+                    (data_buf as *i16)[i] = (wavefile.data.float[i] / abs_max_val * 32767.0) as i16;
+                }
+                32 => for (0..total_samples) |i| {
+                    (data_buf as *i32)[i] = (wavefile.data.float[i] / abs_max_val * 2147483647.0) as i32;
+                }
+                else => {
+                    @free(data_buf);
+                    return Result::<i64, IOError>::new_err(IOError::InvalidFormat);
+                }
+            }
+        }
+        else => return Result::<i64, IOError>::new_err(IOError::InvalidFormat);
+    }
+    
+    const file_result = fs::open_file(path);
+    if (file_result.is_err()) {
+        return Result::<i64, IOError>::new_err(file_result.unwrap_err());
+    }
+    
+    const file_handle = file_result.unwrap_ok();
+    defer if (wavefile.sample_fmt == SampleFmt::Float) @free(data_buf);
+
+    var header: HeaderFields = undefined;
+    str::cpy_nstr(4 as u64, "RIFF", header.chunk_id);
+    header.file_length = 44 as u32 + sample_size_in_bytes * total_samples - 8 as u32;
+    str::cpy_nstr(4 as u64, "WAVE", header.file_type);
+    str::cpy_nstr(4 as u64, "fmt ", header.format_chunk);
+    header.format_length = 16 as u16;
+    header.audio_format = 1 as u16;
+    header.num_channels = wavefile.num_channels;
+    header.sample_rate = wavefile.sample_rate;
+    header.bytes_per_second = wavefile.sample_rate * sample_size_in_bytes * wavefile.num_channels;
+    header.bytes_per_block = sample_size_in_bytes * wavefile.num_channels;
+    header.sample_size = wavefile.sample_size;
+    str::cpy_nstr(4 as u64, "data", header.data_chunk);
+    header.data_length = wavefile.num_channels * wavefile.sample_count * sample_size_in_bytes;
+
+    // Write header, size of 44 bytes
+    var bytes_written = 0;
+    var write_success = @fwrite(file_handle, (&header) as *u8, 44 as u64, &bytes_written);
+    if (!write_success or bytes_written != 44) {
+        @fclose(file_handle);
+        @fdelete(path);
+        return Result::<i64, IOError>::new_err(IOError::FailedToWrite);
+    }
+
+    // Write data
+    write_success = @fwrite(file_handle, data_buf as *u8, total_samples * sample_size_in_bytes, &bytes_written);
+    if (!write_success or bytes_written != total_samples * sample_size_in_bytes) {
+        @fclose(file_handle);
+        @fdelete(path);
+       return Result::<i64, IOError>::new_err(IOError::FailedToWrite);
+    }
+
+    return Result::<i64, IOError>::new_ok(true);
+}
+
+// Expects both to be in float mode and have the same number of channels and sample_rate
+pub fn convolve(target: *const WaveFile, convolver: *const WaveFile) WaveFile {
+    var new_wave: WaveFile = undefined;
+    new_wave.sample_count = (target.sample_count + convolver.sample_count - 1) as u32;
+    new_wave.sample_size = 16 as u16;
+    new_wave.num_channels = target.num_channels;
+    new_wave.sample_rate = target.sample_rate;
+    new_wave.sample_fmt = SampleFmt::Float;
+    new_wave.data.float = @calloc(new_wave.sample_count * new_wave.num_channels, new_wave.sample_size) as *f64;
+
+    for (0..target.sample_count * target.num_channels, target.data.float) |x, target_sample| {
+        for (0..convolver.sample_count * convolver.num_channels, convolver.data.float) |y, convoler_sample| {
+            new_wave.data.float[x + y] += target_sample.* * convoler_sample.*;
+        }
+    }
+
+    return new_wave;
+}
+
+use super::fft;
+
+// Assumes the same amount of channels, sample_rate and sample size/format
+pub fn convolve_freq_domain(target: *const WaveFile, convolver: *const WaveFile) Result<WaveFile, *const u8> {
+    var new_wave: WaveFile = undefined;
+
+    if (target.num_channels != convolver.num_channels) {
+        return Result::<WaveFile, *const u8>::new_err("WaveFiles must have an equal amount of channels to be convolved");
+    }
+
+    const summed_len = target.sample_count + convolver.sample_count - 1 as u32;
+    const target_freq_domain = fft::fft_by2(target.sample_count, target.num_channels, target.data.float, summed_len);
+    const convolver_freq_domain = fft::fft_by2(convolver.sample_count, convolver.num_channels, convolver.data.float, summed_len);
+
+    for (0..summed_len*target.num_channels, target_freq_domain) |i, target_freq| {
+        target_freq.* = target_freq.mul(&convolver_freq_domain[i]);
+    }
+
+    @free(convolver_freq_domain);
+    const convolved_time_domain = fft::ifft_by2(target.sample_count, target.num_channels, target_freq_domain, summed_len);
+    @free(target_freq_domain);
+
+    new_wave.sample_count = summed_len;
+    new_wave.sample_size = target.sample_size;
+    new_wave.num_channels = target.num_channels;
+    new_wave.sample_fmt = target.sample_fmt;
+    new_wave.sample_rate = target.sample_rate;
+    new_wave.data.float = convolved_time_domain;
+
+    return Result::<WaveFile, *const u8>::new_ok(new_wave);
+}

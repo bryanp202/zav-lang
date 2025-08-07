@@ -1,0 +1,120 @@
+use super::math::Complex;
+
+fn pad_buf_pow2(n: u64) u64 {
+    return @ceil(@log2(n)) as u64;
+}
+
+fn reverse_bits(pow_2: u64, num: u64) u64 {
+    var num = num;
+    var out_num = 0 as u64;
+
+    for (0..pow_2) |_| {
+        out_num <<= 1 as u64;
+        out_num |= num & 1;
+        num >>= 1 as u64;
+    }
+
+    return out_num;
+}
+
+fn get_w(stage: i64) Complex<f64> {
+    const n = (1 << stage) as f64;
+    const pi_2 = 2.0 * 3.14159265358979323846264338327950288419716939937510582097494459230781640628;
+    var new_complex: Complex<f64> = undefined;
+    new_complex.real = @cos(pi_2 / n);
+    new_complex.imag = @sin(pi_2 / n);
+    return new_complex;
+}
+
+// Padded to provides a desired minimum length
+pub fn fft_by2(len: u32, num_channels: u16, in: *const f64, min_out_len: u32) *Complex<f64> {
+    const pow_2 = @ceil(@log2(min_out_len > len ? min_out_len : len)) as u64;
+    const pad_n = @pow(2, pow_2) as u64;
+    const full_pad_n = pad_n * num_channels;
+    const out = @calloc(full_pad_n, @sizeof(fft_by2(0 as u32, 0 as u16, nullptr, 0 as u32)[0])) as *Complex<f64>;
+
+    for (0..num_channels) |channel| {
+        for (0..len) |i| {
+            out[reverse_bits(pow_2, i as u64) * num_channels + channel].real = in[i * num_channels + channel];
+        }
+
+        // Stage one
+        var i = 0;
+        while (i < full_pad_n) {
+            const temp = out[i + num_channels + channel];
+            out[i + num_channels + channel] = out[i + channel].sub(&temp);
+            out[i + channel] = out[i + channel].add(&temp);
+        } loop i += num_channels << 1;
+
+        for (1..pow_2) |stage| {
+            const w = get_w(stage+1);
+            const inc = 1 << stage;
+            const scaled_inc = inc * num_channels;
+            const diff = (2 << stage) * num_channels;
+
+            i = 0;
+            while (i < full_pad_n) {
+                var w_inner: Complex<f64> = undefined;
+                w_inner.real = 1.0;
+                w_inner.imag = 0.0;
+
+                for (0.. inc) |butterflies| {
+                    const butterflies = butterflies * num_channels;
+                    const prod = w_inner.mul(&out[i + butterflies + scaled_inc + channel]);
+                    out[i + butterflies + scaled_inc + channel] = out[i + butterflies + channel].sub(&prod);
+                    out[i + butterflies + channel] = out[i + butterflies + channel].add(&prod);
+                    w_inner = w_inner.mul(&w);
+                }
+            } loop i += diff;
+        }
+    }
+
+    return out;
+}
+
+// Uses the in fft inplace, so must be non constant
+pub fn ifft_by2(len: u32, num_channels: u16, in: *Complex<f64>, min_out_len: u32) *f64 {
+    const pow_2 = @ceil(@log2(min_out_len > len ? min_out_len : len)) as u64;
+    const pad_n = @pow(2, pow_2) as u64;
+    const full_pad_n = pad_n * num_channels;
+    const out = @calloc(full_pad_n, @sizeof(ifft_by2(0 as u32, 0 as u16, nullptr, 0 as u32)[0])) as *f64;
+
+    for (0..num_channels) |channel| {
+        var i = 0;
+        for (1..pow_2) |stage| {
+            const w = get_w(pow_2 - stage + 1);
+            const inc = pad_n >> stage;
+            const scaled_inc = inc * num_channels;
+            const diff = (pad_n >> (stage - 1)) * num_channels;
+
+            while (i < full_pad_n) {
+                var w_inner: Complex<f64> = undefined;
+                w_inner.real = 1.0;
+                w_inner.imag = 0.0;
+
+                for (0.. inc) |butterflies| {
+                    const butterflies = butterflies * num_channels;
+                    const temp = in[i + butterflies + scaled_inc + channel];
+                    in[i + butterflies + scaled_inc + channel] = in[i + butterflies + channel].sub(&temp).div(&w_inner);
+                    in[i + butterflies + channel] = in[i + butterflies + channel].add(&temp);
+
+                    w_inner = w_inner.mul(&w);
+                }
+            } loop i += diff;
+            i = 0;
+        }
+
+        // Stage one
+        while (i < full_pad_n) {
+            const temp = in[i + num_channels + channel];
+            in[i + num_channels + channel] = in[i + channel].sub(&temp);
+            in[i + channel] = in[i + channel].add(&temp);
+        } loop i += num_channels << 1;
+
+        for (0..pad_n) |i| {
+            out[reverse_bits(pow_2, i as u64) * num_channels + channel] = in[i * num_channels + channel].real / pad_n;
+        }
+    }
+
+    return out;
+}
