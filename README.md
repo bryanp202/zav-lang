@@ -21,7 +21,7 @@ optionally specified by a third command line argument.
 
 This particular convolver implements a zero padded radix 2 (i)fft and multiplies the files in the frequency domain to reduce compute times.
 
-![convolver example](./assests/convolver-example-code.png)
+![convolver example](./assets/convolver-example-code.png)
 
 ## Testing Folder
 The testing fold has many examples, some of which are outdated, that demonstrate the language's capabilities.
