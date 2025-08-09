@@ -11,9 +11,11 @@ Does not support more complex features like autocomplete
 # Dependencies
 Will output a .asm file in NASM format without any dependencies, but will assume NASM and GCC are installed to path in order to output an exe file.
 
-# Example
+# Examples
 For an examples of a multimodule projects using all Zav has to offer, the examples folder is a good place to look.
 
+
+## Examples Folder
 The convolver example reads two wavefiles specified using command line arguments and outputs the convolution of those two files to a new wavefile,
 optionally specified by a third command line argument.
 
@@ -21,7 +23,7 @@ This particular convolver implements a zero padded radix 2 (i)fft and multiplies
 
 ![convolver example](./assests/convolver-example-code.png)
 
-
+## Testing Folder
 The testing fold has many examples, some of which are outdated, that demonstrate the language's capabilities.
 
 Splicer.zav is also good example of a simple script.
