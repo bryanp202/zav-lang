@@ -1,0 +1,9 @@
+/// Requires that a and b both allow <>== operators
+pub fn <T> max(a: T, b: T) T {
+    return a >= b ? a : b;
+}
+
+/// Requires that a and b both allow <>== operators
+pub fn <T> min(a: T, b: T) T {
+    return a <= b ? a : b;
+}

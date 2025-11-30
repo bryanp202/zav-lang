@@ -1,0 +1,177 @@
+use super::math;
+
+use super::io;
+use super::io::IOError;
+
+use super::io::fs;
+use super::result::Result;
+
+pub struct Color {
+    r: u8;
+    g: u8;
+    b: u8;
+    a: u8;
+
+    pub fn new(r: i64, g: i64, b: i64, a: i64) Color {
+        var color: Color = undefined;
+        color.r = r as u8;
+        color.g = g as u8;
+        color.b = b as u8;
+        color.a = a as u8;
+
+        return color;
+    }
+}
+
+/// Image with 8 bit RGBA encoding
+pub struct Image {
+    buf: *Color;
+    width: u32;
+    height: u32;
+    size: u32;
+
+    pub fn new(width: u32, height: u32) Image {
+        var image: Image = undefined;
+        image.size = width * height;
+        image.buf = @malloc(@sizeof(image.buf.*) * image.size) as *Color;
+        image.width = width;
+        image.height = height;
+
+        return image;
+    }
+
+    pub fn deinit(self: *const Image) void {
+        @free(self.buf);
+    }
+
+    pub fn fill(self: *const Image, color: Color) void {
+        self.fill_rect(color, 0 as u32, 0 as u32, self.width, self.height);
+    }
+
+    pub fn fill_rect(self: *const Image, color: Color, x: u32, y: u32, w: u32, h: u32) void {
+        for (y.. y+h) |yi| {
+            for (x.. x+w) |xi| {
+                const index = yi * self.width + xi;
+                if (index < self.size) self.buf[index] = color;
+            }
+        }
+    }
+
+    pub fn export_bmp(self: *const Image, path: *const u8) Result<i64, IOError> {
+        const file_result = fs::open_file(path);
+        if (file_result.is_err()) {
+            return Result::<i64, IOError>::new_err(file_result.unwrap_err());
+        }
+
+        const file_handle = file_result.unwrap_ok();
+
+        ////// HEADER ///////
+        const header = BmpHeader::new(self.size);
+        var header_bytes_written = 0;
+        var write_success = @fwrite(file_handle, (&header) as *u8, 14 as u8, &header_bytes_written);
+        if (!write_success or header_bytes_written != 14) {
+            @fclose(file_handle);
+            @fdelete(path);
+            return Result::<i64, IOError>::new_err(io::IOError::FailedToWrite);
+        }
+
+        ////// HEADER INFO /////
+        const info = BmpInfoHeader::new(self.width as i32, self.height as i32);
+        var info_bytes_written = 0;
+        write_success = @fwrite(file_handle, (&info) as *u8, 108 as u8, &info_bytes_written);
+        if (!write_success or info_bytes_written != 108) {
+            @fclose(file_handle);
+            @fdelete(path);
+            return Result::<i64, IOError>::new_err(io::IOError::FailedToWrite);
+        }
+
+        const data_bytes = self.size * 4 as u32;
+        var data_bytes_written = 0;
+        write_success = @fwrite(file_handle, self.buf as *u8, data_bytes, &data_bytes_written);
+        if (!write_success or data_bytes_written != data_bytes) {
+            @fclose(file_handle);
+            @fdelete(path);
+            return Result::<i64, IOError>::new_err(io::IOError::FailedToWrite);
+        }
+
+        @fclose(file_handle);
+        const bytes_written = header_bytes_written + info_bytes_written + data_bytes_written;
+        return Result::<i64, IOError>::new_ok(bytes_written);
+    }
+}
+
+struct BmpHeader {
+    id: [2]u8;
+    size1: u16;
+    size2: u16;
+    empty: [2]u16;
+    offset: [2]u16;
+
+    pub fn new(img_size: u32) BmpHeader {
+        const size = 14 + 108 + img_size * 4;
+        var header: BmpHeader = undefined;
+        header.id[0] = 'B';
+        header.id[1] = 'M';
+        header.size1 = (size & 65535) as u16;
+        header.size2 = (size >> 16) as u16;
+        header.empty[0] = 0 as u16;
+        header.empty[1] = 0 as u16;
+
+        header.offset[0] = 122 as u16;
+        header.offset[0] = 0 as u16;
+
+        return header;
+    }
+}
+
+struct BmpInfoHeader {
+    size: u32;
+    width: i32;
+    height: i32;
+    planes: u16;
+    bit_count: u16;
+    compression: u32;
+    img_size: u32;
+    xpels_per_meter: u32;
+    ypels_per_meter: u32;
+    color_used: u32;
+    color_important: u32;
+    red_mask: u32;
+    green_mask: u32;
+    blue_mask: u32;
+    alpha_mask: u32;
+    cs_type: u32;
+    end_points: [9]u32; // ???
+    gamma_red: u32;
+    gamma_green: u32;
+    gamma_blue: u32;
+
+
+    pub fn new(width: i32, height: i32) BmpInfoHeader {
+        var info: BmpInfoHeader = undefined;
+        info.size = 108 as u32;
+        info.width = width;
+        info.height = height;
+        info.planes = 1 as u16;
+        info.bit_count = 32 as u16;
+        info.compression = 3 as u32;
+        info.img_size = (width * height * 4) as u32;
+        info.xpels_per_meter = 0 as u32;
+        info.ypels_per_meter = 0 as u32;
+        info.color_used = 0 as u32;
+        info.color_important = 0 as u32;
+        info.red_mask = 255 as u32;
+        info.green_mask = 65280 as u32;
+        info.blue_mask = 16711680 as u32;
+        info.alpha_mask = 4278190080 as u32;
+        info.cs_type = 1934772034 as u32;
+        for (0..@len(info.end_points)) |i| {
+            info.end_points[i] = 0 as u32;
+        }
+        info.gamma_red = 0 as u32;
+        info.gamma_green = 0 as u32;
+        info.gamma_blue = 0 as u32;
+
+        return info;
+    }
+}

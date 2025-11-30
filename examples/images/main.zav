@@ -1,0 +1,40 @@
+mod std;
+
+fn main(argc: i64, argv: **const u8) i64 {
+    const start = @nanoTimestamp();
+    defer {
+        @printf("Time to run: %f secs", (@nanoTimestamp() - start) / 1_000_000_000.0);
+    }
+
+    const width = 1000 as u32;
+    const height = 1000 as u32;
+    const path = "test.bmp";
+
+    const img = std::image::Image::new(width, height);
+    defer img.deinit();
+
+    img.fill(std::image::Color::new(255, 255, 255, 255));
+
+    img.fill_rect(
+        std::image::Color::new(
+            0,   // r
+            100, // g
+            100, // b
+            255  // a
+        ),
+        0 as u32,  // x
+        0 as u32,  // y
+        20 as u32,  // w
+        100 as u32 // h
+    );
+
+    const export_result = img.export_bmp(path);
+    if (export_result.is_err()) {
+        @printf("[Err: On .BMP file export to file at: '%s'] %d\n", path, export_result.unwrap_err());
+        return 1;
+    }
+
+    const bytes = export_result.unwrap_ok();
+    @printf("Exported %d bytes to file at: '%s'\n", bytes, path);
+    return 0;
+}

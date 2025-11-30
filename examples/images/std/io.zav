@@ -1,0 +1,11 @@
+pub mod fs;
+
+pub enum IOError {
+    Okay,
+    FailedToOpen,
+    FileEmpty,
+    OutOfMemory,
+    FailedToRead,
+    FailedToWrite,
+    InvalidFormat
+}

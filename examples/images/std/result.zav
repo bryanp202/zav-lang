@@ -1,0 +1,51 @@
+union ResultUnion<O, E> {
+    ok: O;
+    err: E;
+}
+
+enum ResultStatus {
+    Ok, Err
+}
+
+pub struct Result<O, E> {
+    item: ResultUnion<O, E>;
+    status: ResultStatus;
+
+    pub fn new_ok(item: O) Result<O, E> {
+        var result: Result<O, E> = undefined;
+        result.item.ok = item;
+        result.status = ResultStatus::Ok;
+        return result;
+    }
+
+    pub fn new_err(item: E) Result<O, E> {
+        var result: Result<O, E> = undefined;
+        result.item.err = item;
+        result.status = ResultStatus::Err;
+        return result;
+    }
+
+    pub fn is_ok(self: *const Result<O, E>) bool {
+        return self.status == ResultStatus::Ok;
+    }
+
+    pub fn is_err(self: *const Result<O, E>) bool {
+        return self.status == ResultStatus::Err;
+    }
+
+    pub fn unwrap_ok(self: *const Result<O, E>) O {
+        return self.item.ok;
+    }
+
+    pub fn unwrap_err(self: *const Result<O, E>) E {
+        return self.item.err;
+    }
+
+    pub fn unwrap_or(self: *const Result<O, E>, or_item: O) O {
+        return self.is_ok() ? self.item.ok : or_item;
+    }
+
+    pub fn unwrap_or_else(self: *const Result<O, E>, or_else: fn()O) O {
+        return self.is_ok() ? self.item.ok : or_else();
+    }
+}
