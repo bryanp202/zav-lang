@@ -41,7 +41,7 @@ pub struct String {
     }
 
     /// Free up memory
-    pub fn free(self: *const String) void {
+    pub fn deinit(self: *const String) void {
         @free(self.data);
     }
 

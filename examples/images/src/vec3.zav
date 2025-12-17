@@ -1,0 +1,62 @@
+
+pub struct Vec3 {
+    x: f64;
+    y: f64;
+    z: f64;
+
+    pub fn new(x: f64, y: f64, z: f64) Vec3 {
+        var vec: Vec3 = undefined;
+        vec.x = x;
+        vec.y = y;
+        vec.z = z;
+        return vec;
+    }
+
+    pub fn display(self: *const Vec3) void {
+        @printf("(%f, %f, %f)\n", self.x, self.y, self.z);
+    }
+
+    /* PROPERTIES */
+    pub fn len(self: *const Vec3) f64 {
+        return @sqrtf64(self.x * self.x + self.y * self.y + self.z * self.z);
+    }
+    pub fn len_squared(self: *const Vec3) f64 {
+        return self.x * self.x + self.y * self.y + self.z * self.z;
+    }
+
+    /* ARITHMETIC */
+    pub fn neg(self: *const Vec3) Vec3 {
+        return Vec3::new(-self.x, -self.y, -self.z);
+    }
+    pub fn add(self: *const Vec3, other: *const Vec3) Vec3 {
+        return Vec3::new(self.x + other.x, self.y + other.y, self.z + other.z);
+    }
+    pub fn sub(self: *const Vec3, other: *const Vec3) Vec3 {
+        return Vec3::new(self.x - other.x, self.y - other.y, self.z - other.z);
+    }
+    pub fn mul(self: *const Vec3, other: *const Vec3) Vec3 {
+        return Vec3::new(self.x * other.x, self.y * other.y, self.z * other.z);
+    }
+    // Scalar ops
+    pub fn muls(self: *const Vec3, t: f64) Vec3 {
+        return Vec3::new(self.x * t, self.y * t, self.z * t);
+    }
+    pub fn divs(self: *const Vec3, t: f64) Vec3 {
+        const t_inv = 1.0 / t;
+        return Vec3::new(self.x * t_inv, self.y * t_inv, self.z * t_inv);
+    }
+    // Special ops
+    pub fn dot(self: *const Vec3, other: *const Vec3) f64 {
+        return self.x * other.x + self.y * other.y + self.z * other.z;
+    }
+    pub fn cross(self: *const Vec3, other: *const Vec3) Vec3 {
+        return Vec3::new(
+            self.y * other.z - self.z * other.y,
+            self.z * other.x - self.x * other.z,
+            self.x * other.y - self.y * other.x
+        );
+    }
+    pub fn unit_vector(self: *const Vec3) Vec3 {
+        return self.divs(self.len());
+    }
+}

@@ -1,0 +1,110 @@
+pub mod std;
+pub mod vec3;
+pub mod ray;
+
+use std::str::String;
+use std::image::Color;
+use std::image::Image;
+use ray::Ray;
+use vec3::Vec3;
+
+const IMAGE_PATH: *const u8 = "test.bmp";
+const IMAGE_WIDTH: i64 = 400;
+const ASPECT_RATIO: f64 = 16.0 / 9.0;
+const FOCAL_LENGTH: f64 = 1.0;
+const VIEWPORT_HEIGHT: f64 = 2.0;
+
+fn main(argc: i64, argv: **const u8) i64 {
+    const start = @nanoTimestamp();
+    defer {
+        @printf("Time to run: %f secs", (@nanoTimestamp() - start) / 1_000_000_000.0);
+    }
+
+    const image_width = IMAGE_WIDTH;
+    const image_height = std::math::max_i64(1, (image_width / ASPECT_RATIO) as i64);
+
+    const viewport_height = VIEWPORT_HEIGHT;
+    const viewport_width = viewport_height * (image_width as f64 / image_height as f64);
+    const camera_center = Vec3::new(0.0, 0.0, 0.0);
+
+    // Calculate the vectors across the horizontal and down the vertical viewport edges
+    const viewport_u = Vec3::new(viewport_width, 0.0, 0.0);
+    const viewport_v = Vec3::new(0.0, -viewport_height, 0.0);
+
+    // Calculate the horizontal and vertical delta vectors from pixel to pixel
+    const pixel_delta_u = viewport_u.divs(image_width);
+    const pixel_delta_v = viewport_v.divs(image_height);
+
+    // Calculate the position of the upper left pixel
+    const viewport_upper_left = camera_center
+        .sub(&Vec3::new(0.0, 0.0, FOCAL_LENGTH))
+        .sub(&viewport_u.divs(2.0))
+        .sub(&viewport_v.divs(2.0));
+    const pixel00_loc = viewport_upper_left
+        .add(&pixel_delta_u.add(&pixel_delta_v).muls(0.5));
+
+    const img = Image::new(image_width as u32, image_height as u32);
+    defer img.deinit();
+
+    for (0..image_height) |j| {
+        @printf("\rScanlines remaining: %d ", image_height - j);
+        for (0..image_width) |i| {
+            const pixel_center = pixel00_loc
+                .add(&pixel_delta_u.muls(i))
+                .add(&pixel_delta_v.muls(j));
+            const ray_direction = pixel_center.sub(&camera_center);
+            const ray = Ray::new(camera_center, ray_direction);
+            const pixel_color = ray_color(&ray);
+            draw_color(&img, i, j, pixel_color);
+        }
+    }
+    @printf("\rDone                  \n");
+
+    @fdelete(IMAGE_PATH);
+    const export_result = img.export_bmp(IMAGE_PATH);
+    if (export_result.is_err()) {
+        @printf("[Err: On .BMP file export to file at: '%s'] %d\n", IMAGE_PATH, export_result.unwrap_err());
+        return 1;
+    }
+
+    const bytes = export_result.unwrap_ok();
+    @printf("Exported %d bytes to file at: '%s'\n", bytes, IMAGE_PATH);
+    return 0;
+}
+
+fn ray_color(ray: *const Ray) Vec3 {
+    const t = hit_sphere(&Vec3::new(0.0, 0.0, -1.0), 0.5, ray);
+    if (t > 0.0) {
+        const n = ray.at(t).sub(&Vec3::new(0.0, 0.0, -1.0)).unit_vector();
+        return Vec3::new(n.x + 1.0, n.y + 1.0, n.z + 1.0).muls(0.5);
+    }
+
+    const unit_direction = ray.dir.unit_vector();
+    const a = 0.5*(unit_direction.y + 1.0);
+    const a_1 = 1.0 - a;
+    return Vec3::new(a_1 + a*0.5, a_1 + a*0.7, a_1 + a);
+}
+
+fn hit_sphere(center: *const Vec3, radius: f64, r: *const Ray) f64 {
+    const oc = center.sub(&r.orig);
+    const a = r.dir.len_squared();
+    const h = r.dir.dot(&oc);
+    const c = oc.len_squared() - radius*radius;
+    const discriminant = h*h - a*c;
+    
+    if (discriminant < 0) {
+        return -1.0;
+    } else {
+        return (h - @sqrtf64(discriminant)) / a;
+    }
+}
+
+fn draw_color(img: *const Image, x: i64, y: i64, pixel_color: Vec3) void {
+    const color = Color::new(
+        @floor(255.999 * pixel_color.x) as void as f64 as i64,
+        @floor(255.999 * pixel_color.y) as void as f64 as i64,
+        @floor(255.999 * pixel_color.z) as void as f64 as i64,
+        255
+    );
+    img.set_pixel(color, x, y);
+}

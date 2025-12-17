@@ -7,3 +7,7 @@ pub fn <T> max(a: T, b: T) T {
 pub fn <T> min(a: T, b: T) T {
     return a <= b ? a : b;
 }
+
+pub fn max_i64(a: i64, b: i64) i64 {
+    return max::<i64>(a, b);
+}

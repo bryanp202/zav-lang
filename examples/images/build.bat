@@ -1,0 +1,1 @@
+zav .\src\main.zav -o ..\images.exe

@@ -44,12 +44,35 @@ pub struct Image {
         @free(self.buf);
     }
 
+    pub fn set_pixel(self: *const Image, color: Color, x: i64, y: i64) void {
+        const index = y * self.width + x;
+        self.buf[index] = color;
+    }
+
     pub fn fill(self: *const Image, color: Color) void {
         self.fill_rect(color, 0 as u32, 0 as u32, self.width, self.height);
     }
 
     pub fn fill_rect(self: *const Image, color: Color, x: u32, y: u32, w: u32, h: u32) void {
         for (y.. y+h) |yi| {
+            for (x.. x+w) |xi| {
+                const index = yi * self.width + xi;
+                if (index < self.size) self.buf[index] = color;
+            }
+        }
+    }
+
+    pub fn fill_rect_grad(self: *const Image, top_color: Color, bottom_color: Color, x: u32, y: u32, w: u32, h: u32) void {
+        const height: f32 = h;
+        for (y.. y+h) |yi| {
+            const ratio = (yi - y) / height;
+            const color = Color::new(
+                (bottom_color.r + ratio * (top_color.r - bottom_color.r)) as i64,
+                (bottom_color.g + ratio * (top_color.g - bottom_color.g)) as i64,
+                (bottom_color.b + ratio * (top_color.b - bottom_color.b)) as i64,
+                (bottom_color.a + ratio * (top_color.a - bottom_color.a)) as i64
+            );
+
             for (x.. x+w) |xi| {
                 const index = yi * self.width + xi;
                 if (index < self.size) self.buf[index] = color;
@@ -119,6 +142,7 @@ pub fn write_bmp_header(file_handle: i64, width: u32, height: u32) Result<i64, I
     info[20] = ((width >> 16) & 255) as u8;
     info[21] = ((width >> 24) & 255) as u8;
     // Image height
+    const height = -height;
     info[22] = (height & 255) as u8;
     info[23] = ((height >> 8) & 255) as u8;
     info[24] = ((height >> 16) & 255) as u8;
