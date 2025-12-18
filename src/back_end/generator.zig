@@ -213,6 +213,7 @@ pub fn open(
             \\    pop qword [@CLOCK_START]
             \\
             \\    ; Global Declarations
+            \\    mov rbp, rsp
             \\
         ;
         _ = try writer.write(header);
