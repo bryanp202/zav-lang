@@ -597,7 +597,12 @@ fn sqrtf32_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
-            try generator.write("    sqrtss xmm0, xmm0\n    movd rax, xmm0\n");
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sqrtss xmm0, xmm0
+                \\    movq rax, xmm0
+                \\
+            );
         }
     }.gen;
 
@@ -622,7 +627,12 @@ fn sqrtf64_native(allocator: std.mem.Allocator) Native {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
-            try generator.write("    sqrtsd xmm0, xmm0\n    movq rax, xmm0\n");
+            try generator.write(
+                \\    movq xmm0, rcx
+                \\    sqrtsd xmm0, xmm0
+                \\    movq rax, xmm0
+                \\
+            );
         }
     }.gen;
 
@@ -1531,7 +1541,7 @@ fn thread_native(allocator: std.mem.Allocator) Native {
         \\    call free
         \\    add rsp, 32
         \\    mov rax, 0
-        \\.THREAD_SPAWN_CREATE_THREAD_OK
+        \\.THREAD_SPAWN_CREATE_THREAD_OK:
         \\    pop rbp
         \\    ret
         \\
