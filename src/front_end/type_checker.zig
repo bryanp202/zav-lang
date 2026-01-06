@@ -2119,7 +2119,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     var call_args = callExpr.args;
 
     // Check if a method
-    if (callExpr.caller_expr.expr == .FIELD) {
+    if (callExpr.caller_expr.expr == .FIELD and callExpr.caller_expr.expr.FIELD.method_name != null) {
         if (callExpr.caller_expr.expr.FIELD.operand.result_kind == .PTR) {
             const caller_ptr = callExpr.caller_expr.expr.FIELD.operand.result_kind.PTR;
             if (caller_ptr.const_child and !callee_args[0].PTR.const_child) {
