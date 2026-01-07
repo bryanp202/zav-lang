@@ -138,10 +138,11 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
 
     // Threading and processes
     new_table.natives_table.put(allocator, "run", run_native(allocator)) catch unreachable;
-    new_table.natives_table.put(allocator, "spawn_thread", thread_native(allocator)) catch unreachable;
-    new_table.natives_table.put(allocator, "join", join_native(allocator)) catch unreachable;
-    //new_table.natives_table.put(allocator, "WaitAll", waitAll_native(allocator)) catch unreachable;
-    //new_table.natives_table.put(allocator, "mutex", mutex_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "createThread", thread_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "waitOne", wait_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "waitAll", waitAll_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "createMutex", mutex_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "releaseMutex", releaseMutex_native(allocator)) catch unreachable;
 
     // I/O
     new_table.natives_table.put(allocator, "input", input_native(allocator)) catch unreachable;
@@ -151,7 +152,7 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "fgetSize", getFileSize_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "fwrite", write_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "fread", read_native(allocator)) catch unreachable;
-    new_table.natives_table.put(allocator, "fclose", close_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "closeHandle", close_native(allocator)) catch unreachable;
 
     // return it
     return new_table;
@@ -1395,7 +1396,7 @@ fn write_native(allocator: std.mem.Allocator) Native {
     return native;
 }
 
-/// Close file
+/// Close handle native (Files, threads, mutex)
 fn close_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
@@ -1495,7 +1496,7 @@ fn run_native(allocator: std.mem.Allocator) Native {
     return native;
 }
 
-/// Close file
+/// Spawn thread native
 fn thread_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
@@ -1508,7 +1509,7 @@ fn thread_native(allocator: std.mem.Allocator) Native {
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source =
-        \\ @spawn_thread:
+        \\ @createThread:
         \\    push rbp
         \\    mov rbp, rsp
         \\    mov r12, rcx
@@ -1526,7 +1527,7 @@ fn thread_native(allocator: std.mem.Allocator) Native {
         \\    mov r9, rax
         \\    mov [r9], r12
         \\    mov [r9+8], r13
-        \\    lea r8, [@setup_thread]
+        \\    lea r8, [@setupThread]
         \\    mov rcx, 0
         \\    mov rdx, 0
         \\    push 0
@@ -1545,7 +1546,7 @@ fn thread_native(allocator: std.mem.Allocator) Native {
         \\    pop rbp
         \\    ret
         \\
-        \\@setup_thread:
+        \\@setupThread:
         \\    push rbp
         \\    mov rbp, rsp
         \\    sub rsp, 16
@@ -1567,8 +1568,8 @@ fn thread_native(allocator: std.mem.Allocator) Native {
     return native;
 }
 
-/// Close file
-fn join_native(allocator: std.mem.Allocator) Native {
+/// Wait for a single thread or mutex native
+fn wait_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
     arg_kinds[0] = KindId.newInt(64);
@@ -1587,6 +1588,98 @@ fn join_native(allocator: std.mem.Allocator) Native {
                 \\    mov rdx, 0xFFFFFFFF
                 \\    sub rsp, 32
                 \\    call WaitForSingleObject
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Wait for multiple threads or mutexes native
+fn waitAll_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.newInt(64);
+    arg_kinds[1] = KindId.newPtr(allocator, KindId.newInt(64), true);
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern WaitForMultipleObjects";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    mov r8, 1
+                \\    mov r9, 0xFFFFFFFF
+                \\    sub rsp, 32
+                \\    call WaitForMultipleObjects
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Create Mutex Native
+fn mutex_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern CreateMutexA";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    mov rdx, 0
+                \\    mov r8, 0
+                \\    sub rsp, 32
+                \\    call CreateMutexA
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Release Mutex Native
+fn releaseMutex_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newInt(64);
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern ReleaseMutex";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call ReleaseMutex
                 \\    add rsp, 32
                 \\
             );
