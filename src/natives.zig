@@ -154,6 +154,10 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "fread", read_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "closeHandle", close_native(allocator)) catch unreachable;
 
+    // ATOMICS
+    new_table.natives_table.put(allocator, "cmpxchgi64", cmpxchg_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "xaddi64", fetch_add_native(allocator)) catch unreachable;
+
     // return it
     return new_table;
 }
@@ -1681,6 +1685,68 @@ fn releaseMutex_native(allocator: std.mem.Allocator) Native {
                 \\    sub rsp, 32
                 \\    call ReleaseMutex
                 \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+// ATOMICS //
+/// cmpxchg
+/// Checks if a value is an expected value, if it is then it replaces the ptr with a new value
+/// Always returns the value at the ptr
+fn cmpxchg_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 3) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false); // ptr
+    arg_kinds[1] = KindId.newInt(64); // expected
+    arg_kinds[2] = KindId.newInt(64); // new
+    // Make return kind
+    const ret_kind = KindId.newInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    mov rax, rdx
+                \\    lock cmpxchg [rcx], r8
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// LOCK xadd
+/// atomically adds a number to a ptr
+fn fetch_add_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 2) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false); // ptr
+    arg_kinds[1] = KindId.newInt(64); // number to add
+    // Make return kind
+    const ret_kind = KindId.VOID;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    lock xadd [rcx], rdx
                 \\
             );
         }
