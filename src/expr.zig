@@ -88,12 +88,12 @@ pub const ExprNode = struct {
     }
 
     /// Used to display an AST in polish notation
-    pub fn display(self: ExprNode) void {
+    pub fn display(self: ExprNode, stm: *Symbol.SymbolTableManager) void {
         switch (self.expr) {
             .SCOPE => |scopeExpr| {
-                scopeExpr.scope.display();
+                scopeExpr.scope.display(stm);
                 std.debug.print("::", .{});
-                scopeExpr.operand.display();
+                scopeExpr.operand.display(stm);
             },
             .IDENTIFIER => |idExpr| {
                 std.debug.print("{s}", .{idExpr.id.lexeme});
@@ -104,7 +104,7 @@ pub const ExprNode = struct {
             .LITERAL => |litExpr| std.debug.print("{s}", .{litExpr.literal.lexeme}),
             .CONVERSION => |convExpr| {
                 //std.debug.print("(", .{});
-                convExpr.operand.display();
+                convExpr.operand.display(stm);
                 //std.debug.print("->{any})", .{self.result_kind});
             },
             .NATIVE => |nativeExpr| {
@@ -112,18 +112,18 @@ pub const ExprNode = struct {
                 // Check if any args
                 // Print each arg, seperated by ','
                 for (nativeExpr.args) |arg| {
-                    arg.display();
+                    arg.display(stm);
                     std.debug.print(",", .{});
                 }
                 std.debug.print(")", .{});
                 //std.debug.print(")->{any}", .{self.result_kind});
             },
             .DEREFERENCE => |derefExpr| {
-                derefExpr.operand.display();
+                derefExpr.operand.display(stm);
                 std.debug.print(".*", .{});
             },
             .FIELD => |fieldExpr| {
-                fieldExpr.operand.display();
+                fieldExpr.operand.display(stm);
                 std.debug.print(".{s}", .{fieldExpr.field_name.lexeme});
                 if (fieldExpr.method_name == null) {
                     std.debug.print("(at [base+{d}])", .{fieldExpr.stack_offset});
@@ -131,12 +131,12 @@ pub const ExprNode = struct {
             },
             .CALL => |callExpr| {
                 // Print caller expr
-                callExpr.caller_expr.display();
+                callExpr.caller_expr.display(stm);
                 std.debug.print("(", .{});
                 // Check if any args
                 // Print each arg, seperated by ','
                 for (callExpr.args) |arg| {
-                    arg.display();
+                    arg.display(stm);
                     std.debug.print(",", .{});
                 }
                 std.debug.print(")", .{});
@@ -144,76 +144,76 @@ pub const ExprNode = struct {
             },
             .INDEX => |indexExpr| {
                 std.debug.print("(", .{});
-                indexExpr.lhs.display();
+                indexExpr.lhs.display(stm);
                 std.debug.print("[", .{});
-                indexExpr.rhs.display();
+                indexExpr.rhs.display(stm);
                 std.debug.print("])", .{});
             },
             .UNARY => |unaryExpr| {
                 std.debug.print("(", .{});
                 std.debug.print("{s}", .{unaryExpr.op.lexeme});
-                unaryExpr.operand.display();
+                unaryExpr.operand.display(stm);
                 std.debug.print(")", .{});
             },
             .ARITH => |arithExpr| {
                 std.debug.print("(", .{});
-                arithExpr.lhs.display();
+                arithExpr.lhs.display(stm);
                 std.debug.print("{s}", .{arithExpr.op.lexeme});
-                arithExpr.rhs.display();
+                arithExpr.rhs.display(stm);
                 std.debug.print(")", .{});
             },
             .COMPARE => |compareExpr| {
                 std.debug.print("(", .{});
-                compareExpr.lhs.display();
+                compareExpr.lhs.display(stm);
                 std.debug.print("{s}", .{compareExpr.op.lexeme});
-                compareExpr.rhs.display();
+                compareExpr.rhs.display(stm);
                 std.debug.print(")", .{});
             },
             .AND => |andExpr| {
                 std.debug.print("(", .{});
-                andExpr.lhs.display();
+                andExpr.lhs.display(stm);
                 std.debug.print(" and ", .{});
-                andExpr.rhs.display();
+                andExpr.rhs.display(stm);
                 std.debug.print(")", .{});
             },
             .OR => |orExpr| {
                 std.debug.print("(", .{});
-                orExpr.lhs.display();
+                orExpr.lhs.display(stm);
                 std.debug.print(" or ", .{});
-                orExpr.rhs.display();
+                orExpr.rhs.display(stm);
                 std.debug.print(")", .{});
             },
             .IF => |ifExpr| {
                 std.debug.print("(", .{});
-                ifExpr.conditional.display();
+                ifExpr.conditional.display(stm);
                 std.debug.print("?", .{});
-                ifExpr.then_branch.display();
+                ifExpr.then_branch.display(stm);
                 std.debug.print(":", .{});
-                ifExpr.else_branch.display();
+                ifExpr.else_branch.display(stm);
                 std.debug.print(")", .{});
             },
             .BIT_AND => |bitAndExpr| {
-                bitAndExpr.lhs.display();
+                bitAndExpr.lhs.display(stm);
                 std.debug.print("&", .{});
-                bitAndExpr.rhs.display();
+                bitAndExpr.rhs.display(stm);
             },
             .BIT_OR => |bitOrExpr| {
-                bitOrExpr.lhs.display();
+                bitOrExpr.lhs.display(stm);
                 std.debug.print("|", .{});
-                bitOrExpr.rhs.display();
+                bitOrExpr.rhs.display(stm);
             },
             .BIT_XOR => |bitXorExpr| {
-                bitXorExpr.lhs.display();
+                bitXorExpr.lhs.display(stm);
                 std.debug.print("^", .{});
-                bitXorExpr.rhs.display();
+                bitXorExpr.rhs.display(stm);
             },
             .SHIFT => |shiftExpr| {
-                shiftExpr.lhs.display();
+                shiftExpr.lhs.display(stm);
                 std.debug.print("{s}", .{shiftExpr.op.lexeme});
-                shiftExpr.rhs.display();
+                shiftExpr.rhs.display(stm);
             },
-            .LAMBDA => |lambdaExpr| lambdaExpr.display(),
-            .GENERIC => |genericExpr| genericExpr.display(),
+            .LAMBDA => |lambdaExpr| lambdaExpr.display(stm),
+            .GENERIC => |genericExpr| genericExpr.display(stm),
         }
     }
 };
@@ -780,13 +780,14 @@ pub const LambdaExpr = struct {
         return ExprUnion{ .LAMBDA = new_expr };
     }
 
-    pub fn display(self: LambdaExpr) void {
+    pub fn display(self: LambdaExpr, stm: *Symbol.SymbolTableManager) void {
         std.debug.print("|", .{});
-        for (self.arg_names) |arg| {
-            std.debug.print("{s},", .{arg.lexeme});
+        var buf: [512]u8 = undefined;
+        for (self.arg_names, self.arg_kinds) |arg, kind| {
+            std.debug.print("{s}: {s},", .{ arg.lexeme, kind.to_str(&buf, stm) });
         }
         std.debug.print("| ", .{});
-        self.body.display();
+        self.body.display(stm);
     }
 };
 
@@ -819,11 +820,12 @@ pub const GenericExpr = struct {
         };
     }
 
-    pub fn display(self: GenericExpr) void {
-        std.debug.print("<", .{});
+    pub fn display(self: GenericExpr, stm: *Symbol.SymbolTableManager) void {
+        std.debug.print("::[", .{});
+        var buf: [512]u8 = undefined;
         for (self.kinds) |kind| {
-            std.debug.print("{any},", .{kind});
+            std.debug.print("{s},", .{kind.to_str(&buf, stm)});
         }
-        std.debug.print(">{s}", .{self.operand.lexeme});
+        std.debug.print("]{s}", .{self.operand.lexeme});
     }
 };

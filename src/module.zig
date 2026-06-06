@@ -51,28 +51,28 @@ pub fn add_dependency(self: *Module, dependency: *Module, name: []const u8, dcl_
 }
 
 /// Print out this module
-pub fn display(self: Module) void {
+pub fn display(self: *Module) void {
     std.debug.print("\n--- Module <root{s}> ---\n", .{self.path});
     for (self.useSlice()) |use| {
-        use.display();
+        use.display(&self.stm);
     }
     for (self.genericSlice()) |generic| {
-        generic.display();
+        generic.display(&self.stm);
     }
     for (self.enumSlice()) |enm| {
-        enm.display();
+        enm.display(&self.stm);
     }
     for (self.unionSlice()) |unon| {
-        unon.display();
+        unon.display(&self.stm);
     }
     for (self.structSlice()) |strct| {
-        strct.display();
+        strct.display(&self.stm);
     }
     for (self.globalSlice()) |global| {
-        global.display();
+        global.display(&self.stm);
     }
     for (self.functionSlice()) |function| {
-        function.display();
+        function.display(&self.stm);
     }
     std.debug.print("--- End of <root{s}> ---\n\n", .{self.path});
 }

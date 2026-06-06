@@ -249,11 +249,11 @@ fn parseArrayKind(self: *Parser) SyntaxError!KindId {
     return new_kind;
 }
 
-/// Parse a generic kind '<' kind_list '>' IDENTIFIER
+/// Parse a generic kind '[' kind_list ']' IDENTIFIER
 fn parseUserKind(self: *Parser) SyntaxError!KindId {
     const id = self.previous;
 
-    if (self.match(.{TokenKind.LESS})) {
+    if (self.match(.{TokenKind.LEFT_SQUARE})) {
         const generic_data = try self.parse_generic_kinds();
         return KindId{ .GENERIC_USER_KIND = .{ .id = id, .generic_kinds = generic_data.names } };
     } else {
@@ -426,7 +426,7 @@ const GenericKinds = struct {
 };
 
 fn maybe_parse_generic_data(self: *Parser) SyntaxError!?GenericData {
-    if (!self.match(.{TokenKind.LESS})) {
+    if (!self.match(.{TokenKind.LEFT_SQUARE})) {
         return null;
     }
     return try self.parse_generic_data();
@@ -438,7 +438,7 @@ fn parse_generic_data(self: *Parser) SyntaxError!GenericData {
 
     try self.consume(TokenKind.IDENTIFIER, "Expected generic type identifier for generic blueprint or generic invocation");
     generic_names.append(self.previous) catch unreachable;
-    while (!self.match(.{TokenKind.GREATER}) and !self.isAtEnd()) {
+    while (!self.match(.{TokenKind.RIGHT_SQUARE}) and !self.isAtEnd()) {
         try self.consume(TokenKind.COMMA, "Expected ',' after generic type");
         try self.consume(TokenKind.IDENTIFIER, "Expected generic type identifier for generic blueprint or generic invocation");
         generic_names.append(self.previous) catch unreachable;
@@ -448,7 +448,7 @@ fn parse_generic_data(self: *Parser) SyntaxError!GenericData {
 }
 
 fn maybe_parse_generic_kinds(self: *Parser) SyntaxError!?GenericKinds {
-    if (!self.match(.{TokenKind.SCOPE_LESS})) {
+    if (!self.match(.{TokenKind.SCOPE_SQUARE})) {
         return null;
     }
     return try self.parse_generic_kinds();
@@ -460,7 +460,7 @@ fn parse_generic_kinds(self: *Parser) SyntaxError!GenericKinds {
 
     const first_kind = try self.parseKind();
     generic_names.append(first_kind) catch unreachable;
-    while (!self.match(.{TokenKind.GREATER}) and !self.isAtEnd()) {
+    while (!self.match(.{TokenKind.RIGHT_SQUARE}) and !self.isAtEnd()) {
         try self.consume(TokenKind.COMMA, "Expected ',' after generic type");
         const kind = try self.parseKind();
         generic_names.append(kind) catch unreachable;

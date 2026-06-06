@@ -279,7 +279,6 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             const struct_symbol = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
             self.evalStructMethods(strct, struct_symbol);
         }
-
         // Check all function bodies in the module
         for (module.functionSlice()) |*function| {
             // Get arg_size
@@ -349,7 +348,7 @@ fn checkVarInScope(self: *TypeChecker) void {
     var symbol_iter = self.stm.active_scope.symbols.iterator();
     // Check each symbol
     while (symbol_iter.next()) |entry| {
-        const symbol = entry.value_ptr;
+        const symbol = entry.value_ptr.*;
         if (symbol.is_mutable and !symbol.has_mutated) {
             // Alert user
             stderr.print(
@@ -915,11 +914,7 @@ fn checkUse(self: *TypeChecker, use_stmt: *Stmt.UseStmt) !void {
     use_stmt.rename = import_name;
 
     const symbol = try self.stm.getSymbol(current_scope.expr.IDENTIFIER.id.lexeme);
-
-    var new_symbol = symbol.*;
-    new_symbol.public = use_stmt.public;
-
-    try self.stm.importSymbol(new_symbol, import_name.lexeme);
+    try self.stm.importSymbol(symbol, import_name.lexeme, use_stmt.public);
     use_stmt.imported = true;
 }
 
@@ -949,8 +944,8 @@ fn declareGeneric(self: *TypeChecker, generic_stmt: *Stmt.GenericStmt) SemanticE
 
 /// Declare a enum type, checking if name has already been used
 fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void {
-    const new_variants = self.allocator.create(std.StringHashMap(Symbol)) catch unreachable;
-    new_variants.* = std.StringHashMap(Symbol).init(self.allocator);
+    const new_variants = self.allocator.create(std.StringHashMap(*Symbol)) catch unreachable;
+    new_variants.* = std.StringHashMap(*Symbol).init(self.allocator);
 
     const enum_kind = KindId.newEnumWithVariants(enum_stmt.id.lexeme, new_variants);
 
@@ -963,7 +958,8 @@ fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void
             return self.reportDuplicateError(variant, line, column);
         }
 
-        getOrPut.value_ptr.* = Symbol.init(
+        getOrPut.value_ptr.* = self.allocator.create(Symbol) catch unreachable;
+        getOrPut.value_ptr.*.* = Symbol.init(
             self.stm.parent_module,
             variant.lexeme,
             enum_kind,
@@ -1846,7 +1842,7 @@ fn visitScopeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const scope_expr = node.expr.SCOPE;
     const scope_name = switch (scope_expr.scope.expr) {
         .IDENTIFIER => |idExpr| idExpr.id.lexeme,
-        .GENERIC => |genericExpr| try self.scope_generic_user_kind(genericExpr.kinds, genericExpr.operand),
+        .GENERIC => |genericExpr| try self.scope_generic_user_kind(genericExpr, genericExpr.operand),
         else => unreachable,
     };
 
@@ -1864,7 +1860,7 @@ fn visitScopeExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     const scope_expr = node.expr.SCOPE;
     const scope_name = switch (scope_expr.scope.expr) {
         .IDENTIFIER => |idExpr| idExpr.id.lexeme,
-        .GENERIC => |genericExpr| try self.scope_generic_user_kind(genericExpr.kinds, genericExpr.operand),
+        .GENERIC => |genericExpr| try self.scope_generic_user_kind(genericExpr, genericExpr.operand),
         else => unreachable,
     };
 
@@ -2880,7 +2876,7 @@ fn makeGenericVersion(
     };
 
     self.stm.popScope();
-    self.stm.importSymbol(gen_symbol.*, generic_version_name) catch unreachable;
+    self.stm.importSymbol(gen_symbol, generic_version_name, gen_symbol.public) catch unreachable;
 
     source_module.addStmt(generic_node_copy) catch unreachable;
 
@@ -2888,24 +2884,20 @@ fn makeGenericVersion(
 }
 
 fn genericVersionName(self: *TypeChecker, base_name: []const u8, generic_kinds: []KindId, op: Token) SemanticError![]const u8 {
-    var type_names_as_str = std.ArrayList(u8).init(self.allocator);
-    type_names_as_str.appendSlice(base_name) catch unreachable;
-    type_names_as_str.append('@') catch unreachable;
+    var buf: [2048]u8 = undefined;
 
-    var type_buffer: [2048]u8 = undefined;
-    var fixed_alloc = std.heap.FixedBufferAllocator.init(&type_buffer);
-    const allocator = fixed_alloc.allocator();
-    var str = std.ArrayList(u8).initCapacity(allocator, 1024) catch unreachable;
+    var buf_rem = KindId.print_to_buf(&buf, "{s}@", .{base_name});
     for (generic_kinds) |*kind| {
         _ = kind.update(self.stm, self) catch {
             return self.reportError(SemanticError.UnresolvableIdentifier, op, "Unresolvable generic type");
         };
-        kind.to_str(&str, self.stm);
-        type_names_as_str.appendSlice(str.items) catch unreachable;
-        str.clearRetainingCapacity();
+        buf_rem = kind._to_str(buf_rem, self.stm);
     }
 
-    return type_names_as_str.items;
+    var result: []const u8 = undefined;
+    result.len = buf.len - buf_rem.len;
+    result.ptr = &buf;
+    return std.fmt.allocPrint(self.allocator, "{s}", .{result}) catch unreachable;
 }
 
 fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, generic_version_name: []const u8) SemanticError!*Symbol {
@@ -3008,38 +3000,43 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
     );
     const generic_symbol_kind_extracted = generic_version_symbol.kind;
 
-    self.stm.importSymbol(generic_version_symbol.*, generic_name) catch {};
+    self.stm.importSymbol(generic_version_symbol, generic_name, generic_version_symbol.public) catch {};
 
     generic_kind.* = generic_symbol_kind_extracted;
 
     return generic_kind.size();
 }
 
-fn scope_generic_user_kind(self: *TypeChecker, generic_kinds: []KindId, generic_id: Token) SemanticError![]const u8 {
+fn scope_generic_user_kind(self: *TypeChecker, generic_expr: *Expr.GenericExpr, generic_id: Token) SemanticError![]const u8 {
     const generic_symbol = self.stm.getSymbol(generic_id.lexeme) catch {
         return self.reportError(SemanticError.UnresolvableIdentifier, generic_id, "Generic function blueprint never declared");
     };
     if (generic_symbol.kind != .GENERIC) {
         return self.reportError(SemanticError.TypeMismatch, generic_id, "Expected generic function blueprint");
     }
+
+    if (generic_symbol.kind.GENERIC.generic_names.len != generic_expr.kinds.len) {
+        return self.reportError(SemanticError.TypeMismatch, generic_expr.op, "Inconsistant number of generic types");
+    }
+
     const generic_symbol_extracted_kind = generic_symbol.kind.GENERIC;
     const parent_module = generic_symbol.source_module;
     const parent_stm = &parent_module.stm;
 
     const generic_name = try self.genericVersionName(
         generic_id.lexeme,
-        generic_kinds,
+        generic_expr.kinds,
         generic_id,
     );
 
     const generic_version_symbol = parent_stm.getSymbol(generic_name) catch try self.makeGenericVersion(
-        generic_kinds,
+        generic_expr.kinds,
         generic_symbol_extracted_kind,
         generic_name,
         parent_module,
     );
 
-    self.stm.importSymbol(generic_version_symbol.*, generic_name) catch {};
+    self.stm.importSymbol(generic_version_symbol, generic_name, generic_version_symbol.public) catch {};
     return generic_name;
 }
 

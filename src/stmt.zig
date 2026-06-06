@@ -59,7 +59,7 @@ pub const StmtNode = union(enum) {
     }
 
     /// Display a stmt
-    pub fn display(self: StmtNode) void {
+    pub fn display(self: StmtNode, stm: *Symbol.SymbolTableManager) void {
         // Display based off of self
         switch (self) {
             .MOD => |modStmt| {
@@ -73,7 +73,7 @@ pub const StmtNode = union(enum) {
                     std.debug.print("pub ", .{});
                 }
                 std.debug.print("use ", .{});
-                useStmt.scopes.display();
+                useStmt.scopes.display(stm);
                 if (useStmt.rename) |name| {
                     std.debug.print("as {s}", .{name.lexeme});
                 }
@@ -89,21 +89,22 @@ pub const StmtNode = union(enum) {
                     std.debug.print("global const {s}", .{globalStmt.id.lexeme});
                 }
                 // Check if type is given
+                var buf: [512]u8 = undefined;
                 if (globalStmt.kind) |kind| {
-                    std.debug.print(": {any}", .{kind});
+                    std.debug.print(": {s}", .{kind.to_str(&buf, stm)});
                 }
                 std.debug.print(" = ", .{});
                 if (globalStmt.expr) |expr| {
-                    expr.display();
+                    expr.display(stm);
                 } else {
                     std.debug.print("undefined", .{});
                 }
                 std.debug.print(";\n", .{});
             },
             .MUTATE => |mutStmt| {
-                mutStmt.id_expr.display();
+                mutStmt.id_expr.display(stm);
                 std.debug.print(" {s} ", .{mutStmt.op.lexeme});
-                mutStmt.assign_expr.display();
+                mutStmt.assign_expr.display(stm);
                 std.debug.print(";\n", .{});
             },
             .DECLARE => |declareStmt| {
@@ -113,45 +114,46 @@ pub const StmtNode = union(enum) {
                     std.debug.print("const {s}", .{declareStmt.id.lexeme});
                 }
                 // Check if type is given
+                var buf: [512]u8 = undefined;
                 if (declareStmt.kind) |kind| {
-                    std.debug.print(": {any}", .{kind});
+                    std.debug.print(": {s}", .{kind.to_str(&buf, stm)});
                 }
                 std.debug.print(" = ", .{});
                 if (declareStmt.expr) |expr| {
-                    expr.display();
+                    expr.display(stm);
                 } else {
                     std.debug.print("undefined", .{});
                 }
                 std.debug.print(";\n", .{});
             },
             .EXPRESSION => |exprStmt| {
-                exprStmt.expr.display();
+                exprStmt.expr.display(stm);
                 std.debug.print(";\n", .{});
             },
             .WHILE => |whileStmt| {
                 std.debug.print("while(", .{});
-                whileStmt.conditional.display();
+                whileStmt.conditional.display(stm);
                 std.debug.print(") ", .{});
-                whileStmt.body.display();
+                whileStmt.body.display(stm);
                 if (whileStmt.loop_stmt) |loop_stmt| {
                     std.debug.print(" loop ", .{});
-                    loop_stmt.display();
+                    loop_stmt.display(stm);
                 }
             },
             .IF => |ifStmt| {
                 std.debug.print("if(", .{});
-                ifStmt.conditional.display();
+                ifStmt.conditional.display(stm);
                 std.debug.print(")", .{});
-                ifStmt.then_branch.display();
+                ifStmt.then_branch.display(stm);
                 if (ifStmt.else_branch) |else_branch| {
                     std.debug.print("else ", .{});
-                    else_branch.display();
+                    else_branch.display(stm);
                 }
             },
             .BLOCK => |blockStmt| {
                 std.debug.print("{{\n", .{});
                 for (blockStmt.statements) |stmt| {
-                    stmt.display();
+                    stmt.display(stm);
                 }
                 std.debug.print("}}\n", .{});
             },
@@ -167,17 +169,18 @@ pub const StmtNode = union(enum) {
                 }
                 std.debug.print("fn {s} (\n", .{funcStmt.name.lexeme});
                 // Print args
+                var buf: [1024]u8 = undefined;
                 for (funcStmt.arg_names, funcStmt.arg_kinds) |name, kind| {
-                    std.debug.print("    {s}: {any},\n", .{ name.lexeme, kind });
+                    std.debug.print("    {s}: {s},\n", .{ name.lexeme, kind.to_str(&buf, stm) });
                 }
-                std.debug.print(") {any} ", .{funcStmt.return_kind});
-                funcStmt.body.display();
+                std.debug.print(") {s} ", .{funcStmt.return_kind.to_str(&buf, stm)});
+                funcStmt.body.display(stm);
             },
             .RETURN => |returnStmt| {
                 std.debug.print("return", .{});
                 if (returnStmt.expr) |expr| {
                     std.debug.print(" ", .{});
-                    expr.display();
+                    expr.display(stm);
                 }
                 std.debug.print(";\n", .{});
             },
@@ -187,12 +190,13 @@ pub const StmtNode = union(enum) {
                 }
                 std.debug.print("struct {s} {{\n", .{structStmt.id.lexeme});
                 // Print Fields
+                var buf: [1024]u8 = undefined;
                 for (structStmt.field_names, structStmt.field_kinds) |name, kind| {
-                    std.debug.print("    {s}: {any},\n", .{ name.lexeme, kind });
+                    std.debug.print("    {s}: {s},\n", .{ name.lexeme, kind.to_str(&buf, stm) });
                 }
                 // Print Methods
                 for (structStmt.methods) |method| {
-                    method.display();
+                    method.display(stm);
                 }
                 std.debug.print("}}\n", .{});
             },
@@ -208,35 +212,35 @@ pub const StmtNode = union(enum) {
             },
             .SWITCH => |switchStmt| {
                 std.debug.print("switch (", .{});
-                switchStmt.value.display();
+                switchStmt.value.display(stm);
                 std.debug.print(") {{\n", .{});
                 for (switchStmt.literal_branch_values, switchStmt.literal_branch_stmts) |values, stmt| {
                     std.debug.print("    ", .{});
-                    values[0].display();
+                    values[0].display(stm);
                     for (values[1..]) |val| {
                         std.debug.print(" | ", .{});
-                        val.display();
+                        val.display(stm);
                     }
                     std.debug.print(" => ", .{});
-                    stmt.display();
+                    stmt.display(stm);
                 }
                 if (switchStmt.else_branch) |stmt| {
                     std.debug.print("    else => ", .{});
-                    stmt.display();
+                    stmt.display(stm);
                 }
                 if (switchStmt.then_branch) |stmt| {
                     std.debug.print("    then => ", .{});
-                    stmt.display();
+                    stmt.display(stm);
                 }
                 std.debug.print("}}\n", .{});
             },
             .DEFER => |deferStmt| {
                 std.debug.print("defer ", .{});
-                deferStmt.stmt.display();
+                deferStmt.stmt.display(stm);
             },
-            .FOR => |forStmt| forStmt.display(),
-            .UNION => |unionStmt| unionStmt.display(),
-            .GENERIC => |genericStmt| genericStmt.display(),
+            .FOR => |forStmt| forStmt.display(stm),
+            .UNION => |unionStmt| unionStmt.display(stm),
+            .GENERIC => |genericStmt| genericStmt.display(stm),
         }
     }
 };
@@ -415,14 +419,15 @@ pub const FunctionStmt = struct {
     }
 
     /// Debug display
-    fn display(self: FunctionStmt) void {
+    fn display(self: FunctionStmt, stm: *Symbol.SymbolTableManager) void {
         std.debug.print("fn {s} (\n", .{self.name.lexeme});
         // Print args
+        var buf: [512]u8 = undefined;
         for (self.arg_names, self.arg_kinds) |name, kind| {
-            std.debug.print("    {s}: {any},\n", .{ name.lexeme, kind });
+            std.debug.print("    {s}: {s},\n", .{ name.lexeme, kind.to_str(&buf, stm) });
         }
-        std.debug.print(") {any} ", .{self.return_kind});
-        self.body.display();
+        std.debug.print(") {s} ", .{self.return_kind.to_str(&buf, stm)});
+        self.body.display(stm);
     }
 };
 
@@ -502,13 +507,14 @@ pub const UnionStmt = struct {
         return StmtNode{ .UNION = new_stmt };
     }
 
-    pub fn display(self: *UnionStmt) void {
+    pub fn display(self: *UnionStmt, stm: *Symbol.SymbolTableManager) void {
         if (self.public) {
             std.debug.print("pub ", .{});
         }
         std.debug.print("union {s} {{", .{self.id.lexeme});
+        var buf: [512]u8 = undefined;
         for (self.field_names, self.field_kinds) |name, kind| {
-            std.debug.print("    {s}: {any};\n", .{ name.lexeme, kind });
+            std.debug.print("    {s}: {s};\n", .{ name.lexeme, kind.to_str(&buf, stm) });
         }
         std.debug.print("}}\n", .{});
     }
@@ -874,18 +880,18 @@ pub const ForStmt = struct {
         return StmtNode{ .FOR = new_stmt };
     }
 
-    pub fn display(self: ForStmt) void {
+    pub fn display(self: ForStmt, stm: *Symbol.SymbolTableManager) void {
         std.debug.print("for (", .{});
-        self.range_start_expr.display();
+        self.range_start_expr.display(stm);
         std.debug.print("..", .{});
         if (self.inclusive) {
             std.debug.print("=", .{});
         }
-        self.range_end_expr.display();
+        self.range_end_expr.display(stm);
 
         if (self.pointer_expr) |expr| {
             std.debug.print(", ", .{});
-            expr.display();
+            expr.display(stm);
         }
 
         std.debug.print(") |{s}", .{self.range_id.lexeme});
@@ -893,7 +899,7 @@ pub const ForStmt = struct {
             std.debug.print(", {s}", .{id.lexeme});
         }
         std.debug.print("| ", .{});
-        self.body.display();
+        self.body.display(stm);
     }
 };
 
@@ -910,13 +916,13 @@ pub const GenericStmt = struct {
         };
     }
 
-    pub fn display(self: GenericStmt) void {
-        std.debug.print("<", .{});
+    pub fn display(self: GenericStmt, stm: *Symbol.SymbolTableManager) void {
+        std.debug.print("[", .{});
         for (self.generic_names) |name| {
             std.debug.print("{s},", .{name.lexeme});
         }
-        std.debug.print(">{{\n", .{});
-        self.body.display();
+        std.debug.print("]{{\n", .{});
+        self.body.display(stm);
         std.debug.print("}}\n", .{});
     }
 };

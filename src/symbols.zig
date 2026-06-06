@@ -171,8 +171,8 @@ pub const SymbolTableManager = struct {
         return mem_loc;
     }
 
-    pub fn importSymbol(self: *SymbolTableManager, symbol: Symbol, as_name: []const u8) ScopeError!void {
-        try self.active_scope.importSymbol(symbol, as_name, self.parent_module);
+    pub fn importSymbol(self: *SymbolTableManager, symbol: *Symbol, as_name: []const u8, public: bool) ScopeError!void {
+        try self.active_scope.importSymbol(symbol, as_name, self.parent_module, public);
     }
 
     pub fn addDependency(self: *SymbolTableManager, dependency: *Module, name: []const u8, dcl_line: u64, dcl_column: u64, public: bool) !void {
@@ -235,7 +235,7 @@ pub const SymbolTableManager = struct {
 
             const symbol = switch (target) {
                 .MODULE => |module| try module.stm.getSymbol(name),
-                .ENUM => |enm| enm.variants.getPtr(name) orelse return ScopeError.UndeclaredSymbol,
+                .ENUM => |enm| enm.variants.get(name) orelse return ScopeError.UndeclaredSymbol,
                 .STRUCT => |strct| blk: {
                     const struct_symbol = try strct.fields.getField(self, name);
                     if (struct_symbol.kind != .FUNC) {
@@ -324,12 +324,12 @@ pub const SymbolTableManager = struct {
 /// Used to store a lexical scope, such as a function or global scope
 pub const Scope = struct {
     enclosing: ?*Scope,
-    symbols: std.StringHashMap(Symbol),
+    symbols: std.StringHashMap(*Symbol),
     next_address: u64,
 
     /// Initialize a Scope
     pub fn init(allocator: std.mem.Allocator, enclosing: ?*Scope) Scope {
-        const table = std.StringHashMap(Symbol).init(allocator);
+        const table = std.StringHashMap(*Symbol).init(allocator);
         return Scope{
             .enclosing = enclosing,
             .symbols = table,
@@ -338,13 +338,15 @@ pub const Scope = struct {
     }
 
     /// Insert a used symbol, potentially changing names for value
-    pub fn importSymbol(self: *Scope, symbol: Symbol, as_name: []const u8, borrowing_module: *Module) ScopeError!void {
+    pub fn importSymbol(self: *Scope, symbol: *Symbol, as_name: []const u8, borrowing_module: *Module, public: bool) ScopeError!void {
         const getOrPut = self.symbols.getOrPut(as_name) catch unreachable;
         if (getOrPut.found_existing) {
             return ScopeError.DuplicateDeclaration;
         }
-        getOrPut.value_ptr.* = symbol;
-        getOrPut.value_ptr.borrowing_module = borrowing_module;
+        getOrPut.value_ptr.* = self.symbols.allocator.create(Symbol) catch unreachable;
+        getOrPut.value_ptr.*.* = symbol.*;
+        getOrPut.value_ptr.*.borrowing_module = borrowing_module;
+        getOrPut.value_ptr.*.public = public;
     }
 
     /// Add a new symbol, providing all of its attributes and a null address
@@ -400,7 +402,8 @@ pub const Scope = struct {
             }
 
             // Add symbol to the table
-            const new_symbol = Symbol.init(
+            const new_symbol = self.symbols.allocator.create(Symbol) catch unreachable;
+            new_symbol.* = Symbol.init(
                 module,
                 name,
                 kind,
@@ -424,7 +427,7 @@ pub const Scope = struct {
         // Check this and all enclosing scopes for a declared symbol as name
         var curr: ?*Scope = self;
         while (curr) |enclosing| : (curr = enclosing.enclosing) {
-            const maybeSymbol = enclosing.symbols.getPtr(name);
+            const maybeSymbol = enclosing.symbols.get(name);
             // Check if found symbol
             if (maybeSymbol) |sym| {
                 // Mark as used
@@ -442,7 +445,7 @@ pub const Scope = struct {
         // Check this and all enclosing scopes for a declared symbol as name
         var curr: ?*Scope = self;
         while (curr) |enclosing| : (curr = enclosing.enclosing) {
-            const maybeSymbol = enclosing.symbols.getPtr(name);
+            const maybeSymbol = enclosing.symbols.get(name);
             // Check if found symbol
             if (maybeSymbol) |sym| {
                 // Return the symbol
@@ -454,14 +457,14 @@ pub const Scope = struct {
 };
 
 pub const UnionScope = struct {
-    fields: std.StringHashMap(Symbol),
+    fields: std.StringHashMap(*Symbol),
     max_size: usize,
     declared: bool = false,
     visited: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) UnionScope {
         return UnionScope{
-            .fields = std.StringHashMap(Symbol).init(allocator),
+            .fields = std.StringHashMap(*Symbol).init(allocator),
             .max_size = 0,
         };
     }
@@ -473,7 +476,8 @@ pub const UnionScope = struct {
         }
 
         const field_size = kind.size();
-        const field = Symbol.init(
+        getOrPut.value_ptr.* = self.fields.allocator.create(Symbol) catch unreachable;
+        getOrPut.value_ptr.*.* = Symbol.init(
             module,
             name,
             kind,
@@ -485,13 +489,12 @@ pub const UnionScope = struct {
             0,
             field_size,
         );
-        getOrPut.value_ptr.* = field;
 
         self.max_size = @max(self.max_size, field_size);
     }
 
     pub fn getField(self: *UnionScope, stm: *SymbolTableManager, name: []const u8) ScopeError!*Symbol {
-        const field = self.fields.getPtr(name) orelse {
+        const field = self.fields.get(name) orelse {
             return ScopeError.UndeclaredSymbol;
         };
 
@@ -509,7 +512,7 @@ pub const UnionScope = struct {
 };
 
 pub const StructScope = struct {
-    fields: std.StringHashMap(Symbol),
+    fields: std.StringHashMap(*Symbol),
     next_address: usize,
     is_open: bool,
     declared: bool = false,
@@ -521,7 +524,7 @@ pub const StructScope = struct {
     /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
     pub fn init(allocator: std.mem.Allocator) StructScope {
         return StructScope{
-            .fields = std.StringHashMap(Symbol).init(allocator),
+            .fields = std.StringHashMap(*Symbol).init(allocator),
             .next_address = 0,
             .is_open = false,
         };
@@ -543,6 +546,7 @@ pub const StructScope = struct {
             return ScopeError.DuplicateDeclaration;
         }
 
+        getOrPut.value_ptr.* = self.fields.allocator.create(Symbol) catch unreachable;
         // Check if adding a "local"
         if (scope == .LOCAL) {
             // Calculate address location
@@ -563,16 +567,16 @@ pub const StructScope = struct {
             // Increment next addres
             self.next_address += kind_size;
             const field = Symbol.init(module, name, kind, scope, dcl_line, dcl_column, true, is_public, mem_loc, kind_size);
-            getOrPut.value_ptr.* = field;
+            getOrPut.value_ptr.*.* = field;
         } else {
             const field = Symbol.initAsField(module, struct_name, name, kind, scope, dcl_line, dcl_column, true, is_public, undefined, undefined);
-            getOrPut.value_ptr.* = field;
+            getOrPut.value_ptr.*.* = field;
         }
     }
 
     /// Get a field by name from this scope
     pub fn getField(self: *StructScope, stm: *SymbolTableManager, name: []const u8) ScopeError!*Symbol {
-        const field = self.fields.getPtr(name) orelse {
+        const field = self.fields.get(name) orelse {
             return ScopeError.UndeclaredSymbol;
         };
 
@@ -586,7 +590,7 @@ pub const StructScope = struct {
     }
 
     pub fn peakField(self: *StructScope, name: []const u8) ScopeError!*Symbol {
-        const field = self.fields.getPtr(name) orelse {
+        const field = self.fields.get(name) orelse {
             return ScopeError.UndeclaredSymbol;
         };
         return field;
@@ -733,61 +737,68 @@ pub const KindId = union(Kinds) {
         }
     }
 
-    pub fn to_str(self: KindId, str: *std.ArrayList(u8), stm: *SymbolTableManager) void {
-        switch (self) {
-            .VOID => str.appendSlice("void") catch unreachable,
-            .BOOL => str.appendSlice("bool") catch unreachable,
-            .UINT => |uint| {
-                const str_rep = std.fmt.allocPrint(str.allocator, "u{d}", .{uint.bits}) catch unreachable;
-                str.appendSlice(str_rep) catch unreachable;
-                str.allocator.free(str_rep);
-            },
-            .INT => |int| {
-                const str_rep = std.fmt.allocPrint(str.allocator, "i{d}", .{int.bits}) catch unreachable;
-                str.appendSlice(str_rep) catch unreachable;
-                str.allocator.free(str_rep);
-            },
-            .FLOAT32 => str.appendSlice("f32") catch unreachable,
-            .FLOAT64 => str.appendSlice("f64") catch unreachable,
+    pub fn print_to_buf(buf: []u8, comptime fmt: []const u8, args: anytype) []u8 {
+        var buffer = buf;
+        const wrote = std.fmt.bufPrint(buf, fmt, args) catch return buffer;
+        buffer.len -= wrote.len;
+        buffer.ptr = wrote.ptr + wrote.len;
+        return buffer;
+    }
+
+    pub fn to_str(self: KindId, buf: []u8, stm: *SymbolTableManager) []u8 {
+        var rem = self._to_str(buf, stm);
+        rem.len = buf.len - rem.len;
+        rem.ptr = buf.ptr;
+        return rem;
+    }
+
+    pub fn _to_str(self: KindId, buf: []u8, stm: *SymbolTableManager) []u8 {
+        return switch (self) {
+            .VOID => print_to_buf(buf, "void", .{}),
+            .BOOL => print_to_buf(buf, "bool", .{}),
+            .UINT => |uint| print_to_buf(buf, "u{d}", .{uint.bits}),
+            .INT => |int| print_to_buf(buf, "i{d}", .{int.bits}),
+            .FLOAT32 => print_to_buf(buf, "f32", .{}),
+            .FLOAT64 => print_to_buf(buf, "f64", .{}),
             .PTR => |ptr| {
-                if (ptr.const_child) {
-                    str.appendSlice("@p") catch unreachable;
-                } else {
-                    str.appendSlice("@cp") catch unreachable;
-                }
-                ptr.child.to_str(str, stm);
+                const buf_rem = if (ptr.const_child)
+                    print_to_buf(buf, "@p", .{})
+                else
+                    print_to_buf(buf, "@cp", .{});
+                return ptr.child._to_str(buf_rem, stm);
             },
             .ARRAY => |arr| {
-                if (arr.const_items) {
-                    str.appendSlice("@a") catch unreachable;
-                } else {
-                    str.appendSlice("@ca") catch unreachable;
-                }
-                arr.child.to_str(str, stm);
+                const buf_rem = if (arr.const_items)
+                    print_to_buf(buf, "@a", .{})
+                else
+                    print_to_buf(buf, "@ca", .{});
+                return arr.child._to_str(buf_rem, stm);
             },
             .FUNC => |func| {
-                const str_rep = std.fmt.allocPrint(str.allocator, "fn{d}", .{func.arg_kinds.len}) catch unreachable;
-                str.appendSlice(str_rep) catch unreachable;
-                str.allocator.free(str_rep);
+                var buf_rem = print_to_buf(buf, "fn{d}", .{func.arg_kinds.len});
                 for (func.arg_kinds) |arg| {
-                    arg.to_str(str, stm);
+                    buf_rem = arg._to_str(buf_rem, stm);
                 }
-                func.ret_kind.to_str(str, stm);
+                return func.ret_kind._to_str(buf_rem, stm);
             },
             .STRUCT => |strct| {
-                const symbol = stm.getSymbol(strct.name) catch unreachable;
-                str.appendSlice(symbol.name) catch unreachable;
+                const symbol = stm.getSymbol(strct.name) catch return print_to_buf(buf, "#UNKNOWN#", .{});
+                return print_to_buf(buf, "{s}", .{symbol.name});
             },
             .UNION => |unin| {
-                const symbol = stm.getSymbol(unin.name) catch unreachable;
-                str.appendSlice(symbol.name) catch unreachable;
+                const symbol = stm.getSymbol(unin.name) catch return print_to_buf(buf, "#UNKNOWN#", .{});
+                return print_to_buf(buf, "{s}", .{symbol.name});
             },
             .ENUM => |enm| {
-                const symbol = stm.getSymbol(enm.name) catch unreachable;
-                str.appendSlice(symbol.name) catch unreachable;
+                const symbol = stm.getSymbol(enm.name) catch return print_to_buf(buf, "#UNKNOWN#", .{});
+                return print_to_buf(buf, "{s}", .{symbol.name});
             },
-            else => unreachable,
-        }
+            .GENERIC_USER_KIND => |generic_kind| generic_kind.display(buf, stm),
+            .GENERIC => print_to_buf(buf, "#GENERIC#", .{}),
+            .ANY => print_to_buf(buf, "#ANY#", .{}),
+            .MODULE => print_to_buf(buf, "#MODULE#", .{}),
+            .USER_KIND => |user_kind| print_to_buf(buf, "{s}", .{user_kind}),
+        };
     }
 
     pub fn newGeneric(body: Stmt.StmtNode, generic_names: []Token) KindId {
@@ -886,7 +897,7 @@ pub const KindId = union(Kinds) {
         return KindId{ .UNION = new_union };
     }
     /// Make an enum with a variant field
-    pub fn newEnumWithVariants(name: []const u8, variants: *std.StringHashMap(Symbol)) KindId {
+    pub fn newEnumWithVariants(name: []const u8, variants: *std.StringHashMap(*Symbol)) KindId {
         const new_enum = Enum{ .name = name, .variants = variants };
         return KindId{ .ENUM = new_enum };
     }
@@ -1196,7 +1207,7 @@ pub const Union = struct {
 /// All enums are treated as u16 at runtime
 pub const Enum = struct {
     name: []const u8,
-    variants: *std.StringHashMap(Symbol),
+    variants: *std.StringHashMap(*Symbol),
 
     pub fn equal(self: Enum, other: Enum) bool {
         return self.variants == other.variants;
@@ -1219,6 +1230,18 @@ pub const Generic = struct {
 pub const GenericUserKind = struct {
     generic_kinds: []KindId,
     id: Token,
+
+    pub fn display(self: GenericUserKind, buf: []u8, stm: *SymbolTableManager) []u8 {
+        var buf_rem = KindId.print_to_buf(buf, "{s}@", .{self.id.lexeme});
+        for (self.generic_kinds) |*kind| {
+            buf_rem = kind._to_str(buf_rem, stm);
+            var so_far: []u8 = undefined;
+            so_far.ptr = buf.ptr;
+            so_far.len = buf.len - buf_rem.len;
+        }
+
+        return buf_rem;
+    }
 };
 
 // *********************** //

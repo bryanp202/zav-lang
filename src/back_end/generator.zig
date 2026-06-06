@@ -101,14 +101,14 @@ pub fn open(
 
     var symbol_iter = stm.scopes.items[0].symbols.iterator();
     while (symbol_iter.next()) |entry| {
-        const symbol = entry.value_ptr;
+        const symbol = entry.value_ptr.*;
         if (symbol.public and symbol.used and symbol.source_module == symbol.borrowing_module) {
             switch (symbol.scope) {
                 .GLOBAL, .FUNC, .METHOD => _ = try writer.print("global {s}\n", .{symbol.name}),
                 .STRUCT => {
                     var field_iter = symbol.kind.STRUCT.fields.fields.iterator();
                     while (field_iter.next()) |field_entry| {
-                        const field = field_entry.value_ptr;
+                        const field = field_entry.value_ptr.*;
                         if (field.public and field.used) {
                             switch (field.scope) {
                                 .GLOBAL, .FUNC, .METHOD => _ = try writer.print("global {s}\n", .{field.name}),
@@ -335,7 +335,7 @@ pub fn close(self: Generator) GenerationError!void {
     // Write each variable to the file
     while (global_iter.next()) |global_entry| {
         // Extract global
-        const global = global_entry.value_ptr;
+        const global = global_entry.value_ptr.*;
         // Write to file if not function and used
         if (global.scope == .GLOBAL and global.used and self.stm.parent_module == global.source_module) {
             try self.print("    {s}: resb {d}\n", .{ global.name, global.size });

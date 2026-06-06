@@ -140,7 +140,7 @@ pub const Scanner = struct {
             },
             // Scopes or type declaration
             ':' => {
-                const kind = if (self.match(':')) if (self.match('<')) TokenKind.SCOPE_LESS else TokenKind.SCOPE else TokenKind.COLON;
+                const kind = if (self.match(':')) if (self.match('[')) TokenKind.SCOPE_SQUARE else TokenKind.SCOPE else TokenKind.COLON;
                 return self.emitToken(kind);
             },
             // for loop range
@@ -776,7 +776,7 @@ pub const TokenKind = enum {
     DOT_DOT,
     RETURN_ARROW,
     UNION,
-    SCOPE_LESS,
+    SCOPE_SQUARE,
     SUPER,
     SHIFT_LEFT,
     SHIFT_RIGHT,
