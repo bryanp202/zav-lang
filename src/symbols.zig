@@ -138,6 +138,39 @@ pub const SymbolTableManager = struct {
         return mem_loc;
     }
 
+    /// Add a new symbol, with all of its attributes, in the top level scope of a module
+    pub fn declareSymbolGlobal(
+        self: *SymbolTableManager,
+        name: []const u8,
+        kind: KindId,
+        scope: ScopeKind,
+        dcl_line: u64,
+        dcl_column: u64,
+        is_mutable: bool,
+        public: bool,
+    ) !u64 {
+        // Calculate the size of the kind
+        const size = kind.size();
+        const module = self.parent_module;
+
+        // Else let the local scope calculate the local scope
+        const mem_loc = try self.scopes.items[0].declareSymbol(
+            module,
+            name,
+            kind,
+            scope,
+            dcl_line,
+            dcl_column,
+            is_mutable,
+            public,
+            &self.next_address,
+            size,
+        );
+
+        // Return the memory location
+        return mem_loc;
+    }
+
     /// Add a new symbol, with all of its attributes, and assign it with a null memory location
     pub fn declareSymbolWithSize(
         self: *SymbolTableManager,
@@ -261,6 +294,10 @@ pub const SymbolTableManager = struct {
         const symbol = try self.active_scope.getSymbol(name);
 
         return symbol;
+    }
+
+    pub fn getSymbolGlobal(self: SymbolTableManager, name: []const u8) !*Symbol {
+        return self.scopes.items[0].getSymbol(name);
     }
 
     /// Peak if a symbol is in the table, but do not mark as used

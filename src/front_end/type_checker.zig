@@ -992,7 +992,7 @@ fn indexUnion(self: *TypeChecker, name: Token, index: *Stmt.UnionStmt, public: b
     // Create new struct with scope and index
     const new_union = KindId.newUnion(self.allocator, name.lexeme, index, self.stm);
     // Try to add to stm global scope
-    _ = self.stm.declareSymbol(
+    _ = self.stm.declareSymbolGlobal(
         name.lexeme,
         new_union,
         ScopeKind.UNION,
@@ -1001,7 +1001,7 @@ fn indexUnion(self: *TypeChecker, name: Token, index: *Stmt.UnionStmt, public: b
         false,
         public,
     ) catch {
-        const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
+        const old_id = self.stm.getSymbolGlobal(name.lexeme) catch unreachable;
         return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
     };
 }
@@ -1011,7 +1011,7 @@ fn indexStruct(self: *TypeChecker, name: Token, index: *Stmt.StructStmt, public:
     // Create new struct with scope and index
     const new_struct = KindId.newStructWithIndex(self.allocator, name.lexeme, index, self.stm);
     // Try to add to stm global scope
-    _ = self.stm.declareSymbol(
+    _ = self.stm.declareSymbolGlobal(
         name.lexeme,
         new_struct,
         ScopeKind.STRUCT,
@@ -1020,7 +1020,7 @@ fn indexStruct(self: *TypeChecker, name: Token, index: *Stmt.StructStmt, public:
         false,
         public,
     ) catch {
-        const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
+        const old_id = self.stm.getSymbolGlobal(name.lexeme) catch unreachable;
         return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
     };
 }
@@ -1284,7 +1284,7 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
     _ = new_func.update(self.stm, self) catch unreachable;
 
     // Declare this function
-    _ = self.stm.declareSymbol(
+    _ = self.stm.declareSymbolGlobal(
         func.name.lexeme,
         new_func,
         ScopeKind.FUNC,
@@ -1293,7 +1293,7 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
         false,
         func.public,
     ) catch {
-        const old_id = self.stm.getSymbol(func.name.lexeme) catch unreachable;
+        const old_id = self.stm.getSymbolGlobal(func.name.lexeme) catch unreachable;
         return self.reportDuplicateError(func.name, old_id.dcl_line, old_id.dcl_column);
     };
 }
@@ -2773,7 +2773,7 @@ fn visitGenericExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const parent_module = generic_symbol.source_module;
     const parent_stm = &parent_module.stm;
     const generic_name = try self.genericVersionName(generic_symbol.name, generic_expr.kinds, generic_expr.op);
-    const generic_version_symbol = parent_stm.getSymbol(generic_name) catch try self.makeGenericVersion(
+    const generic_version_symbol = parent_stm.getSymbolGlobal(generic_name) catch try self.makeGenericVersion(
         generic_expr.kinds,
         generic_symbol_kind_extracted,
         generic_name,
@@ -2876,7 +2876,9 @@ fn makeGenericVersion(
     };
 
     self.stm.popScope();
-    self.stm.importSymbol(gen_symbol, generic_version_name, gen_symbol.public) catch unreachable;
+    if (&source_module.stm != self.stm) {
+        self.stm.importSymbol(gen_symbol, generic_version_name, gen_symbol.public) catch unreachable;
+    }
 
     source_module.addStmt(generic_node_copy) catch unreachable;
 
@@ -2903,7 +2905,7 @@ fn genericVersionName(self: *TypeChecker, base_name: []const u8, generic_kinds: 
 fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, generic_version_name: []const u8) SemanticError!*Symbol {
     function_node.FUNCTION.name.lexeme = generic_version_name;
     try self.declareFunction(function_node.FUNCTION);
-    const func_symbol = self.stm.getSymbol(function_node.FUNCTION.name.lexeme) catch unreachable;
+    const func_symbol = self.stm.getSymbolGlobal(function_node.FUNCTION.name.lexeme) catch unreachable;
     try self.visitFunctionStmt(function_node.FUNCTION, func_symbol.kind);
     if (self.generic_error) {
         self.reportError(SemanticError.TypeMismatch, function_node.FUNCTION.name, "^^^ Error creating generic version") catch {};
@@ -2920,7 +2922,7 @@ fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_v
     try self.indexStruct(struct_stmt.id, struct_stmt, struct_stmt.public);
 
     // Get from stm
-    const symbol = self.stm.getSymbol(struct_stmt.id.lexeme) catch unreachable;
+    const symbol = self.stm.getSymbolGlobal(struct_stmt.id.lexeme) catch unreachable;
     symbol.kind.STRUCT.fields.generics_scope = self.stm.active_scope;
 
     // Declare the new kind with its fields, checking for circular dependencies
@@ -2992,14 +2994,13 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
         generic_user_kind.id,
     );
 
-    const generic_version_symbol = parent_stm.getSymbol(generic_name) catch try self.makeGenericVersion(
+    const generic_version_symbol = parent_stm.getSymbolGlobal(generic_name) catch try self.makeGenericVersion(
         generic_user_kind.generic_kinds,
         generic_symbol_extracted_kind,
         generic_name,
         parent_module,
     );
     const generic_symbol_kind_extracted = generic_version_symbol.kind;
-
     self.stm.importSymbol(generic_version_symbol, generic_name, generic_version_symbol.public) catch {};
 
     generic_kind.* = generic_symbol_kind_extracted;
@@ -3029,7 +3030,7 @@ fn scope_generic_user_kind(self: *TypeChecker, generic_expr: *Expr.GenericExpr, 
         generic_id,
     );
 
-    const generic_version_symbol = parent_stm.getSymbol(generic_name) catch try self.makeGenericVersion(
+    const generic_version_symbol = parent_stm.getSymbolGlobal(generic_name) catch try self.makeGenericVersion(
         generic_expr.kinds,
         generic_symbol_extracted_kind,
         generic_name,
