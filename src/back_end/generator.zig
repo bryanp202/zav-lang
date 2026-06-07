@@ -2176,7 +2176,20 @@ fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr, resu
         },
         else => {
             const dest_reg = try self.getNextCPUReg();
-            try self.print("    mov {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
+
+            const size = result_kind.size_runtime();
+            if (size == 8) {
+                try self.print("    mov {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
+            } else {
+                const size_keyword = getSizeKeyword(size);
+                const sign: u8 = if (result_kind == .INT) 's' else 'z';
+                try self.print("    mov{c}x {s}, {s} [{s}] ; Dereference Pointer\n", .{
+                    sign,
+                    dest_reg.name,
+                    size_keyword,
+                    source_reg.name,
+                });
+            }
         },
     }
 }
