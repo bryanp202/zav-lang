@@ -1,0 +1,62 @@
+pub fn main(argc: i64, argv: **u8) i64 {
+    const a = Vec2::new(3, 7);
+    const b = Vec2::new(2, 2);
+
+    const result = a * &b * 10;
+    result.display();
+    result[b].display();
+
+    // const thing: *const i64 = &(result * b * b * b * b).*;
+
+    b[result[&b][&b][&b]].display();
+
+    return 0;
+}
+
+
+
+pub struct Vec2 {
+    x: i64;
+    y: i64;
+
+    pub fn new(x: i64, y: i64) Vec2 {
+        var self: Vec2 = undefined;
+        self.x = x;
+        self.y = y;
+        return self;
+    }
+
+    pub fn display(self: *const Vec2) void {
+        @printf("x: %d, y: %d\n", self.x, self.y);
+    }
+
+    overload [](lhs: Vec2, rhs: Vec2) Vec2 {
+        return Vec2::new(lhs.x * rhs.x, lhs.y * rhs.y);
+    }
+
+    overload [](lhs: Vec2, rhs: *const Vec2) Vec2 {
+        return Vec2::new(lhs.x * rhs.x, lhs.y * rhs.y);
+    }
+
+    overload *(self: Vec2) i64 {
+        return (self.x * 2 + self.y * 2);
+    }
+
+    overload *(lhs: Vec2, num: i64) Vec2 {
+        return Vec2::new(lhs.x * num, lhs.y * num);
+    }
+
+    overload *(lhs: Vec2, rhs: *const Vec2) Vec2 {
+        var prod: Vec2 = undefined;
+        prod.x = lhs.x * rhs.x;
+        prod.y = lhs.y * rhs.y;
+        return prod;
+    }
+
+    overload *(lhs: Vec2, rhs: Vec2) Vec2 {
+        var prod: Vec2 = undefined;
+        prod.x = lhs.x * rhs.x;
+        prod.y = lhs.y * rhs.y;
+        return prod;
+    }
+}

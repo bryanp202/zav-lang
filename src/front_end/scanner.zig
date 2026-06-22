@@ -135,7 +135,7 @@ pub const Scanner = struct {
             },
             // Indexing and Array type
             '[' => {
-                const kind = if (self.match(']')) TokenKind.ARRAY_TYPE else TokenKind.LEFT_SQUARE;
+                const kind = TokenKind.LEFT_SQUARE; //if (self.match(']')) TokenKind.ARRAY_TYPE else
                 return self.emitToken(kind);
             },
             // Scopes or type declaration
@@ -551,7 +551,17 @@ pub const Scanner = struct {
                 },
                 'o' => {
                     _ = self.advance();
-                    return self.checkKeyword("r", TokenKind.OR);
+                    switch (self.peek()) {
+                        'r' => {
+                            _ = self.advance();
+                            return self.checkKeyword("", TokenKind.OR);
+                        },
+                        'v' => {
+                            _ = self.advance();
+                            return self.checkKeyword("erload", TokenKind.OVERLOAD);
+                        },
+                        else => break :identifier_loop,
+                    }
                 },
                 'p' => {
                     _ = self.advance();
@@ -710,7 +720,6 @@ pub const TokenKind = enum {
     // Indexing
     LEFT_SQUARE,
     RIGHT_SQUARE,
-    // Array
     ARRAY_TYPE,
     COLON,
     SCOPE,
@@ -778,6 +787,7 @@ pub const TokenKind = enum {
     UNION,
     SCOPE_SQUARE,
     SUPER,
+    OVERLOAD,
     SHIFT_LEFT,
     SHIFT_RIGHT,
     SHIFT_LEFT_EQUAL,
@@ -786,6 +796,63 @@ pub const TokenKind = enum {
     //// Parser Tokens ////
     ERROR,
     EOF,
+
+    pub fn op_name(self: TokenKind) ?[]const u8 {
+        return switch (self) {
+            TokenKind.AMPERSAND => "#amp",
+            TokenKind.LEFT_SQUARE => "#index",
+            TokenKind.CARET => "#caret",
+            TokenKind.EQUAL_EQUAL => "#ee",
+            TokenKind.EXCLAMATION => "#exl",
+            TokenKind.EXCLAMATION_EQUAL => "#noteq",
+            TokenKind.GREATER => "#great",
+            TokenKind.GREATER_EQUAL => "#greateq",
+            TokenKind.LESS => "#less",
+            TokenKind.LESS_EQUAL => "#lesseq",
+            TokenKind.MINUS => "minus",
+            TokenKind.PERCENT => "#per",
+            TokenKind.PIPE => "#pipe",
+            TokenKind.PLUS => "#plus",
+            TokenKind.SHIFT_LEFT => "#shiftl",
+            TokenKind.SHIFT_RIGHT => "#shirtr",
+            TokenKind.SLASH => "#slash",
+            TokenKind.STAR => "#star",
+            // TokenKind.LEFT_PAREN => "#call",
+            else => return null,
+        };
+    }
+
+    pub const ArgCount = enum {
+        ONE,
+        TWO,
+        ONE_OR_TWO,
+        ONE_OR_MORE,
+    };
+
+    pub fn op_arg_count(self: TokenKind) ?ArgCount {
+        return switch (self) {
+            TokenKind.AMPERSAND => ArgCount.TWO,
+            TokenKind.LEFT_SQUARE => ArgCount.TWO,
+            TokenKind.CARET => ArgCount.TWO,
+            TokenKind.EQUAL_EQUAL => ArgCount.TWO,
+            TokenKind.EXCLAMATION => ArgCount.ONE,
+            TokenKind.EXCLAMATION_EQUAL => ArgCount.TWO,
+            TokenKind.GREATER => ArgCount.TWO,
+            TokenKind.GREATER_EQUAL => ArgCount.TWO,
+            TokenKind.LESS => ArgCount.TWO,
+            TokenKind.LESS_EQUAL => ArgCount.TWO,
+            TokenKind.MINUS => ArgCount.ONE_OR_TWO,
+            TokenKind.PERCENT => ArgCount.TWO,
+            TokenKind.PIPE => ArgCount.TWO,
+            TokenKind.PLUS => ArgCount.TWO,
+            TokenKind.SHIFT_LEFT => ArgCount.TWO,
+            TokenKind.SHIFT_RIGHT => ArgCount.TWO,
+            TokenKind.SLASH => ArgCount.TWO,
+            TokenKind.STAR => ArgCount.ONE_OR_TWO,
+            TokenKind.LEFT_PAREN => ArgCount.ONE_OR_MORE,
+            else => return null,
+        };
+    }
 };
 
 pub const Token = struct {

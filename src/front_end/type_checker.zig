@@ -24,6 +24,8 @@ const StmtNode = Stmt.StmtNode;
 // Module
 const Module = @import("../module.zig");
 
+const OVERLOAD_BUF_LEN: usize = 2048;
+
 // Type Checker fields
 const TypeChecker = @This();
 allocator: std.mem.Allocator,
@@ -281,6 +283,10 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         }
         // Check all function bodies in the module
         for (module.functionSlice()) |*function| {
+            if (function.FUNCTION.ignore) {
+                continue;
+            }
+
             // Get arg_size
             const func_symbol = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
             // analyze all function bodies, continue if there was an error
@@ -1217,6 +1223,70 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
 
         // Get size of arguments
         _ = new_func.update(self.stm, self) catch unreachable;
+        // Check if function overload
+        if (method.name.lexeme[0] == '#') {
+            const struct_kind = symbol.kind;
+            const expected_arg_count = method.name.kind.op_arg_count() orelse unreachable;
+            const arg_count = if (new_func.FUNC.ret_kind.* == .STRUCT)
+                new_func.FUNC.arg_kinds.len - 1
+            else
+                new_func.FUNC.arg_kinds.len;
+            switch (expected_arg_count) {
+                Scan.TokenKind.ArgCount.ONE => {
+                    if (arg_count != 1) {
+                        return self.reportError(
+                            SemanticError.InvalidOverload,
+                            method.name,
+                            "Invalid arg count for operator overload (expected one)",
+                        );
+                    }
+                },
+                Scan.TokenKind.ArgCount.TWO => {
+                    if (arg_count != 2) {
+                        return self.reportError(
+                            SemanticError.InvalidOverload,
+                            method.name,
+                            "Invalid arg count for operator overload (expected two)",
+                        );
+                    }
+                },
+                Scan.TokenKind.ArgCount.ONE_OR_TWO => {
+                    if (arg_count != 1 and arg_count != 2) {
+                        return self.reportError(
+                            SemanticError.InvalidOverload,
+                            method.name,
+                            "Invalid arg count for operator overload (expected one or two)",
+                        );
+                    }
+                },
+                Scan.TokenKind.ArgCount.ONE_OR_MORE => {
+                    if (new_func.FUNC.arg_kinds.len < 1) {
+                        return self.reportError(
+                            SemanticError.InvalidOverload,
+                            method.name,
+                            "Invalid arg count for operator overload (one or more)",
+                        );
+                    }
+                },
+            }
+
+            const first_arg = &new_func.FUNC.arg_kinds[0];
+            if (!(first_arg.equal(struct_kind) or first_arg.* == .PTR and first_arg.PTR.child.equal(struct_kind))) {
+                return self.reportError(
+                    SemanticError.InvalidOverload,
+                    method.name,
+                    "Operator overloads must have Self type (or pointer to a Self type) as the first argument",
+                );
+            }
+
+            var buf: [OVERLOAD_BUF_LEN]u8 = undefined;
+            const arg_kinds = if (new_func.FUNC.ret_kind.* == .STRUCT)
+                new_func.FUNC.arg_kinds[0 .. new_func.FUNC.arg_kinds.len - 1]
+            else
+                new_func.FUNC.arg_kinds;
+            const overload_name = KindId.overload_to_str(&buf, method.name.lexeme, arg_kinds, self.stm);
+            method.name.lexeme = std.fmt.allocPrint(self.allocator, "{s}", .{overload_name}) catch unreachable;
+        }
 
         // Add field to struct
         symbol.kind.STRUCT.fields.addField(
@@ -1790,10 +1860,11 @@ fn visitContinueStmt(self: *TypeChecker, continueStmt: *Stmt.ContinueStmt) Seman
 const IDResult = struct {
     kind: KindId,
     mutable: bool,
+    l_value: bool,
 };
 
 /// Analysis an ID expression
-fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!IDResult {
+fn _analyzeIDExpr(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
     switch (node.*.expr) {
         .SCOPE => return self.visitScopeExprWrapped(node),
         .IDENTIFIER => return self.visitIdentifierExprWrapped(node),
@@ -1803,10 +1874,34 @@ fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!I
         .FIELD => return self.visitFieldExprWrapped(node),
         .CALL => {
             const call_result = try self.visitCallExpr(node);
-            return IDResult{ .kind = call_result, .mutable = true };
+            return IDResult{ .kind = call_result, .mutable = true, .l_value = false };
         },
-        else => return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array for assignment"),
+        else => return SemanticError.InvalidIdExpr,
     }
+}
+
+/// Analysis an ID expression
+fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!IDResult {
+    return self._analyzeIDExpr(node) catch |err| {
+        return switch (err) {
+            SemanticError.InvalidIdExpr => self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array for assignment"),
+            else => err,
+        };
+    };
+}
+
+/// Analysis an ID expression, specialized for checking for overloads
+fn analyzeIDExprCheckOverload(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!IDResult {
+    return self._analyzeIDExpr(node) catch |err| {
+        if (err == SemanticError.InvalidIdExpr) {
+            const res = try self.analyzeExpr(node);
+            if (node.expr == .CALL) {
+                return IDResult{ .kind = res, .mutable = true, .l_value = false };
+            }
+            return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array for assignment");
+        }
+        return err;
+    };
 }
 
 /// Analysis a ExprNode
@@ -1836,6 +1931,77 @@ fn analyzeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .BIT_XOR => self.visitBitXorExpr(node),
         //else => unreachable,
     };
+}
+
+fn checkUnaryOpOverload(self: *TypeChecker, node: *ExprNode, lhs: ExprNode, op: Token) ?KindId {
+    var buf: [2048]u8 = undefined;
+    const kinds = [1]KindId{lhs.result_kind};
+    if (lhs.result_kind == .STRUCT) {
+        const overload_name = KindId.overload_to_str(&buf, op.kind.op_name().?, &kinds, self.stm);
+        const field = lhs.result_kind.STRUCT.fields.getField(self.stm, overload_name) catch return null;
+        self.stm.importSymbol(field, field.name, true) catch {};
+
+        const id_token = Token{
+            .column = undefined,
+            .kind = .IDENTIFIER,
+            .lexeme = field.name,
+            .line = undefined,
+        };
+        const id_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+        id_expr.* = Expr.IdentifierExpr{ .id = id_token, .lexical_scope = undefined };
+        const id_expr_node = ExprNode.init(Expr.ExprUnion{ .IDENTIFIER = id_expr });
+
+        const args = self.allocator.alloc(ExprNode, 1) catch unreachable;
+        args[0] = lhs;
+
+        const new_call_expr = self.allocator.create(Expr.CallExpr) catch unreachable;
+        new_call_expr.* = Expr.CallExpr.init(
+            id_expr_node,
+            op,
+            args,
+        );
+        node.*.expr = Expr.ExprUnion{ .CALL = new_call_expr };
+
+        return self.visitCallExpr(node) catch unreachable;
+    } else {}
+
+    return null;
+}
+
+fn checkBinOpOverload(self: *TypeChecker, node: *ExprNode, lhs: ExprNode, rhs: ExprNode, op: Token) ?KindId {
+    var buf: [2048]u8 = undefined;
+    const kinds = [2]KindId{ lhs.result_kind, rhs.result_kind };
+    if (lhs.result_kind == .STRUCT) {
+        const overload_name = KindId.overload_to_str(&buf, op.kind.op_name().?, &kinds, self.stm);
+        const field = lhs.result_kind.STRUCT.fields.getField(self.stm, overload_name) catch return null;
+        self.stm.importSymbol(field, field.name, true) catch {};
+
+        const id_token = Token{
+            .column = undefined,
+            .kind = .IDENTIFIER,
+            .lexeme = field.name,
+            .line = undefined,
+        };
+        const id_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+        id_expr.* = Expr.IdentifierExpr{ .id = id_token, .lexical_scope = undefined };
+        const id_expr_node = ExprNode.init(Expr.ExprUnion{ .IDENTIFIER = id_expr });
+
+        const args = self.allocator.alloc(ExprNode, 2) catch unreachable;
+        args[0] = lhs;
+        args[1] = rhs;
+
+        const new_call_expr = self.allocator.create(Expr.CallExpr) catch unreachable;
+        new_call_expr.* = Expr.CallExpr.init(
+            id_expr_node,
+            op,
+            args,
+        );
+        node.*.expr = Expr.ExprUnion{ .CALL = new_call_expr };
+
+        return self.visitCallExpr(node) catch unreachable;
+    } else {}
+
+    return null;
 }
 
 fn visitScopeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
@@ -1958,7 +2124,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     }
 
     // Wrap in id_result with constant status of symbol
-    const id_result = IDResult{ .kind = symbol.kind, .mutable = symbol.is_mutable };
+    const id_result = IDResult{ .kind = symbol.kind, .mutable = symbol.is_mutable, .l_value = true };
     // Return id result and update final
     node.result_kind = symbol.kind;
     return id_result;
@@ -1989,7 +2155,9 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
         .ARG => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 16,
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
         .GLOBAL, .FUNC, .METHOD => {},
-        .STRUCT, .ENUM, .MODULE, .UNION, .KIND, .GENERIC => return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, or module types"),
+        .STRUCT, .ENUM, .MODULE, .UNION, .KIND, .GENERIC => {
+            return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, or module types");
+        },
         .ENUM_VARIANT => {
             const new_literal = self.allocator.create(Expr.LiteralExpr) catch unreachable;
             new_literal.* = Expr.LiteralExpr{ .literal = token, .value = Value.newUInt(symbol.mem_loc, 16) };
@@ -2102,7 +2270,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const callExpr = node.expr.CALL;
 
     // Parse caller_expr
-    const callee_result = try self.analyzeIDExpr(&callExpr.caller_expr, callExpr.op);
+    const callee_result = try self.analyzeIDExprCheckOverload(&callExpr.caller_expr, callExpr.op);
     const callee_kind = callee_result.kind;
 
     // Check if function
@@ -2245,7 +2413,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
     const fieldExpr = node.expr.FIELD;
     // Analyze operand
-    const operand_result = try self.analyzeIDExpr(&fieldExpr.operand, fieldExpr.op);
+    const operand_result = try self.analyzeIDExprCheckOverload(&fieldExpr.operand, fieldExpr.op);
     const operand_kind = if (operand_result.kind == .PTR) operand_result.kind.PTR.child.* else operand_result.kind;
 
     switch (operand_kind) {
@@ -2266,7 +2434,7 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
             }
             // Check if mutable
             const mutable = if (operand_result.kind == .PTR) !operand_result.kind.PTR.const_child else operand_result.mutable and field.scope != .FUNC;
-            return IDResult{ .kind = field.kind, .mutable = mutable };
+            return IDResult{ .kind = field.kind, .mutable = mutable, .l_value = true };
         },
         .UNION => {
             const field = operand_kind.UNION.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
@@ -2276,7 +2444,7 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
             fieldExpr.stack_offset = 0;
             node.result_kind = field.kind;
             const mutable = if (operand_result.kind == .PTR) !operand_result.kind.PTR.const_child else operand_result.mutable;
-            return IDResult{ .kind = field.kind, .mutable = mutable };
+            return IDResult{ .kind = field.kind, .mutable = mutable, .l_value = true };
         },
         else => return self.reportError(SemanticError.TypeMismatch, fieldExpr.op, "Expected a struct or union type for field access"),
     }
@@ -2329,6 +2497,10 @@ fn visitDereferenceExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticErro
     // Find operand kind
     const operand_kind = try self.analyzeExpr(&derefExpr.operand);
 
+    if (self.checkUnaryOpOverload(node, derefExpr.operand, derefExpr.op)) |kind| {
+        return IDResult{ .kind = kind, .mutable = false, .l_value = false };
+    }
+
     // Check if operand is a pointer
     if (operand_kind != .PTR) {
         return self.reportError(SemanticError.TypeMismatch, derefExpr.op, "Expected a pointer type for dereference");
@@ -2338,7 +2510,7 @@ fn visitDereferenceExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticErro
     const mutable = !operand_kind.PTR.const_child;
     node.result_kind = child_kind.*;
     // Return dereferenced pointer type
-    return IDResult{ .kind = child_kind.*, .mutable = mutable };
+    return IDResult{ .kind = child_kind.*, .mutable = mutable, .l_value = true };
 }
 
 /// Analyze a dereference expr
@@ -2347,6 +2519,10 @@ fn visitDereferenceExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindI
     const derefExpr = node.expr.DEREFERENCE;
     // Find operand kind
     const operand_kind = try self.analyzeExpr(&derefExpr.operand);
+
+    if (self.checkUnaryOpOverload(node, derefExpr.operand, derefExpr.op)) |kind| {
+        return kind;
+    }
 
     // Check if operand is a pointer
     if (operand_kind != .PTR) {
@@ -2362,8 +2538,27 @@ fn visitDereferenceExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindI
 fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
     // Extract index expression
     const indexExpr = node.expr.INDEX;
-    // Find lhs kind
     const lhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.rhs) else try self.analyzeExpr(&indexExpr.lhs);
+    const rhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.lhs) else try self.analyzeExpr(&indexExpr.rhs);
+
+    if (indexExpr.reversed) {
+        if (self.checkBinOpOverload(node, indexExpr.rhs, indexExpr.lhs, indexExpr.op)) |kind| {
+            const mutable = switch (kind) {
+                .PTR => |ptr| !ptr.const_child,
+                .ARRAY => |arr| !arr.const_items,
+                else => false,
+            };
+            return IDResult{ .kind = kind, .mutable = mutable, .l_value = false };
+        }
+    } else if (self.checkBinOpOverload(node, indexExpr.lhs, indexExpr.rhs, indexExpr.op)) |kind| {
+        const mutable = switch (kind) {
+            .PTR => |ptr| !ptr.const_child,
+            .ARRAY => |arr| !arr.const_items,
+            else => false,
+        };
+        return IDResult{ .kind = kind, .mutable = mutable, .l_value = false };
+    }
+
     // Used to return child kind
     var dereferenced_kind: KindId = undefined;
     var mutable: bool = undefined;
@@ -2379,8 +2574,6 @@ fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
         return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
     }
 
-    // Find rhs kind
-    const rhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.lhs) else try self.analyzeExpr(&indexExpr.rhs);
     // Checl if rhs is a U(INT)
     if (rhs_kind != .UINT and rhs_kind != .INT) {
         return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only access int or uint indexes");
@@ -2389,7 +2582,7 @@ fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     // Update result kind
     node.result_kind = dereferenced_kind;
     // Wrap in IDResult
-    return IDResult{ .kind = dereferenced_kind, .mutable = mutable };
+    return IDResult{ .kind = dereferenced_kind, .mutable = mutable, .l_value = true };
 }
 
 fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
@@ -2397,6 +2590,16 @@ fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const indexExpr = node.expr.INDEX;
     // Find lhs kind
     const lhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.rhs) else try self.analyzeExpr(&indexExpr.lhs);
+    const rhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.lhs) else try self.analyzeExpr(&indexExpr.rhs);
+
+    if (indexExpr.reversed) {
+        if (self.checkBinOpOverload(node, indexExpr.rhs, indexExpr.lhs, indexExpr.op)) |kind| {
+            return kind;
+        }
+    } else if (self.checkBinOpOverload(node, indexExpr.lhs, indexExpr.rhs, indexExpr.op)) |kind| {
+        return kind;
+    }
+
     // Used to return child kind
     var dereferenced_kind: KindId = undefined;
 
@@ -2409,8 +2612,6 @@ fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
     }
 
-    // Find rhs kind
-    const rhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.lhs) else try self.analyzeExpr(&indexExpr.rhs);
     // Checl if rhs is a U(INT)
     if (rhs_kind != .UINT and rhs_kind != .INT) {
         return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only access int or uint indexes");
@@ -2489,7 +2690,9 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .AMPERSAND => {
             // Visit as id expr
             const id_result = try self.analyzeIDExpr(&unaryExpr.operand, unaryExpr.op);
-            // Make new pointer
+            if (!id_result.l_value and id_result.kind != .STRUCT and id_result.kind != .UNION) {
+                return self.reportError(SemanticError.UnsafeCoercion, unaryExpr.op, "Expected an lvalue for reference expression");
+            }
             const new_ptr = KindId.newPtr(self.allocator, id_result.kind, !id_result.mutable);
             node.result_kind = new_ptr;
             return node.result_kind;
@@ -2509,6 +2712,11 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Get operator
     const op = arithExpr.op;
 
+    // Check if overloaded struct
+    if (self.checkBinOpOverload(node, arithExpr.lhs, arithExpr.rhs, arithExpr.op)) |kind| {
+        return kind;
+    }
+
     // Check if match or coerceable
     const coerce_result = try self.coerceKinds(
         op,
@@ -2524,7 +2732,7 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         return self.reportError(
             SemanticError.TypeMismatch,
             op,
-            "Arithmatic expressions only support unsigned int, int, or float results",
+            "Arithmatic expressions only support overloaded structs, unsigned int, int, float results\n",
         );
     }
 
@@ -2749,7 +2957,7 @@ fn visitLambdaExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
 fn visitGenericExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
     const result = try self.visitGenericExpr(node);
-    const id_result = IDResult{ .kind = result, .mutable = false };
+    const id_result = IDResult{ .kind = result, .mutable = false, .l_value = false };
     return id_result;
 }
 
@@ -2824,65 +3032,69 @@ fn makeGenericVersion(
         };
     }
 
-    const old_stm = self.stm;
-    const old_mod_path = self.current_module_path;
-    self.setModule(source_module);
-    const old_scope = self.stm.active_scope;
-    self.stm.active_scope = self.stm.scopes.items[0];
-    defer {
-        self.stm.active_scope = old_scope;
-        self.stm = old_stm;
-        self.current_module_path = old_mod_path;
-    }
-
-    self.stm.addScope();
-    for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |kind, generic_name| {
-        _ = self.stm.declareSymbol(
-            generic_name.lexeme,
-            kind,
-            .KIND,
-            generic_name.line,
-            generic_name.column,
-            false,
-            false,
-        ) catch {
-            const old_id = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
-            return self.reportDuplicateError(generic_name, old_id.dcl_line, old_id.dcl_column);
-        };
-        const new_symbol = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
-        switch (kind) {
-            .STRUCT => |strct| {
-                const struct_symbol = old_stm.getSymbol(strct.name) catch unreachable;
-                new_symbol.name = struct_symbol.name;
-            },
-            .ENUM => |enm| {
-                const enm_symbol = old_stm.getSymbol(enm.name) catch unreachable;
-                new_symbol.name = enm_symbol.name;
-            },
-            .UNION => |unin| {
-                const unin_symbol = old_stm.getSymbol(unin.name) catch unreachable;
-                new_symbol.name = unin_symbol.name;
-            },
-            else => {},
+    const generic_data = blk: {
+        const old_stm = self.stm;
+        const old_mod_path = self.current_module_path;
+        self.setModule(source_module);
+        const old_scope = self.stm.active_scope;
+        self.stm.active_scope = self.stm.scopes.items[0];
+        defer {
+            self.stm.active_scope = old_scope;
+            self.stm = old_stm;
+            self.current_module_path = old_mod_path;
         }
-    }
 
-    const generic_node_copy = generic_blueprint_extracted.body.copy(self.allocator);
-    const gen_symbol = switch (generic_node_copy) {
-        .FUNCTION => try self.makeGenericFunctionVersion(generic_node_copy, generic_version_name),
-        .STRUCT => try self.makeGenericStructVersion(generic_node_copy, generic_version_name),
-        .UNION => try self.makeGenericUnionVersion(generic_node_copy, generic_version_name),
-        else => unreachable,
+        self.stm.addScope();
+        for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |kind, generic_name| {
+            _ = self.stm.declareSymbol(
+                generic_name.lexeme,
+                kind,
+                .KIND,
+                generic_name.line,
+                generic_name.column,
+                false,
+                false,
+            ) catch {
+                const old_id = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
+                return self.reportDuplicateError(generic_name, old_id.dcl_line, old_id.dcl_column);
+            };
+            const new_symbol = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
+            switch (kind) {
+                .STRUCT => |strct| {
+                    const struct_symbol = old_stm.getSymbol(strct.name) catch unreachable;
+                    new_symbol.name = struct_symbol.name;
+                },
+                .ENUM => |enm| {
+                    const enm_symbol = old_stm.getSymbol(enm.name) catch unreachable;
+                    new_symbol.name = enm_symbol.name;
+                },
+                .UNION => |unin| {
+                    const unin_symbol = old_stm.getSymbol(unin.name) catch unreachable;
+                    new_symbol.name = unin_symbol.name;
+                },
+                else => {},
+            }
+        }
+
+        const generic_node_copy = generic_blueprint_extracted.body.copy(self.allocator);
+        const gen_symbol = switch (generic_node_copy) {
+            .FUNCTION => try self.makeGenericFunctionVersion(generic_node_copy, generic_version_name),
+            .STRUCT => try self.makeGenericStructVersion(generic_node_copy, generic_version_name),
+            .UNION => try self.makeGenericUnionVersion(generic_node_copy, generic_version_name),
+            else => unreachable,
+        };
+
+        self.stm.popScope();
+        break :blk .{ .gen_symbol = gen_symbol, .copy = generic_node_copy };
     };
 
-    self.stm.popScope();
     if (&source_module.stm != self.stm) {
-        self.stm.importSymbol(gen_symbol, generic_version_name, gen_symbol.public) catch unreachable;
+        self.stm.importSymbol(generic_data.gen_symbol, generic_version_name, generic_data.gen_symbol.public) catch unreachable;
     }
 
-    source_module.addStmt(generic_node_copy) catch unreachable;
+    source_module.addStmt(generic_data.copy) catch unreachable;
 
-    return gen_symbol;
+    return generic_data.gen_symbol;
 }
 
 fn genericVersionName(self: *TypeChecker, base_name: []const u8, generic_kinds: []KindId, op: Token) SemanticError![]const u8 {
@@ -2903,6 +3115,8 @@ fn genericVersionName(self: *TypeChecker, base_name: []const u8, generic_kinds: 
 }
 
 fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, generic_version_name: []const u8) SemanticError!*Symbol {
+    function_node.FUNCTION.ignore = true;
+
     function_node.FUNCTION.name.lexeme = generic_version_name;
     try self.declareFunction(function_node.FUNCTION);
     const func_symbol = self.stm.getSymbolGlobal(function_node.FUNCTION.name.lexeme) catch unreachable;
@@ -3015,7 +3229,6 @@ fn scope_generic_user_kind(self: *TypeChecker, generic_expr: *Expr.GenericExpr, 
     if (generic_symbol.kind != .GENERIC) {
         return self.reportError(SemanticError.TypeMismatch, generic_id, "Expected generic function blueprint");
     }
-
     if (generic_symbol.kind.GENERIC.generic_names.len != generic_expr.kinds.len) {
         return self.reportError(SemanticError.TypeMismatch, generic_expr.op, "Inconsistant number of generic types");
     }
@@ -3063,6 +3276,11 @@ fn visitBitAndExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
     const lhs_kind = try self.analyzeExpr(&bitAndExpr.lhs);
     const rhs_kind = try self.analyzeExpr(&bitAndExpr.rhs);
+
+    // if (lhs_kind == .STRUCT) {
+    //     const a = try lhs_kind.STRUCT.fields.getField(self.stm, "#&");
+    //     if (a.kind.FUNC.arg_kinds[0].equal(lhs_kind) or a.kind.FUNC.arg_kinds[0].PTR.child.equal(lhs_kind)) {}
+    // }
 
     _ = try self.staticCoerceKinds(bitAndExpr.op, KindId.newInt(64), lhs_kind);
     _ = try self.staticCoerceKinds(bitAndExpr.op, KindId.newInt(64), rhs_kind);

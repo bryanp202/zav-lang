@@ -664,9 +664,11 @@ fn structStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
     var field_name_list = std.ArrayList(Token).init(self.allocator);
     var field_kind_list = std.ArrayList(KindId).init(self.allocator);
     var method_list = std.ArrayList(Stmt.FunctionStmt).init(self.allocator);
-    // Parse fields and methods
+    // Check for method
     if (self.match(.{ TokenKind.PUB, TokenKind.FN })) {
         try self.struct_method(&method_list);
+    } else if (self.match(.{TokenKind.OVERLOAD})) { // Overload
+        try self.struct_overload(&method_list);
     } else { // Field
         try self.struct_field(&field_name_list, &field_kind_list);
     }
@@ -675,6 +677,8 @@ fn structStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
         // Check for method
         if (self.match(.{ TokenKind.PUB, TokenKind.FN })) {
             try self.struct_method(&method_list);
+        } else if (self.match(.{TokenKind.OVERLOAD})) { // Overload
+            try self.struct_overload(&method_list);
         } else { // Field
             try self.struct_field(&field_name_list, &field_kind_list);
         }
@@ -730,6 +734,50 @@ fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) 
 
     const new_method = try self.functionStmt(is_public);
     method_list.append(new_method.FUNCTION.*) catch unreachable;
+}
+
+/// Parse a struct operator overload
+/// "overload" [operator]
+fn struct_overload(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) SyntaxError!void {
+    const op = self.previous;
+
+    var op_name = self.advance();
+    switch (op_name.kind) {
+        .LEFT_PAREN => try self.consume(TokenKind.RIGHT_PAREN, "Expected ')' in call operator overloading"),
+        .LEFT_SQUARE => try self.consume(TokenKind.RIGHT_SQUARE, "Expected ']' in index operator overloading"),
+        else => {},
+    }
+    op_name.lexeme = op_name.kind.op_name() orelse {
+        return self.errorAt("Expected operator after overload keyword");
+    };
+
+    // Consume '('
+    try self.consume(TokenKind.LEFT_PAREN, "Expected '(' after overload operator");
+    const arg_list_result = try self.parseArgList(TokenKind.RIGHT_PAREN);
+    // Check previous was paren
+    if (self.previous.kind != .RIGHT_PAREN) {
+        return self.errorAt("Expected ')' after function argument list");
+    }
+
+    // Parse return kind
+    const return_kind = try self.parseKind();
+    // Consume '{'
+    try self.consume(TokenKind.LEFT_BRACE, "Expected '{' after function return type");
+    // Parse body
+    const body = try self.blockStmt();
+
+    // Allocate new FunctionStmt
+    const new_func = Stmt.FunctionStmt.init(
+        true,
+        op,
+        op_name,
+        arg_list_result.arg_names,
+        arg_list_result.arg_kinds,
+        return_kind,
+        body,
+    );
+
+    method_list.append(new_func) catch unreachable;
 }
 
 fn unionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
@@ -1610,7 +1658,7 @@ fn address(self: *Parser, expr: ExprNode, operator: Token) SyntaxError!ExprNode 
     // Check if Field or Dereference
     if (self.match(.{TokenKind.STAR})) {
         const new_expr = self.allocator.create(Expr.DereferenceExpr) catch unreachable;
-        new_expr.* = Expr.DereferenceExpr.init(expr, operator);
+        new_expr.* = Expr.DereferenceExpr.init(expr, self.previous);
         const node = ExprNode.init(ExprUnion{ .DEREFERENCE = new_expr });
         return node;
     }
@@ -1907,11 +1955,16 @@ fn scopeExpr(self: *Parser, scope: ExprNode, scope_op: Token) SyntaxError!ExprRe
         return self.errorAt("Expected identifier or super after scope operator");
     }
     const id_token = self.previous;
+    zig_compiler_broken_maybe(id_token);
     const operand = try self.idExpr(id_token);
     const expr = self.allocator.create(Expr.ScopeExpr) catch unreachable;
     expr.* = Expr.ScopeExpr.init(scope, scope_op, operand.expr);
     const scope_node = ExprNode.init(ExprUnion{ .SCOPE = expr });
     return ExprResult.init(scope_node, 0);
+}
+
+fn zig_compiler_broken_maybe(token: Token) void {
+    _ = token;
 }
 
 fn lambdaExpr(self: *Parser) SyntaxError!ExprResult {

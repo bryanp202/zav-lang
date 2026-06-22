@@ -22,6 +22,8 @@ pub const SemanticError = error{
     UnmutatedVarIdentifier,
     FoundMainFunction,
     InvalidMainFunction,
+    InvalidOverload,
+    InvalidIdExpr,
 };
 
 /// Asm Generation Errors

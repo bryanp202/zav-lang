@@ -206,6 +206,7 @@ pub const SymbolTableManager = struct {
 
     pub fn importSymbol(self: *SymbolTableManager, symbol: *Symbol, as_name: []const u8, public: bool) ScopeError!void {
         try self.active_scope.importSymbol(symbol, as_name, self.parent_module, public);
+        self.extern_dependencies.put(symbol.name, {}) catch unreachable;
     }
 
     pub fn addDependency(self: *SymbolTableManager, dependency: *Module, name: []const u8, dcl_line: u64, dcl_column: u64, public: bool) !void {
@@ -617,7 +618,7 @@ pub const StructScope = struct {
             return ScopeError.UndeclaredSymbol;
         };
 
-        if (field.source_module != stm.parent_module) {
+        if (field.source_module != stm.parent_module and (field.scope == .FUNC or field.scope == .METHOD)) {
             stm.extern_dependencies.put(field.name, {}) catch unreachable;
         }
         if (!self.is_open and !field.public) return ScopeError.SymbolNotPublic;
@@ -780,6 +781,19 @@ pub const KindId = union(Kinds) {
         buffer.len -= wrote.len;
         buffer.ptr = wrote.ptr + wrote.len;
         return buffer;
+    }
+
+    pub fn overload_to_str(buf: []u8, op: []const u8, kinds: []const KindId, stm: *SymbolTableManager) []u8 {
+        std.mem.copyForwards(u8, buf, op);
+        var remaining = print_to_buf(buf[op.len..], "{d}", .{kinds.len});
+
+        for (kinds) |kind| {
+            remaining = kind._to_str(remaining, stm);
+        }
+
+        remaining.len = buf.len - remaining.len;
+        remaining.ptr = buf.ptr;
+        return remaining;
     }
 
     pub fn to_str(self: KindId, buf: []u8, stm: *SymbolTableManager) []u8 {
