@@ -245,7 +245,7 @@ fn parseArrayKind(self: *Parser) SyntaxError!KindId {
     // Parse child kind
     const child_kind = try self.parseKind();
 
-    const new_kind = KindId.newArr(self.allocator, child_kind, length, const_child, false);
+    const new_kind = KindId.newArr(self.allocator, child_kind, length, const_child);
     return new_kind;
 }
 

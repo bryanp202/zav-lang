@@ -745,7 +745,7 @@ pub const KindId = union(Kinds) {
             },
             .ARRAY => |arr| {
                 const new_child = arr.child.copy(allocator);
-                return KindId.newArr(allocator, new_child, arr.length, arr.const_items, arr.static);
+                return KindId.newArr(allocator, new_child, arr.length, arr.const_items);
             },
             .FUNC => |func| {
                 const new_ret_kind = allocator.create(KindId) catch unreachable;
@@ -893,7 +893,7 @@ pub const KindId = union(Kinds) {
         return KindId{ .PTR = ptr };
     }
     /// Init a new array kindid
-    pub fn newArr(allocator: std.mem.Allocator, child_kind: KindId, length: u64, const_items: bool, static: bool) KindId {
+    pub fn newArr(allocator: std.mem.Allocator, child_kind: KindId, length: u64, const_items: bool) KindId {
         // Dynamically allocate the child KindId tag
         const child_ptr = allocator.create(KindId) catch unreachable;
         child_ptr.* = child_kind;
@@ -902,7 +902,6 @@ pub const KindId = union(Kinds) {
             .child = child_ptr,
             .length = length,
             .const_items = const_items,
-            .static = static,
         };
         return KindId{ .ARRAY = arr };
     }
@@ -1128,7 +1127,6 @@ const Array = struct {
     child: *KindId,
     length: u64,
     const_items: bool,
-    static: bool,
 
     /// Returns true if this array is the same as another array
     pub fn equal(self: Array, other: Array) bool {
@@ -1137,7 +1135,6 @@ const Array = struct {
 
     /// Calculate the size of this type in bytes
     pub fn size(self: Array) u64 {
-        if (self.static) return 8;
         const element_size = self.child.size();
         const bytes = element_size * self.length;
         return bytes;

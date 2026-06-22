@@ -1619,11 +1619,11 @@ fn visitMutateStmt(self: *TypeChecker, mutStmt: *Stmt.MutStmt) SemanticError!voi
         );
     }
 
-    if ((id_kind == .STRUCT or id_kind == .UNION) and mutStmt.op.kind != .EQUAL) {
+    if ((id_kind == .STRUCT or id_kind == .UNION or id_kind == .ARRAY) and mutStmt.op.kind != .EQUAL) {
         return self.reportError(
             SemanticError.TypeMismatch,
             mutStmt.op,
-            "Structs only support mutations with '=' operator",
+            "Structs, unions, and arrays only support mutations with '=' operator",
         );
     }
 
@@ -2084,7 +2084,7 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
             var new_array_kind: KindId = arrVal.kind.*;
             // Loop for each dimension of arrVal
             for (arrVal.dimensions.slice()) |dim| {
-                new_array_kind = KindId.newArr(self.allocator, new_array_kind, dim, true, false);
+                new_array_kind = KindId.newArr(self.allocator, new_array_kind, dim, true);
             }
             // Update result kind
             node.result_kind = new_array_kind;

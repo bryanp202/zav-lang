@@ -687,7 +687,7 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
                 const id_reg = self.popCPUReg();
                 try self.print("    movsd [{s}], {s} ; Declare identifier\n", .{ id_reg.name, reg.name });
             },
-            .STRUCT, .UNION => {
+            .STRUCT, .UNION, .ARRAY => {
                 const expr_reg = self.popCPUReg();
                 const struct_size = result_kind.size();
                 const id_reg = self.popCPUReg();
@@ -888,7 +888,7 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
                 else => unreachable,
             }
         }
-    } else if (mutStmt.id_kind == .STRUCT or mutStmt.id_kind == .UNION) {
+    } else if (mutStmt.id_kind == .STRUCT or mutStmt.id_kind == .UNION or mutStmt.id_kind == .ARRAY) {
         const expr_reg = self.popCPUReg();
         const id_reg = self.popCPUReg();
         const struct_size = mutStmt.id_kind.size();
