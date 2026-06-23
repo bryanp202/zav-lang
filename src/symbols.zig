@@ -504,7 +504,7 @@ pub const Scope = struct {
 };
 
 pub const UnionScope = struct {
-    canonical_name: []const u8 = undefined,
+    canonical_name: ?[]const u8 = null,
     fields: std.StringHashMap(*Symbol),
     max_size: usize,
     declared: bool = false,
@@ -560,7 +560,7 @@ pub const UnionScope = struct {
 };
 
 pub const StructScope = struct {
-    canonical_name: []const u8 = undefined,
+    canonical_name: ?[]const u8 = null,
     fields: std.StringHashMap(*Symbol),
     next_address: usize,
     is_open: bool,
@@ -844,13 +844,13 @@ pub const KindId = union(Kinds) {
                 return func.ret_kind._to_str(buf_rem, stm);
             },
             .STRUCT => |strct| {
-                return print_to_buf(buf, "{s}", .{strct.fields.canonical_name});
+                return print_to_buf(buf, "{s}", .{strct.fields.canonical_name.?});
             },
             .UNION => |unin| {
-                return print_to_buf(buf, "{s}", .{unin.fields.canonical_name});
+                return print_to_buf(buf, "{s}", .{unin.fields.canonical_name.?});
             },
             .ENUM => |enm| {
-                return print_to_buf(buf, "{s}", .{enm.fields.canonical_name});
+                return print_to_buf(buf, "{s}", .{enm.fields.canonical_name.?});
             },
             .GENERIC_USER_KIND => |generic_kind| generic_kind.display(buf, stm),
             .GENERIC => print_to_buf(buf, "#GENERIC#", .{}),
@@ -1247,7 +1247,7 @@ pub const Union = struct {
 };
 
 pub const EnumFields = struct {
-    canonical_name: []const u8 = undefined,
+    canonical_name: ?[]const u8 = null,
     variants: std.StringHashMap(*Symbol),
 
     pub fn size(self: EnumFields) usize {
