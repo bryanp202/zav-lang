@@ -1814,8 +1814,9 @@ fn visitReturnStmt(self: *TypeChecker, returnStmt: *Stmt.ReturnStmt) SemanticErr
     self.call_chain = false;
     // Check if return current return type is void
     if (self.current_return_kind == .VOID) {
-        if (returnStmt.expr != null) {
-            return self.reportError(SemanticError.TypeMismatch, returnStmt.op, "Expected no return expression");
+        if (returnStmt.expr) |*return_expr| {
+            const expr_kind = try self.analyzeExpr(return_expr);
+            _ = try self.staticCoerceKinds(returnStmt.op, self.current_return_kind, expr_kind);
         }
     } else if (returnStmt.*.expr) |*return_expr| {
         // Check if return types matches
