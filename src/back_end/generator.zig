@@ -400,14 +400,7 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
 fn realignStack(next_address: u64, size: u64) u64 {
     // Get allignment of data size
     const alignment: u64 = if (size > 4) 8 else if (size > 2) 4 else if (size > 1) 2 else 1;
-    const offset = next_address & (alignment - 1);
-
-    // Check if needs to be realigned
-    if (offset != 0) {
-        return next_address + (alignment - offset);
-    }
-    // Is already aligned
-    return next_address;
+    return (next_address + alignment - 1) & ~(alignment - 1);
 }
 
 /// Return the keyword such as "byte", "dword" for a given KindId size
@@ -619,7 +612,7 @@ fn visitFunctionStmt(self: *Generator, functionStmt: Stmt.FunctionStmt, args_siz
 
     self.current_func_args_size = args_size;
     // Get locals stack size
-    const locals_size = functionStmt.locals_size + ((8 - (functionStmt.locals_size & 7)) & 7);
+    const locals_size = (functionStmt.locals_size + 7) & ~@as(u64, 7);
     self.current_func_locals_size = locals_size;
 
     self.func_stack_alignment = 8;
@@ -677,6 +670,10 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
         const result_kind = define_expr.result_kind;
 
         switch (result_kind) {
+            .VOID => {
+                _ = self.popCPUReg();
+                _ = self.popCPUReg();
+            },
             .FLOAT32 => {
                 const reg = self.popSSEReg();
                 const id_reg = self.popCPUReg();
@@ -893,6 +890,9 @@ fn visitMutateStmt(self: *Generator, mutStmt: Stmt.MutStmt) GenerationError!void
         const id_reg = self.popCPUReg();
         const struct_size = mutStmt.id_kind.size();
         try self.copy_struct(id_reg, expr_reg, struct_size, 0);
+    } else if (mutStmt.id_kind == .VOID) {
+        _ = self.popCPUReg();
+        _ = self.popCPUReg();
     } else {
         // Get register
         const expr_reg = self.popCPUReg();
@@ -1776,19 +1776,6 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     // Store next address on the stack
     var next_address: u64 = 8;
 
-    if (callExpr.chain) {
-        try self.write(
-            \\    mov rax, [rbp-8]
-            \\    mov [rsp+8], rax
-            \\
-        );
-        next_address += 8;
-    } else if (callExpr.non_chain_ptr) |ptr_str| {
-        try self.print("    lea rax, [{s}+{d}]\n", .{ ptr_str, callExpr.non_chain_ptr_offset - self.current_func_args_size });
-        try self.write("    mov [rsp+8], rax\n");
-        next_address += 8;
-    }
-
     // Generate each argument
     for (callExpr.args) |arg| {
         // Generate arg
@@ -1903,6 +1890,19 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
             },
             else => unreachable,
         }
+    }
+
+    if (callExpr.chain) {
+        next_address = realignStack(next_address, 8);
+        try self.print(
+            \\    mov rax, [rbp-8]
+            \\    mov [rsp+{d}], rax
+            \\
+        , .{next_address});
+    } else if (callExpr.non_chain_ptr) |ptr_str| {
+        next_address = realignStack(next_address, 8);
+        try self.print("    lea rax, [{s}+{d}]\n", .{ ptr_str, callExpr.non_chain_ptr_offset - self.current_func_args_size });
+        try self.print("    mov [rsp+{d}], rax\n", .{next_address});
     }
 
     // Generate call

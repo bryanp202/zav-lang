@@ -1200,10 +1200,7 @@ const Function = struct {
             const child_size = try kind.update(stm, checker);
             size += child_size;
             const alignment: u64 = if (child_size > 4) 8 else if (child_size > 2) 4 else if (child_size > 1) 2 else 1;
-            const offset = size & (alignment - 1);
-            if (offset != 0) {
-                size += alignment - offset;
-            }
+            size = (size + alignment - 1) & ~(alignment - 1);
         }
         self.args_size = size;
 
