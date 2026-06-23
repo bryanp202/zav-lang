@@ -646,6 +646,7 @@ fn staticCoerceKinds(self: *TypeChecker, op: Token, static_kind: KindId, rhs_kin
                 // Return lhs and and no upgrades
                 return CoercionResult.init(static_kind, false, false);
             }
+
             // Else no implicit coercion defined
             return self.reportError(SemanticError.TypeMismatch, op, "Incompatible types");
         },
@@ -950,13 +951,15 @@ fn declareGeneric(self: *TypeChecker, generic_stmt: *Stmt.GenericStmt) SemanticE
 
 /// Declare a enum type, checking if name has already been used
 fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void {
-    const new_variants = self.allocator.create(std.StringHashMap(*Symbol)) catch unreachable;
-    new_variants.* = std.StringHashMap(*Symbol).init(self.allocator);
+    const new_variants = self.allocator.create(Symbols.EnumFields) catch unreachable;
+    new_variants.* = .{
+        .variants = std.StringHashMap(*Symbol).init(self.allocator),
+    };
 
     const enum_kind = KindId.newEnumWithVariants(enum_stmt.id.lexeme, new_variants);
 
     for (0.., enum_stmt.variant_names) |value, variant| {
-        const getOrPut = new_variants.getOrPut(variant.lexeme) catch unreachable;
+        const getOrPut = new_variants.variants.getOrPut(variant.lexeme) catch unreachable;
 
         if (getOrPut.found_existing) {
             const line = getOrPut.value_ptr.*.dcl_line;
@@ -1153,7 +1156,7 @@ fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, 
 
                     kind.* = KindId{ .UNION = Symbols.Union{ .name = unknown_name, .fields = field_symbol.kind.UNION.fields } };
                 },
-                .ENUM => kind.* = KindId{ .ENUM = Symbols.Enum{ .name = unknown_name, .variants = field_symbol.kind.ENUM.variants } },
+                .ENUM => kind.* = KindId{ .ENUM = Symbols.Enum{ .name = unknown_name, .fields = field_symbol.kind.ENUM.fields } },
                 else => kind.* = field_symbol.kind,
             }
         },
@@ -1373,19 +1376,6 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: Ki
     // Add new scope for arguments
     self.stm.addScope();
 
-    if (func.return_kind == .STRUCT or func.return_kind == .UNION) {
-        const return_struct_ptr = func_kind.FUNC.arg_kinds[func_kind.FUNC.arg_kinds.len - 1];
-        _ = self.stm.declareSymbol(
-            "return",
-            return_struct_ptr,
-            ScopeKind.ARG,
-            func.op.line,
-            func.op.column,
-            false,
-            false,
-        ) catch unreachable;
-    }
-
     // Declare args
     for (func.arg_names, func_kind.FUNC.arg_kinds[0..func.arg_names.len]) |name, *kind| {
         _ = kind.update(self.stm, self) catch {
@@ -1404,6 +1394,19 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: Ki
             const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
             return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
         };
+    }
+
+    if (func.return_kind == .STRUCT or func.return_kind == .UNION) {
+        const return_struct_ptr = func_kind.FUNC.arg_kinds[func_kind.FUNC.arg_kinds.len - 1];
+        _ = self.stm.declareSymbol(
+            "return",
+            return_struct_ptr,
+            ScopeKind.ARG,
+            func.op.line,
+            func.op.column,
+            false,
+            false,
+        ) catch unreachable;
     }
 
     // Update current return kind
@@ -3033,69 +3036,68 @@ fn makeGenericVersion(
         };
     }
 
-    const generic_data = blk: {
-        const old_stm = self.stm;
-        const old_mod_path = self.current_module_path;
-        self.setModule(source_module);
-        const old_scope = self.stm.active_scope;
-        self.stm.active_scope = self.stm.scopes.items[0];
-        defer {
-            self.stm.active_scope = old_scope;
-            self.stm = old_stm;
-            self.current_module_path = old_mod_path;
-        }
-
-        self.stm.addScope();
-        for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |kind, generic_name| {
-            _ = self.stm.declareSymbol(
-                generic_name.lexeme,
-                kind,
-                .KIND,
-                generic_name.line,
-                generic_name.column,
-                false,
-                false,
-            ) catch {
-                const old_id = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
-                return self.reportDuplicateError(generic_name, old_id.dcl_line, old_id.dcl_column);
-            };
-            const new_symbol = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
-            switch (kind) {
-                .STRUCT => |strct| {
-                    const struct_symbol = old_stm.getSymbol(strct.name) catch unreachable;
-                    new_symbol.name = struct_symbol.name;
-                },
-                .ENUM => |enm| {
-                    const enm_symbol = old_stm.getSymbol(enm.name) catch unreachable;
-                    new_symbol.name = enm_symbol.name;
-                },
-                .UNION => |unin| {
-                    const unin_symbol = old_stm.getSymbol(unin.name) catch unreachable;
-                    new_symbol.name = unin_symbol.name;
-                },
-                else => {},
-            }
-        }
-
-        const generic_node_copy = generic_blueprint_extracted.body.copy(self.allocator);
-        const gen_symbol = switch (generic_node_copy) {
-            .FUNCTION => try self.makeGenericFunctionVersion(generic_node_copy, generic_version_name),
-            .STRUCT => try self.makeGenericStructVersion(generic_node_copy, generic_version_name),
-            .UNION => try self.makeGenericUnionVersion(generic_node_copy, generic_version_name),
-            else => unreachable,
-        };
-
-        self.stm.popScope();
-        break :blk .{ .gen_symbol = gen_symbol, .copy = generic_node_copy };
-    };
-
-    if (&source_module.stm != self.stm) {
-        self.stm.importSymbol(generic_data.gen_symbol, generic_version_name, generic_data.gen_symbol.public) catch unreachable;
+    const old_stm = self.stm;
+    const old_mod_path = self.current_module_path;
+    self.setModule(source_module);
+    const old_scope = self.stm.active_scope;
+    self.stm.active_scope = self.stm.scopes.items[0];
+    defer {
+        self.stm.active_scope = old_scope;
+        self.stm = old_stm;
+        self.current_module_path = old_mod_path;
     }
 
-    source_module.addStmt(generic_data.copy) catch unreachable;
+    self.stm.addScope();
+    for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |kind, generic_name| {
+        _ = self.stm.declareSymbol(
+            generic_name.lexeme,
+            kind,
+            .KIND,
+            generic_name.line,
+            generic_name.column,
+            false,
+            false,
+        ) catch {
+            const old_id = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
+            return self.reportDuplicateError(generic_name, old_id.dcl_line, old_id.dcl_column);
+        };
 
-    return generic_data.gen_symbol;
+        // const new_symbol = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
+
+        // switch (kind) {
+        //     .STRUCT => |strct| {
+        //         const struct_symbol = old_stm.getSymbol(strct.name) catch unreachable;
+        //         new_symbol.name = struct_symbol.name;
+        //     },
+        //     .ENUM => |enm| {
+        //         const enm_symbol = old_stm.getSymbol(enm.name) catch unreachable;
+        //         new_symbol.name = enm_symbol.name;
+        //     },
+        //     .UNION => |unin| {
+        //         const unin_symbol = old_stm.getSymbol(unin.name) catch unreachable;
+        //         new_symbol.name = unin_symbol.name;
+        //     },
+        //     else => {},
+        // }
+    }
+
+    const generic_node_copy = generic_blueprint_extracted.body.copy(self.allocator);
+    const gen_symbol = switch (generic_node_copy) {
+        .FUNCTION => try self.makeGenericFunctionVersion(generic_node_copy, generic_version_name),
+        .STRUCT => try self.makeGenericStructVersion(generic_node_copy, generic_version_name),
+        .UNION => try self.makeGenericUnionVersion(generic_node_copy, generic_version_name),
+        else => unreachable,
+    };
+
+    self.stm.popScope();
+
+    if (&source_module.stm != old_stm) {
+        old_stm.importSymbol(gen_symbol, generic_version_name, gen_symbol.public) catch unreachable;
+    }
+
+    source_module.addStmt(generic_node_copy) catch unreachable;
+
+    return gen_symbol;
 }
 
 fn genericVersionName(self: *TypeChecker, base_name: []const u8, generic_kinds: []KindId, op: Token) SemanticError![]const u8 {
@@ -3202,6 +3204,9 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
     const generic_symbol_extracted_kind = generic_symbol.kind.GENERIC;
     const parent_module = generic_symbol.source_module;
     const parent_stm = &parent_module.stm;
+    if (generic_symbol_extracted_kind.generic_names.len != generic_user_kind.generic_kinds.len) {
+        return self.reportError(SemanticError.TypeMismatch, generic_user_kind.id, "Inconsistant number of generic types");
+    }
 
     const generic_name = try self.genericVersionName(
         generic_user_kind.id.lexeme,

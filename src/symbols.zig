@@ -269,7 +269,7 @@ pub const SymbolTableManager = struct {
 
             const symbol = switch (target) {
                 .MODULE => |module| try module.stm.getSymbol(name),
-                .ENUM => |enm| enm.variants.get(name) orelse return ScopeError.UndeclaredSymbol,
+                .ENUM => |enm| enm.fields.variants.get(name) orelse return ScopeError.UndeclaredSymbol,
                 .STRUCT => |strct| blk: {
                     const struct_symbol = try strct.fields.getField(self, name);
                     if (struct_symbol.kind != .FUNC) {
@@ -454,6 +454,15 @@ pub const Scope = struct {
                 size,
             );
             getOrPut.value_ptr.* = new_symbol;
+
+            if (scope == .ENUM or scope == .STRUCT or scope == .UNION) {
+                switch (kind) {
+                    .STRUCT => |strct| strct.fields.canonical_name = new_symbol.name,
+                    .UNION => |unin| unin.fields.canonical_name = new_symbol.name,
+                    .ENUM => |enm| enm.fields.canonical_name = new_symbol.name,
+                    else => {},
+                }
+            }
         }
         // Return mem location
         return mem_loc;
@@ -495,6 +504,7 @@ pub const Scope = struct {
 };
 
 pub const UnionScope = struct {
+    canonical_name: []const u8 = undefined,
     fields: std.StringHashMap(*Symbol),
     max_size: usize,
     declared: bool = false,
@@ -550,6 +560,7 @@ pub const UnionScope = struct {
 };
 
 pub const StructScope = struct {
+    canonical_name: []const u8 = undefined,
     fields: std.StringHashMap(*Symbol),
     next_address: usize,
     is_open: bool,
@@ -833,16 +844,13 @@ pub const KindId = union(Kinds) {
                 return func.ret_kind._to_str(buf_rem, stm);
             },
             .STRUCT => |strct| {
-                const symbol = stm.getSymbol(strct.name) catch return print_to_buf(buf, "#UNKNOWN#", .{});
-                return print_to_buf(buf, "{s}", .{symbol.name});
+                return print_to_buf(buf, "{s}", .{strct.fields.canonical_name});
             },
             .UNION => |unin| {
-                const symbol = stm.getSymbol(unin.name) catch return print_to_buf(buf, "#UNKNOWN#", .{});
-                return print_to_buf(buf, "{s}", .{symbol.name});
+                return print_to_buf(buf, "{s}", .{unin.fields.canonical_name});
             },
             .ENUM => |enm| {
-                const symbol = stm.getSymbol(enm.name) catch return print_to_buf(buf, "#UNKNOWN#", .{});
-                return print_to_buf(buf, "{s}", .{symbol.name});
+                return print_to_buf(buf, "{s}", .{enm.fields.canonical_name});
             },
             .GENERIC_USER_KIND => |generic_kind| generic_kind.display(buf, stm),
             .GENERIC => print_to_buf(buf, "#GENERIC#", .{}),
@@ -947,13 +955,13 @@ pub const KindId = union(Kinds) {
         return KindId{ .UNION = new_union };
     }
     /// Make an enum with a variant field
-    pub fn newEnumWithVariants(name: []const u8, variants: *std.StringHashMap(*Symbol)) KindId {
-        const new_enum = Enum{ .name = name, .variants = variants };
+    pub fn newEnumWithVariants(name: []const u8, fields: *EnumFields) KindId {
+        const new_enum = Enum{ .name = name, .fields = fields };
         return KindId{ .ENUM = new_enum };
     }
     /// Make an empty enum
     pub fn newEnum(name: []const u8) KindId {
-        const new_enum = Enum{ .name = name, .variants = undefined };
+        const new_enum = Enum{ .name = name, .fields = undefined };
         return KindId{ .ENUM = new_enum };
     }
 
@@ -994,7 +1002,7 @@ pub const KindId = union(Kinds) {
             .ARRAY => |arr| arr.size(),
             .STRUCT => |stct| stct.fields.size(),
             .UNION => |unon| unon.fields.size(),
-            .ENUM => 2,
+            .ENUM => |enm| enm.fields.size(),
             .USER_KIND, .GENERIC_USER_KIND => unreachable,
         };
     }
@@ -1008,7 +1016,7 @@ pub const KindId = union(Kinds) {
             .INT => |int| int.size(),
             .FLOAT32 => 4,
             .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC, .STRUCT, .UNION => 8,
-            .ENUM => 2,
+            .ENUM => |enm| enm.fields.size(),
             .USER_KIND, .MODULE, .GENERIC, .GENERIC_USER_KIND => unreachable,
         };
     }
@@ -1025,27 +1033,24 @@ pub const KindId = union(Kinds) {
             .PTR => |*ptr| ptr.updatePtr(stm, checker),
             .ARRAY => |*arr| arr.updateArray(stm, checker),
             .FUNC => |*func| func.updateArgSize(stm, checker),
-            .UNION => |*unon| unon.updateFields(stm, unon.name),
-            .STRUCT => |*strct| strct.updateFields(stm, strct.name),
-            .ENUM => |*enm| enm.updateVariants(stm, enm.name),
+            .UNION => |*unon| unon.updateFields(),
+            .STRUCT => |*strct| strct.updateFields(),
+            .ENUM => |*enm| enm.updateVariants(),
             .USER_KIND => |name| {
                 const symbol = try stm.peakSymbol(name);
 
                 switch (symbol.kind) {
                     .STRUCT => {
                         self.* = symbol.kind;
-                        self.STRUCT.name = name;
-                        return self.STRUCT.updateFields(stm, name);
+                        return self.STRUCT.updateFields();
                     },
                     .UNION => {
                         self.* = symbol.kind;
-                        self.UNION.name = name;
-                        return self.UNION.updateFields(stm, name);
+                        return self.UNION.updateFields();
                     },
                     .ENUM => {
                         self.* = symbol.kind;
-                        self.ENUM.name = name;
-                        return self.ENUM.updateVariants(stm, name);
+                        return self.ENUM.updateVariants();
                     },
                     else => {
                         if (symbol.scope != .KIND) {
@@ -1057,7 +1062,7 @@ pub const KindId = union(Kinds) {
                     },
                 }
             },
-            .GENERIC_USER_KIND => return checker.check_generic_user_kind(self) catch return ScopeError.UndeclaredSymbol,
+            .GENERIC_USER_KIND => return checker.check_generic_user_kind(self) catch unreachable,
             else => unreachable,
         };
     }
@@ -1221,10 +1226,7 @@ pub const Struct = struct {
     }
 
     /// Resolve the struct size of a user defined struct kind
-    pub fn updateFields(self: *Struct, stm: *SymbolTableManager, name: []const u8) ScopeError!usize {
-        const symbol = try stm.getSymbol(name);
-        if (symbol.kind != .STRUCT) return ScopeError.UndeclaredSymbol;
-        self.fields = symbol.kind.STRUCT.fields;
+    pub fn updateFields(self: *Struct) ScopeError!usize {
         return self.fields.next_address;
     }
 };
@@ -1239,11 +1241,18 @@ pub const Union = struct {
         return self.fields == other.fields;
     }
 
-    pub fn updateFields(self: *Union, stm: *SymbolTableManager, name: []const u8) ScopeError!usize {
-        const symbol = try stm.getSymbol(name);
-        if (symbol.kind != .UNION) return ScopeError.UndeclaredSymbol;
-        self.fields = symbol.kind.UNION.fields;
+    pub fn updateFields(self: *Union) ScopeError!usize {
         return self.fields.max_size;
+    }
+};
+
+pub const EnumFields = struct {
+    canonical_name: []const u8 = undefined,
+    variants: std.StringHashMap(*Symbol),
+
+    pub fn size(self: EnumFields) usize {
+        _ = self;
+        return 2;
     }
 };
 
@@ -1252,17 +1261,15 @@ pub const Union = struct {
 /// All enums are treated as u16 at runtime
 pub const Enum = struct {
     name: []const u8,
-    variants: *std.StringHashMap(*Symbol),
+    fields: *EnumFields,
 
     pub fn equal(self: Enum, other: Enum) bool {
-        return self.variants == other.variants;
+        return self.fields == other.fields;
     }
 
     /// Resolve the struct size of a user defined struct kind
-    pub fn updateVariants(self: *Enum, stm: *SymbolTableManager, name: []const u8) ScopeError!usize {
-        const symbol = try stm.getSymbol(name);
-        if (symbol.kind != .ENUM) return ScopeError.UndeclaredSymbol;
-        self.variants = symbol.kind.ENUM.variants;
+    pub fn updateVariants(self: *Enum) ScopeError!usize {
+        _ = self;
         return 2;
     }
 };
