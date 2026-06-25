@@ -1062,7 +1062,7 @@ pub const KindId = union(Kinds) {
                     },
                 }
             },
-            .GENERIC_USER_KIND => return checker.check_generic_user_kind(self) catch unreachable,
+            .GENERIC_USER_KIND => return try checker.check_generic_user_kind(self),
             else => unreachable,
         };
     }
