@@ -1062,7 +1062,7 @@ pub const KindId = union(Kinds) {
                     },
                 }
             },
-            .GENERIC_USER_KIND => return try checker.check_generic_user_kind(self),
+            .GENERIC_USER_KIND => checker.check_generic_user_kind(self) catch ScopeError.UndeclaredSymbol,
             else => unreachable,
         };
     }
