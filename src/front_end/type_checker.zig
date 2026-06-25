@@ -605,19 +605,6 @@ fn staticCoerceKinds(self: *TypeChecker, op: Token, static_kind: KindId, rhs_kin
                 // Return static kind
                 return CoercionResult.init(static_kind, false, false);
             },
-            // Right - array
-            .ARRAY => |array| {
-                // Check if making constant data mutable
-                if (array.const_items and !l_ptr.const_child) {
-                    return self.reportError(SemanticError.UnsafeCoercion, op, "Cannot downgrade pointer of constant data");
-                }
-                const array_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
-                if (!l_ptr.equal(array_ptr.PTR)) {
-                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
-                }
-                // Return a static kind
-                return CoercionResult.init(static_kind, false, false);
-            },
             // All other combinations are illegal
             else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
         },
@@ -817,16 +804,6 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
             // Right - Ptr
             .PTR => |r_ptr| {
                 if (!l_ptr.equal(r_ptr)) {
-                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
-                }
-                // Return a I64
-                const new_int = KindId.newInt(64);
-                return CoercionResult.init(new_int, false, false);
-            },
-            // Right - array
-            .ARRAY => |array| {
-                const array_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
-                if (!l_ptr.equal(array_ptr.PTR)) {
                     return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
                 }
                 // Return a I64
@@ -1871,6 +1848,7 @@ const IDResult = struct {
 fn _analyzeIDExpr(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
     switch (node.*.expr) {
         .SCOPE => return self.visitScopeExprWrapped(node),
+        .CONVERSION => return self.visitConvExprWrapped(node),
         .IDENTIFIER => return self.visitIdentifierExprWrapped(node),
         .GENERIC => return self.visitGenericExprWrapped(node),
         .INDEX => return self.visitIndexExprWrapped(node),
@@ -1888,7 +1866,7 @@ fn _analyzeIDExpr(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
 fn analyzeIDExpr(self: *TypeChecker, node: *ExprNode, op: Token) SemanticError!IDResult {
     return self._analyzeIDExpr(node) catch |err| {
         return switch (err) {
-            SemanticError.InvalidIdExpr => self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array for assignment"),
+            SemanticError.InvalidIdExpr => self.reportError(SemanticError.TypeMismatch, op, "Expected an lvalue"),
             else => err,
         };
     };
@@ -1902,7 +1880,7 @@ fn analyzeIDExprCheckOverload(self: *TypeChecker, node: *ExprNode, op: Token) Se
             if (node.expr == .CALL) {
                 return IDResult{ .kind = res, .mutable = true, .l_value = false };
             }
-            return self.reportError(SemanticError.TypeMismatch, op, "Expected an identifier or dereferenced pointer/array for assignment");
+            return self.reportError(SemanticError.TypeMismatch, op, "Expected an lvalue");
         }
         return err;
     };
@@ -2215,17 +2193,9 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const static_arg_count = native.arg_kinds.len;
     for (native.arg_kinds, call_args[0..static_arg_count], 0..) |native_arg_kind, *call_arg, count| {
         // Evaluate argument type
-        var arg_kind = try self.analyzeExpr(call_arg);
+        const arg_kind = try self.analyzeExpr(call_arg);
         // Update arg_kinds
         nativeExpr.arg_kinds[count] = arg_kind;
-
-        // Decay any arrays into pointers
-        if (arg_kind == .ARRAY) {
-            // Downgrade to a ptr
-            arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
-            // Update call_arg kind
-            call_arg.*.result_kind = arg_kind;
-        }
 
         // Check if match or coerceable
         const coerce_result = try self.staticCoerceKinds(
@@ -2339,13 +2309,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Check arg types
     for (call_args, callee_args) |*caller_arg, callee_arg| {
         // Evaluate argument type
-        var arg_kind = try self.analyzeExpr(caller_arg);
-
-        // Decay any arrays into pointers
-        if (arg_kind == .ARRAY) {
-            // Downgrade to a ptr
-            arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
-        }
+        const arg_kind = try self.analyzeExpr(caller_arg);
 
         // Check if match or coerceable
         const coerce_result = try self.staticCoerceKinds(
@@ -2546,7 +2510,8 @@ fn visitDereferenceExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindI
 fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
     // Extract index expression
     const indexExpr = node.expr.INDEX;
-    const lhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.rhs) else try self.analyzeExpr(&indexExpr.lhs);
+    const lhs_id_result = if (indexExpr.reversed) try self.analyzeIDExpr(&indexExpr.rhs, indexExpr.op) else try self.analyzeIDExpr(&indexExpr.lhs, indexExpr.op);
+    const lhs_kind = lhs_id_result.kind;
     const rhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.lhs) else try self.analyzeExpr(&indexExpr.rhs);
 
     if (indexExpr.reversed) {
@@ -2647,6 +2612,18 @@ fn visitConvExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     return convKind;
 }
 
+fn visitConvExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDResult {
+    const convExpr = node.expr.CONVERSION;
+    _ = node.result_kind.update(self.stm, self) catch {
+        return self.reportError(SemanticError.UnresolvableIdentifier, convExpr.op, "Could not resolve struct type in this conversion statement");
+    };
+    const convKind = node.result_kind;
+    var id_result = try self.analyzeIDExpr(&convExpr.operand, convExpr.op);
+    id_result.kind = convKind;
+    // convKind == convExpr.operand.result_kind || areLegal()
+    return id_result;
+}
+
 /// Visit a unary expr
 fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Extract unaryExpr
@@ -2701,7 +2678,10 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             if (!id_result.l_value and id_result.kind != .STRUCT and id_result.kind != .UNION) {
                 return self.reportError(SemanticError.UnsafeCoercion, unaryExpr.op, "Expected an lvalue for reference expression");
             }
-            const new_ptr = KindId.newPtr(self.allocator, id_result.kind, !id_result.mutable);
+
+            const child_kind = if (id_result.kind == .ARRAY) id_result.kind.ARRAY.child.* else id_result.kind;
+
+            const new_ptr = KindId.newPtr(self.allocator, child_kind, !id_result.mutable);
             node.result_kind = new_ptr;
             return node.result_kind;
         },

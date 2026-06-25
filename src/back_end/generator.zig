@@ -1650,7 +1650,7 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
                     else => try self.print("    mov [rsp+{d}], {s}\n", .{ stack_pos, reg.name }),
                 }
             },
-            .PTR, .FUNC => {
+            .PTR, .FUNC, .ARRAY => {
                 // Get register and pop
                 const reg = self.popCPUReg();
                 try self.print("    mov [rsp+{d}], {s}\n", .{ stack_pos, reg.name });
@@ -1851,7 +1851,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
                 // Increment next address
                 next_address += size;
             },
-            .PTR, .FUNC, .ARRAY => {
+            .PTR, .FUNC => {
                 // Get kind size
                 const size: u64 = 8;
                 // Check for alignment
@@ -1864,7 +1864,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
                 // Increment next address
                 next_address += size;
             },
-            .STRUCT, .UNION => {
+            .STRUCT, .UNION, .ARRAY => {
                 const size = arg.result_kind.size();
                 next_address = realignStack(next_address, size);
 
