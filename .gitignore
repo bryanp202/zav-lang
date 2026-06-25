@@ -1,0 +1,6 @@
+todo.txt
+.vs
+.vscode
+.zig-cache
+/zig-out/bin
+/tools

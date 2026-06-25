@@ -1260,7 +1260,7 @@ fn create_native(allocator: std.mem.Allocator) Native {
                 \\    push 0
                 \\    push 0
                 \\    push 0x80
-                \\    push 1
+                \\    push 2
                 \\    sub rsp, 32
                 \\    call CreateFileA
                 \\    add rsp, 64
