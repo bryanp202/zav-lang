@@ -2242,6 +2242,8 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
                 coerce_result.final_kind,
             );
         }
+
+        call_arg.result_kind = coerce_result.final_kind;
     }
 
     // Check types of all variadic arguments
@@ -2360,6 +2362,8 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
                 coerce_result.final_kind,
             );
         }
+
+        caller_arg.result_kind = coerce_result.final_kind;
     }
     self.call_chain = pre_arg_call_chain;
     self.current_function_return_ptr = pre_arg_func_return_ptr;
