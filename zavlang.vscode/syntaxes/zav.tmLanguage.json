@@ -97,13 +97,13 @@
 		"control-keywords": {
 			"patterns": [{
 				"name": "keyword.control.zav",
-				"match": "\\b(if|else|while|loop|return|break|continue|switch|then|defer|for)\\b"
+				"match": "\\b(compif|if|else|while|loop|return|break|continue|switch|then|defer|for)\\b"
 			}]
 		},
 		"operator-keywords": {
 			"patterns": [{
 				"name": "keyword.zav",
-				"match": "\\b(or|and|use|pub|mod|as|fn|var|const|union|struct|enum|super)\\b"
+				"match": "\\b(or|and|use|pub|mod|as|fn|overload|var|const|union|struct|enum|super)\\b"
 			}]
 		},
 		"strings": {

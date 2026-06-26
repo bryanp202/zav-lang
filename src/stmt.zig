@@ -20,6 +20,7 @@ pub const StmtNode = union(enum) {
     WHILE: *WhileStmt,
     BLOCK: *BlockStmt,
     IF: *IfStmt,
+    COMPIF: *CompifStmt,
     BREAK: *BreakStmt,
     CONTINUE: *ContinueStmt,
     FUNCTION: *FunctionStmt,
@@ -44,6 +45,7 @@ pub const StmtNode = union(enum) {
             .WHILE => |whileStmt| whileStmt.copy(allocator),
             .BLOCK => |blockStmt| blockStmt.copy(allocator),
             .IF => |ifStmt| ifStmt.copy(allocator),
+            .COMPIF => |compifStmt| compifStmt.copy(allocator),
             .BREAK => |breakStmt| breakStmt.copy(allocator),
             .CONTINUE => |contStmt| contStmt.copy(allocator),
             .FUNCTION => |funcStmt| funcStmt.copy(allocator),
@@ -146,6 +148,27 @@ pub const StmtNode = union(enum) {
                 std.debug.print(")", .{});
                 ifStmt.then_branch.display(stm);
                 if (ifStmt.else_branch) |else_branch| {
+                    std.debug.print("else ", .{});
+                    else_branch.display(stm);
+                }
+            },
+            .COMPIF => |compifStmt| {
+                std.debug.print("if(", .{});
+                compifStmt.conditional.display(stm);
+
+                if (compifStmt.match_type) |match_type| {
+                    var buf: [512]u8 = undefined;
+                    const type_name = match_type.to_str(&buf, stm);
+                    if (compifStmt.is_equal) {
+                        std.debug.print(" : {s}", .{type_name});
+                    } else {
+                        std.debug.print(" : !{s}", .{type_name});
+                    }
+                }
+
+                std.debug.print(")", .{});
+                compifStmt.then_branch.display(stm);
+                if (compifStmt.else_branch) |else_branch| {
                     std.debug.print("else ", .{});
                     else_branch.display(stm);
                 }
@@ -637,6 +660,45 @@ pub const IfStmt = struct {
             .else_branch = new_else_branch,
         };
         return StmtNode{ .IF = new_stmt };
+    }
+};
+
+/// Used to store a Comptime conditional statement
+/// CompifStmt -> "compif" '(' expression [:] (!)? Type ')' statement ("else" statement)?
+pub const CompifStmt = struct {
+    op: Token,
+    conditional: ExprNode,
+    is_equal: bool,
+    match_type: ?KindId,
+    then_branch: StmtNode,
+    else_branch: ?StmtNode,
+    skip_then_branch_compile: bool = false,
+
+    /// Initialize an expr stmt for while loop
+    pub fn init(op: Token, conditional: ExprNode, is_equal: bool, match_type: ?KindId, then_branch: StmtNode, else_branch: ?StmtNode) CompifStmt {
+        return CompifStmt{
+            .op = op,
+            .conditional = conditional,
+            .is_equal = is_equal,
+            .match_type = match_type,
+            .then_branch = then_branch,
+            .else_branch = else_branch,
+        };
+    }
+
+    pub fn copy(self: CompifStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(CompifStmt) catch unreachable;
+        const new_else_branch = if (self.else_branch) |else_branch| else_branch.copy(allocator) else null;
+        const match_type = if (self.match_type) |match_type| match_type.copy(allocator) else null;
+        new_stmt.* = CompifStmt{
+            .op = self.op,
+            .conditional = self.conditional.copy(allocator),
+            .is_equal = self.is_equal,
+            .match_type = match_type,
+            .then_branch = self.then_branch.copy(allocator),
+            .else_branch = new_else_branch,
+        };
+        return StmtNode{ .COMPIF = new_stmt };
     }
 };
 

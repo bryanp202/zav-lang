@@ -544,6 +544,7 @@ fn genStmt(self: *Generator, stmt: StmtNode) GenerationError!void {
         .FOR => |forStmt| try self.visitForStmt(forStmt.*),
         .SWITCH => |switchStmt| try self.visitSwitchStmt(switchStmt.*),
         .IF => |ifStmt| try self.visitIfStmt(ifStmt.*),
+        .COMPIF => |compifStmt| try self.visitCompifStmt(compifStmt.*),
         .RETURN => |returnStmt| try self.visitReturnStmt(returnStmt.*),
         .BLOCK => |blockStmt| try self.visitBlockStmt(blockStmt.*),
         .BREAK => |breakStmt| try self.visitBreakStmt(breakStmt.*),
@@ -1222,6 +1223,17 @@ fn visitIfStmt(self: *Generator, ifStmt: Stmt.IfStmt) GenerationError!void {
     } else {
         // Generate then branch skip label
         try self.print(".L{d}:\n", .{else_label});
+    }
+}
+
+/// Generate an if statement
+fn visitCompifStmt(self: *Generator, compifStmt: Stmt.CompifStmt) GenerationError!void {
+    if (compifStmt.skip_then_branch_compile) {
+        if (compifStmt.else_branch) |else_branch| {
+            try self.genStmt(else_branch);
+        }
+    } else {
+        try self.genStmt(compifStmt.then_branch);
     }
 }
 

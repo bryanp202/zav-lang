@@ -437,6 +437,10 @@ pub const Scanner = struct {
                                         else => break :identifier_loop,
                                     }
                                 },
+                                'm' => {
+                                    _ = self.advance();
+                                    return self.checkKeyword("pif", TokenKind.COMPIF);
+                                },
                                 else => break :identifier_loop,
                             }
                         },
@@ -764,6 +768,7 @@ pub const TokenKind = enum {
     SWITCH,
     DO,
     IF,
+    COMPIF,
     WHILE,
     FOR,
     TRUE,

@@ -914,6 +914,8 @@ fn statement(self: *Parser) SyntaxError!StmtNode {
         return self.forStmt();
     } else if (self.match(.{TokenKind.IF})) {
         return self.ifStmt();
+    } else if (self.match(.{TokenKind.COMPIF})) {
+        return self.compifStmt();
     } else if (self.match(.{TokenKind.RETURN})) {
         return self.returnStmt();
     } else if (self.match(.{TokenKind.BREAK})) {
@@ -1126,6 +1128,43 @@ fn ifStmt(self: *Parser) SyntaxError!StmtNode {
     new_stmt.* = Stmt.IfStmt.init(op, conditional, then_branch, else_branch);
     // Return new stmt node
     return StmtNode{ .IF = new_stmt };
+}
+
+/// Parses a compif stmt
+fn compifStmt(self: *Parser) SyntaxError!StmtNode {
+    // Get the if token
+    const op = self.previous;
+
+    // Consume '('
+    try self.consume(TokenKind.LEFT_PAREN, "Expected '(' before compif statement conditional");
+    // Parse conditional
+    const conditional_result = try self.expression();
+    const conditional = conditional_result.expr;
+
+    var is_equal = false;
+    var match_type: ?KindId = null;
+    if (self.match(.{TokenKind.COLON})) {
+        is_equal = !self.match(.{TokenKind.EXCLAMATION});
+        match_type = try self.parseKind();
+    }
+
+    // Consume ')'
+    try self.consume(TokenKind.RIGHT_PAREN, "Expected ')' or ':' after compif statement conditional");
+
+    // Parse then branch
+    const then_branch = try self.statement();
+
+    // Check for else
+    var else_branch: ?StmtNode = null;
+    if (self.match(.{TokenKind.ELSE})) {
+        else_branch = try self.statement();
+    }
+
+    // Make new stmt node
+    const new_stmt = self.allocator.create(Stmt.CompifStmt) catch unreachable;
+    new_stmt.* = Stmt.CompifStmt.init(op, conditional, is_equal, match_type, then_branch, else_branch);
+    // Return new stmt node
+    return StmtNode{ .COMPIF = new_stmt };
 }
 
 /// Parses a BlockStmt

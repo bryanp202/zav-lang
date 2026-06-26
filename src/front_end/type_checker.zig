@@ -1352,6 +1352,7 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
 fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: KindId) SemanticError!void {
     // Add new scope for arguments
     self.stm.addScope();
+    defer self.stm.popScope();
 
     // Declare args
     for (func.arg_names, func_kind.FUNC.arg_kinds[0..func.arg_names.len]) |name, *kind| {
@@ -1497,6 +1498,7 @@ fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
         .FOR => |forStmt| self.visitForStmt(forStmt),
         .SWITCH => |switchStmt| self.visitSwitchStmt(switchStmt),
         .IF => |ifStmt| self.visitIfStmt(ifStmt),
+        .COMPIF => |compifStmt| self.visitCompifStmt(compifStmt),
         .BLOCK => |blockStmt| self.visitBlockStmt(blockStmt),
         .RETURN => |returnStmt| self.visitReturnStmt(returnStmt),
         .BREAK => |breakStmt| self.visitBreakStmt(breakStmt),
@@ -1640,14 +1642,13 @@ fn visitWhileStmt(self: *TypeChecker, whileStmt: *Stmt.WhileStmt) SemanticError!
 
     // Increase loop depth
     self.loop_depth += 1;
+    defer self.loop_depth -= 1;
     // Check types of body
     try self.analyzeStmt(&whileStmt.body);
     // Check types of loop stmt if there is one
     if (whileStmt.loop_stmt != null) {
         try self.analyzeStmt(&whileStmt.loop_stmt.?);
     }
-    // Exit loop
-    self.loop_depth -= 1;
 }
 
 fn visitForStmt(self: *TypeChecker, forStmt: *Stmt.ForStmt) SemanticError!void {
@@ -1658,6 +1659,8 @@ fn visitForStmt(self: *TypeChecker, forStmt: *Stmt.ForStmt) SemanticError!void {
 
     self.stm.addScope();
     self.loop_depth += 1;
+    defer self.stm.popScope();
+    defer self.loop_depth -= 1;
 
     if (forStmt.pointer_expr) |*ptr_expr| {
         var ptr_expr_kind = try self.analyzeExpr(ptr_expr);
@@ -1718,9 +1721,6 @@ fn visitForStmt(self: *TypeChecker, forStmt: *Stmt.ForStmt) SemanticError!void {
     forStmt.range_end_id_offset = range_end_offset + 8;
 
     try self.analyzeStmt(&forStmt.body);
-
-    self.loop_depth -= 1;
-    self.stm.popScope();
 }
 
 fn visitSwitchStmt(self: *TypeChecker, switchStmt: *Stmt.SwitchStmt) SemanticError!void {
@@ -1729,6 +1729,7 @@ fn visitSwitchStmt(self: *TypeChecker, switchStmt: *Stmt.SwitchStmt) SemanticErr
         return self.reportError(SemanticError.TypeMismatch, switchStmt.op, "Expected an integer or enum value for switch value");
     }
     self.switch_depth += 1;
+    defer self.switch_depth -= 1;
 
     for (switchStmt.literal_branch_values, switchStmt.arrows, switchStmt.literal_branch_stmts) |values, arrow, *stmt| {
         for (values) |*value| {
@@ -1751,8 +1752,6 @@ fn visitSwitchStmt(self: *TypeChecker, switchStmt: *Stmt.SwitchStmt) SemanticErr
     if (switchStmt.else_branch) |*else_branch| {
         try self.analyzeStmt(else_branch);
     }
-
-    self.switch_depth -= 1;
 }
 
 /// Analyze the types of an ifStmt
@@ -1771,10 +1770,33 @@ fn visitIfStmt(self: *TypeChecker, ifStmt: *Stmt.IfStmt) SemanticError!void {
     }
 }
 
+/// Analyze the types of a compif stmt
+fn visitCompifStmt(self: *TypeChecker, compifStmt: *Stmt.CompifStmt) SemanticError!void {
+    // Suppress errors
+    self.panic = true;
+    var had_error = false;
+    const cond_kind = self.analyzeExpr(&compifStmt.conditional) catch blk: {
+        had_error = true;
+        break :blk KindId.VOID;
+    };
+    self.panic = false;
+
+    if (!had_error and (compifStmt.match_type == null or (cond_kind.equal(compifStmt.match_type.?) == compifStmt.is_equal))) {
+        compifStmt.skip_then_branch_compile = false;
+        try self.analyzeStmt(&compifStmt.then_branch);
+    } else {
+        compifStmt.skip_then_branch_compile = true;
+        if (compifStmt.else_branch != null) {
+            try self.analyzeStmt(&compifStmt.else_branch.?);
+        }
+    }
+}
+
 /// Analyze the types of a blockStmt
 fn visitBlockStmt(self: *TypeChecker, blockStmt: *Stmt.BlockStmt) SemanticError!void {
     // Enter new scope
     self.stm.addScope();
+    defer self.stm.popScope();
     // Loop through each statement in the block, checking its types
     for (blockStmt.statements) |*stmt| {
         self.analyzeStmt(stmt) catch {
@@ -1784,9 +1806,6 @@ fn visitBlockStmt(self: *TypeChecker, blockStmt: *Stmt.BlockStmt) SemanticError!
     }
     // Check var in scope
     self.checkVarInScope();
-
-    // Pop scope
-    self.stm.popScope();
 }
 
 /// Analyze the return types of a return stmt
@@ -3036,6 +3055,7 @@ fn makeGenericVersion(
     }
 
     self.stm.addScope();
+    errdefer self.stm.popScope();
     for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |kind, generic_name| {
         _ = self.stm.declareSymbol(
             generic_name.lexeme,
