@@ -509,11 +509,13 @@ pub const UnionScope = struct {
     max_size: usize,
     declared: bool = false,
     visited: bool = false,
+    public: bool,
 
-    pub fn init(allocator: std.mem.Allocator) UnionScope {
+    pub fn init(allocator: std.mem.Allocator, public: bool) UnionScope {
         return UnionScope{
             .fields = std.StringHashMap(*Symbol).init(allocator),
             .max_size = 0,
+            .public = public,
         };
     }
 
@@ -569,13 +571,15 @@ pub const StructScope = struct {
     methods_declared: bool = false,
     method_bodies_eval: bool = false,
     generics_scope: ?*Scope = null,
+    public: bool,
 
     /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
-    pub fn init(allocator: std.mem.Allocator) StructScope {
+    pub fn init(allocator: std.mem.Allocator, public: bool) StructScope {
         return StructScope{
             .fields = std.StringHashMap(*Symbol).init(allocator),
             .next_address = 0,
             .is_open = false,
+            .public = public,
         };
     }
 
@@ -937,31 +941,22 @@ pub const KindId = union(Kinds) {
         return KindId{ .FUNC = func };
     }
     /// Init a new Struct kindid with a defined scope
-    pub fn newStructWithIndex(allocator: std.mem.Allocator, name: []const u8, index: *Stmt.StructStmt, stm: *SymbolTableManager) KindId {
+    pub fn newStructWithIndex(allocator: std.mem.Allocator, name: []const u8, index: *Stmt.StructStmt, public: bool, stm: *SymbolTableManager) KindId {
         const new_scope = allocator.create(StructScope) catch unreachable;
-        new_scope.* = StructScope.init(allocator);
+        new_scope.* = StructScope.init(allocator, public);
         const new_struct = Struct{ .name = name, .fields = new_scope, .index = index, .stm = stm };
         return KindId{ .STRUCT = new_struct };
     }
-    /// Init a new Struct kindid with no scope
-    pub fn newStruct(name: []const u8) KindId {
-        const new_struct = Struct{ .name = name, .fields = undefined };
-        return KindId{ .STRUCT = new_struct };
-    }
-    pub fn newUnion(allocator: std.mem.Allocator, name: []const u8, index: *Stmt.UnionStmt, stm: *SymbolTableManager) KindId {
+    pub fn newUnion(allocator: std.mem.Allocator, name: []const u8, index: *Stmt.UnionStmt, public: bool, stm: *SymbolTableManager) KindId {
         const new_scope = allocator.create(UnionScope) catch unreachable;
-        new_scope.* = UnionScope.init(allocator);
+        new_scope.* = UnionScope.init(allocator, public);
         const new_union = Union{ .name = name, .fields = new_scope, .index = index, .stm = stm };
         return KindId{ .UNION = new_union };
     }
     /// Make an enum with a variant field
-    pub fn newEnumWithVariants(name: []const u8, fields: *EnumFields) KindId {
+    pub fn newEnumWithVariants(name: []const u8, fields: *EnumFields, public: bool) KindId {
+        fields.public = public;
         const new_enum = Enum{ .name = name, .fields = fields };
-        return KindId{ .ENUM = new_enum };
-    }
-    /// Make an empty enum
-    pub fn newEnum(name: []const u8) KindId {
-        const new_enum = Enum{ .name = name, .fields = undefined };
         return KindId{ .ENUM = new_enum };
     }
 
@@ -1249,6 +1244,7 @@ pub const Union = struct {
 pub const EnumFields = struct {
     canonical_name: ?[]const u8 = null,
     variants: std.StringHashMap(*Symbol),
+    public: bool,
 
     pub fn size(self: EnumFields) usize {
         _ = self;

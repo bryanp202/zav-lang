@@ -290,7 +290,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             // Get arg_size
             const func_symbol = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
             // analyze all function bodies, continue if there was an error
-            self.visitFunctionStmt(function.FUNCTION, func_symbol.kind) catch {
+            self.visitFunctionStmt(function.FUNCTION, func_symbol.kind, false) catch {
                 self.panic = false;
                 self.had_error = true;
                 continue;
@@ -931,9 +931,10 @@ fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void
     const new_variants = self.allocator.create(Symbols.EnumFields) catch unreachable;
     new_variants.* = .{
         .variants = std.StringHashMap(*Symbol).init(self.allocator),
+        .public = enum_stmt.public,
     };
 
-    const enum_kind = KindId.newEnumWithVariants(enum_stmt.id.lexeme, new_variants);
+    const enum_kind = KindId.newEnumWithVariants(enum_stmt.id.lexeme, new_variants, enum_stmt.public);
 
     for (0.., enum_stmt.variant_names) |value, variant| {
         const getOrPut = new_variants.variants.getOrPut(variant.lexeme) catch unreachable;
@@ -976,7 +977,7 @@ fn declareEnum(self: *TypeChecker, enum_stmt: *Stmt.EnumStmt) SemanticError!void
 /// Index and add a struct to the STM
 fn indexUnion(self: *TypeChecker, name: Token, index: *Stmt.UnionStmt, public: bool) SemanticError!void {
     // Create new struct with scope and index
-    const new_union = KindId.newUnion(self.allocator, name.lexeme, index, self.stm);
+    const new_union = KindId.newUnion(self.allocator, name.lexeme, index, public, self.stm);
     // Try to add to stm global scope
     _ = self.stm.declareSymbolGlobal(
         name.lexeme,
@@ -995,7 +996,7 @@ fn indexUnion(self: *TypeChecker, name: Token, index: *Stmt.UnionStmt, public: b
 /// Index and add a struct to the STM
 fn indexStruct(self: *TypeChecker, name: Token, index: *Stmt.StructStmt, public: bool) SemanticError!void {
     // Create new struct with scope and index
-    const new_struct = KindId.newStructWithIndex(self.allocator, name.lexeme, index, self.stm);
+    const new_struct = KindId.newStructWithIndex(self.allocator, name.lexeme, index, public, self.stm);
     // Try to add to stm global scope
     _ = self.stm.declareSymbolGlobal(
         name.lexeme,
@@ -1116,7 +1117,10 @@ fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, 
                     };
 
                     // Update StructScope
-                    kind.* = KindId{ .STRUCT = Symbols.Struct{ .name = unknown_name, .fields = field_symbol.kind.STRUCT.fields } };
+                    kind.* = KindId{ .STRUCT = Symbols.Struct{
+                        .name = unknown_name,
+                        .fields = field_symbol.kind.STRUCT.fields,
+                    } };
                 },
                 .UNION => {
                     if (field_symbol.kind.UNION.fields.visited) {
@@ -1131,9 +1135,15 @@ fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, 
                         return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, " |", module);
                     };
 
-                    kind.* = KindId{ .UNION = Symbols.Union{ .name = unknown_name, .fields = field_symbol.kind.UNION.fields } };
+                    kind.* = KindId{ .UNION = Symbols.Union{
+                        .name = unknown_name,
+                        .fields = field_symbol.kind.UNION.fields,
+                    } };
                 },
-                .ENUM => kind.* = KindId{ .ENUM = Symbols.Enum{ .name = unknown_name, .fields = field_symbol.kind.ENUM.fields } },
+                .ENUM => kind.* = KindId{ .ENUM = Symbols.Enum{
+                    .name = unknown_name,
+                    .fields = field_symbol.kind.ENUM.fields,
+                } },
                 else => kind.* = field_symbol.kind,
             }
         },
@@ -1302,7 +1312,7 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
         // Get args size
         const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
         // analyze all function bodies, continue if there was an error
-        self.visitFunctionStmt(method, method_field.kind) catch {
+        self.visitFunctionStmt(method, method_field.kind, true) catch {
             self.panic = false;
             self.had_error = true;
             continue;
@@ -1324,7 +1334,11 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
     };
 
     for (func.arg_kinds, func.arg_names) |*kind, name| {
-        _ = kind.update(self.stm, self) catch return self.reportError(SemanticError.UnresolvableIdentifier, name, "Unresolvable argument type");
+        _ = kind.update(self.stm, self) catch return self.reportError(
+            SemanticError.UnresolvableIdentifier,
+            name,
+            "Unresolvable argument type",
+        );
     }
 
     // Create new function
@@ -1349,7 +1363,19 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
 }
 
 /// Analyze a function body
-fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: KindId) SemanticError!void {
+fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: KindId, method: bool) SemanticError!void {
+    if (func.public and !method) {
+        const public_matching = switch (func.return_kind) {
+            .STRUCT => |strct| strct.fields.public,
+            .UNION => |unin| unin.fields.public,
+            .ENUM => |enm| enm.fields.public,
+            else => true,
+        };
+        if (!public_matching) {
+            return self.reportError(SemanticError.TypeMismatch, func.name, "Expected a public return type for a public free function");
+        }
+    }
+
     // Add new scope for arguments
     self.stm.addScope();
     defer self.stm.popScope();
@@ -1398,9 +1424,6 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: Ki
     // Get scope size
     const stack_size = self.stm.active_scope.next_address;
     func.locals_size = stack_size - func_kind_extracted.args_size;
-
-    // Pop scope
-    self.stm.popScope();
 }
 
 /// Analze the types of an GlobalStmt
@@ -1473,7 +1496,7 @@ fn checkLambdas(self: *TypeChecker, module: *Module) void {
         // Get arg_size
         const func_symbol = self.stm.getSymbol(lambda.FUNCTION.name.lexeme) catch unreachable;
         // analyze all function bodies, continue if there was an error
-        self.visitFunctionStmt(lambda.FUNCTION, func_symbol.kind) catch {
+        self.visitFunctionStmt(lambda.FUNCTION, func_symbol.kind, false) catch {
             self.panic = false;
             self.had_error = true;
             continue;
@@ -3131,7 +3154,7 @@ fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, gener
     function_node.FUNCTION.name.lexeme = generic_version_name;
     try self.declareFunction(function_node.FUNCTION);
     const func_symbol = self.stm.getSymbolGlobal(function_node.FUNCTION.name.lexeme) catch unreachable;
-    try self.visitFunctionStmt(function_node.FUNCTION, func_symbol.kind);
+    try self.visitFunctionStmt(function_node.FUNCTION, func_symbol.kind, false);
     if (self.generic_error) {
         self.reportError(SemanticError.TypeMismatch, function_node.FUNCTION.name, "^^^ Error creating generic version") catch {};
         self.panic = false;
@@ -3164,7 +3187,7 @@ fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_v
             // Get args size
             const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
             // analyze all function bodies, continue if there was an error
-            self.visitFunctionStmt(method, method_field.kind) catch {
+            self.visitFunctionStmt(method, method_field.kind, true) catch {
                 self.panic = false;
                 continue;
             };
