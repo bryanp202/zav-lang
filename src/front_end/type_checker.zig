@@ -1251,11 +1251,11 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
             }
 
             const first_arg = &new_func.FUNC.arg_kinds[0];
-            if (!(first_arg.equal(struct_kind) or first_arg.* == .PTR and first_arg.PTR.child.equal(struct_kind))) {
+            if (!first_arg.equal(struct_kind)) { // or first_arg.* == .PTR and first_arg.PTR.child.equal(struct_kind)
                 return self.reportError(
                     SemanticError.InvalidOverload,
                     method.name,
-                    "Operator overloads must have Self type (or pointer to a Self type) as the first argument",
+                    "Operator overloads must have Self type as the first argument",
                 );
             }
 
@@ -1950,8 +1950,12 @@ fn checkUnaryOpOverload(self: *TypeChecker, node: *ExprNode, lhs: ExprNode, op: 
     return null;
 }
 
-fn checkBinOpOverload(self: *TypeChecker, node: *ExprNode, lhs: ExprNode, rhs: ExprNode, op: Token) ?KindId {
+fn checkBinOpOverload(self: *TypeChecker, node: *ExprNode, first_node: ExprNode, second_node: ExprNode, op: Token, is_reversed: bool) ?KindId {
     var buf: [2048]u8 = undefined;
+
+    const lhs = if (is_reversed) second_node else first_node;
+    const rhs = if (is_reversed) first_node else second_node;
+
     const kinds = [2]KindId{ lhs.result_kind, rhs.result_kind };
     if (lhs.result_kind == .STRUCT) {
         const overload_name = KindId.overload_to_str(&buf, op.kind.op_name().?, &kinds, self.stm);
@@ -2514,16 +2518,7 @@ fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     const lhs_kind = lhs_id_result.kind;
     const rhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.lhs) else try self.analyzeExpr(&indexExpr.rhs);
 
-    if (indexExpr.reversed) {
-        if (self.checkBinOpOverload(node, indexExpr.rhs, indexExpr.lhs, indexExpr.op)) |kind| {
-            const mutable = switch (kind) {
-                .PTR => |ptr| !ptr.const_child,
-                .ARRAY => |arr| !arr.const_items,
-                else => false,
-            };
-            return IDResult{ .kind = kind, .mutable = mutable, .l_value = false };
-        }
-    } else if (self.checkBinOpOverload(node, indexExpr.lhs, indexExpr.rhs, indexExpr.op)) |kind| {
+    if (self.checkBinOpOverload(node, indexExpr.lhs, indexExpr.rhs, indexExpr.op, indexExpr.reversed)) |kind| {
         const mutable = switch (kind) {
             .PTR => |ptr| !ptr.const_child,
             .ARRAY => |arr| !arr.const_items,
@@ -2565,11 +2560,7 @@ fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const lhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.rhs) else try self.analyzeExpr(&indexExpr.lhs);
     const rhs_kind = if (indexExpr.reversed) try self.analyzeExpr(&indexExpr.lhs) else try self.analyzeExpr(&indexExpr.rhs);
 
-    if (indexExpr.reversed) {
-        if (self.checkBinOpOverload(node, indexExpr.rhs, indexExpr.lhs, indexExpr.op)) |kind| {
-            return kind;
-        }
-    } else if (self.checkBinOpOverload(node, indexExpr.lhs, indexExpr.rhs, indexExpr.op)) |kind| {
+    if (self.checkBinOpOverload(node, indexExpr.lhs, indexExpr.rhs, indexExpr.op, indexExpr.reversed)) |kind| {
         return kind;
     }
 
@@ -2634,6 +2625,9 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         // Not Expression
         .EXCLAMATION => {
             const rhs_kind = try self.analyzeExpr(&unaryExpr.operand);
+            if (self.checkUnaryOpOverload(node, unaryExpr.operand, unaryExpr.op)) |kind| {
+                return kind;
+            }
             // Return rhs_kind if it is a boolean, else report type error
             switch (rhs_kind) {
                 .BOOL => {
@@ -2651,6 +2645,9 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         // Not expression
         .MINUS => {
             const rhs_kind = try self.analyzeExpr(&unaryExpr.operand);
+            if (self.checkUnaryOpOverload(node, unaryExpr.operand, unaryExpr.op)) |kind| {
+                return kind;
+            }
             // Return rhs_kind if rhs_kind is a number, else report type error
             switch (rhs_kind) {
                 .UINT => {
@@ -2675,6 +2672,9 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .AMPERSAND => {
             // Visit as id expr
             const id_result = try self.analyzeIDExpr(&unaryExpr.operand, unaryExpr.op);
+            if (self.checkUnaryOpOverload(node, unaryExpr.operand, unaryExpr.op)) |kind| {
+                return kind;
+            }
             if (!id_result.l_value and id_result.kind != .STRUCT and id_result.kind != .UNION) {
                 return self.reportError(SemanticError.UnsafeCoercion, unaryExpr.op, "Expected an lvalue for reference expression");
             }
@@ -2701,7 +2701,7 @@ fn visitArithExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const op = arithExpr.op;
 
     // Check if overloaded struct
-    if (self.checkBinOpOverload(node, arithExpr.lhs, arithExpr.rhs, arithExpr.op)) |kind| {
+    if (self.checkBinOpOverload(node, arithExpr.lhs, arithExpr.rhs, arithExpr.op, arithExpr.reversed)) |kind| {
         return kind;
     }
 
@@ -2775,6 +2775,10 @@ fn visitCompareExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const lhs_kind = try self.analyzeExpr(&compareExpr.lhs);
     // Get operator
     const op = compareExpr.op;
+
+    if (self.checkBinOpOverload(node, compareExpr.lhs, compareExpr.rhs, op, compareExpr.reversed)) |kind| {
+        return kind;
+    }
 
     // Check if match or coerceable
     const coerce_result = try self.coerceKinds(
@@ -3253,6 +3257,10 @@ fn visitShiftExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const lhs_kind = try self.analyzeExpr(&shiftExpr.lhs);
     const rhs_kind = try self.analyzeExpr(&shiftExpr.rhs);
 
+    if (self.checkBinOpOverload(node, shiftExpr.lhs, shiftExpr.rhs, shiftExpr.op, shiftExpr.reversed)) |kind| {
+        return kind;
+    }
+
     if (lhs_kind != .INT and lhs_kind != .UINT or rhs_kind != .INT and rhs_kind != .UINT) {
         return self.reportError(SemanticError.TypeMismatch, shiftExpr.op, "Expected integer operands for shift operator");
     }
@@ -3267,10 +3275,9 @@ fn visitBitAndExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const lhs_kind = try self.analyzeExpr(&bitAndExpr.lhs);
     const rhs_kind = try self.analyzeExpr(&bitAndExpr.rhs);
 
-    // if (lhs_kind == .STRUCT) {
-    //     const a = try lhs_kind.STRUCT.fields.getField(self.stm, "#&");
-    //     if (a.kind.FUNC.arg_kinds[0].equal(lhs_kind) or a.kind.FUNC.arg_kinds[0].PTR.child.equal(lhs_kind)) {}
-    // }
+    if (self.checkBinOpOverload(node, bitAndExpr.lhs, bitAndExpr.rhs, bitAndExpr.op, bitAndExpr.reversed)) |kind| {
+        return kind;
+    }
 
     _ = try self.staticCoerceKinds(bitAndExpr.op, KindId.newInt(64), lhs_kind);
     _ = try self.staticCoerceKinds(bitAndExpr.op, KindId.newInt(64), rhs_kind);
@@ -3285,6 +3292,10 @@ fn visitBitOrExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const lhs_kind = try self.analyzeExpr(&bitOrExpr.lhs);
     const rhs_kind = try self.analyzeExpr(&bitOrExpr.rhs);
 
+    if (self.checkBinOpOverload(node, bitOrExpr.lhs, bitOrExpr.rhs, bitOrExpr.op, bitOrExpr.reversed)) |kind| {
+        return kind;
+    }
+
     _ = try self.staticCoerceKinds(bitOrExpr.op, KindId.newInt(64), lhs_kind);
     _ = try self.staticCoerceKinds(bitOrExpr.op, KindId.newInt(64), rhs_kind);
 
@@ -3297,6 +3308,10 @@ fn visitBitXorExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
     const lhs_kind = try self.analyzeExpr(&bitXorExpr.lhs);
     const rhs_kind = try self.analyzeExpr(&bitXorExpr.rhs);
+
+    if (self.checkBinOpOverload(node, bitXorExpr.lhs, bitXorExpr.rhs, bitXorExpr.op, bitXorExpr.reversed)) |kind| {
+        return kind;
+    }
 
     _ = try self.staticCoerceKinds(bitXorExpr.op, KindId.newInt(64), lhs_kind);
     _ = try self.staticCoerceKinds(bitXorExpr.op, KindId.newInt(64), rhs_kind);

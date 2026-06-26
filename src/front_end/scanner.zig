@@ -831,7 +831,7 @@ pub const TokenKind = enum {
 
     pub fn op_arg_count(self: TokenKind) ?ArgCount {
         return switch (self) {
-            TokenKind.AMPERSAND => ArgCount.TWO,
+            TokenKind.AMPERSAND => ArgCount.ONE_OR_TWO,
             TokenKind.LEFT_SQUARE => ArgCount.TWO,
             TokenKind.CARET => ArgCount.TWO,
             TokenKind.EQUAL_EQUAL => ArgCount.TWO,
