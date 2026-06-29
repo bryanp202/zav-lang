@@ -241,11 +241,10 @@ fn parseArrayKind(self: *Parser) SyntaxError!KindId {
     };
     try self.consume(TokenKind.RIGHT_SQUARE, "Expected ']' after array length");
 
-    const const_child = self.match(.{TokenKind.CONST});
     // Parse child kind
     const child_kind = try self.parseKind();
 
-    const new_kind = KindId.newArr(self.allocator, child_kind, length, const_child);
+    const new_kind = KindId.newArr(self.allocator, child_kind, length);
     return new_kind;
 }
 

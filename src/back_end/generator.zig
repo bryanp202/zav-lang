@@ -1332,6 +1332,7 @@ fn genIDExpr(self: *Generator, node: ExprNode) GenerationError!void {
     // Determine the type of expr and analysis it
     switch (node.expr) {
         .IDENTIFIER => |idExpr| try self.visitIdentifierExprID(idExpr),
+        .CONVERSION => |convExpr| try self.visitConvExprWrapped(convExpr, node.result_kind),
         .INDEX => |indexExpr| try self.visitIndexExprID(indexExpr),
         .DEREFERENCE => |derefExpr| try self.visitDereferenceExprID(derefExpr),
         .FIELD => |fieldExpr| try self.visitFieldExprID(fieldExpr),
@@ -1950,8 +1951,16 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
 
 /// Generate asm for type conversions
 fn visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: KindId) GenerationError!void {
-    // Generate operand
     try self.genExpr(convExpr.operand);
+    return self._visitConvExpr(convExpr, result_kind);
+}
+
+fn visitConvExprWrapped(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: KindId) GenerationError!void {
+    try self.genIDExpr(convExpr.operand);
+    return self._visitConvExpr(convExpr, result_kind);
+}
+
+fn _visitConvExpr(self: *Generator, convExpr: *Expr.ConversionExpr, result_kind: KindId) GenerationError!void {
     // Extrand operand type
     const operand_type = convExpr.operand.result_kind;
     // Generate self

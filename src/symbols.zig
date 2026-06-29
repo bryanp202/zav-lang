@@ -760,7 +760,7 @@ pub const KindId = union(Kinds) {
             },
             .ARRAY => |arr| {
                 const new_child = arr.child.copy(allocator);
-                return KindId.newArr(allocator, new_child, arr.length, arr.const_items);
+                return KindId.newArr(allocator, new_child, arr.length);
             },
             .FUNC => |func| {
                 const new_ret_kind = allocator.create(KindId) catch unreachable;
@@ -834,10 +834,7 @@ pub const KindId = union(Kinds) {
                 return ptr.child._to_str(buf_rem, stm);
             },
             .ARRAY => |arr| {
-                const buf_rem = if (arr.const_items)
-                    print_to_buf(buf, "@a", .{})
-                else
-                    print_to_buf(buf, "@ca", .{});
+                const buf_rem = print_to_buf(buf, "@a", .{});
                 return arr.child._to_str(buf_rem, stm);
             },
             .FUNC => |func| {
@@ -905,7 +902,7 @@ pub const KindId = union(Kinds) {
         return KindId{ .PTR = ptr };
     }
     /// Init a new array kindid
-    pub fn newArr(allocator: std.mem.Allocator, child_kind: KindId, length: u64, const_items: bool) KindId {
+    pub fn newArr(allocator: std.mem.Allocator, child_kind: KindId, length: u64) KindId {
         // Dynamically allocate the child KindId tag
         const child_ptr = allocator.create(KindId) catch unreachable;
         child_ptr.* = child_kind;
@@ -913,7 +910,6 @@ pub const KindId = union(Kinds) {
         const arr = Array{
             .child = child_ptr,
             .length = length,
-            .const_items = const_items,
         };
         return KindId{ .ARRAY = arr };
     }
@@ -975,7 +971,12 @@ pub const KindId = union(Kinds) {
             .INT => return other == .INT and self.INT.bits == other.INT.bits,
             .FLOAT32 => return other == .FLOAT32,
             .FLOAT64 => return other == .FLOAT64,
-            .PTR => |ptr| return other == .PTR and ptr.equal(other.PTR),
+            .PTR => |l_ptr| {
+                if (other != .PTR) {
+                    return false;
+                }
+                return l_ptr.equal(other.PTR);
+            },
             .ARRAY => |arr| return other == .ARRAY and arr.equal(other.ARRAY),
             .FUNC => |func| return other == .FUNC and func.equal(other.FUNC),
             .STRUCT => |srct| return other == .STRUCT and srct.equal(other.STRUCT),
@@ -1112,7 +1113,11 @@ const Pointer = struct {
 
     /// Returns true if this pointer is the same as another pointer
     pub fn equal(self: Pointer, other: Pointer) bool {
-        return self.child.equal(other.child.*);
+        if (other.child.* == .ARRAY and self.child.* != .ARRAY) {
+            return self.child.equal(other.child.ARRAY.child.*);
+        } else {
+            return self.child.equal(other.child.*);
+        }
     }
 
     /// Update a userdefined pointer type
@@ -1126,11 +1131,10 @@ const Pointer = struct {
 const Array = struct {
     child: *KindId,
     length: u64,
-    const_items: bool,
 
     /// Returns true if this array is the same as another array
     pub fn equal(self: Array, other: Array) bool {
-        return self.child.equal(other.child.*) and self.length == other.length;
+        return self.child.equal(other.child.*) and (self.length == other.length or self.child.* == .ANY or other.child.* == .ANY);
     }
 
     /// Calculate the size of this type in bytes

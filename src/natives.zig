@@ -296,7 +296,7 @@ fn sizeof_native(allocator: std.mem.Allocator) Native {
 fn len_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
-    arg_kinds[0] = KindId.ANY;
+    arg_kinds[0] = KindId.newArr(allocator, KindId.ANY, 0);
     // Make return kind
     const ret_kind = KindId.newUInt(64);
     // Make the function kindid

@@ -612,13 +612,9 @@ fn staticCoerceKinds(self: *TypeChecker, op: Token, static_kind: KindId, rhs_kin
         .ARRAY => |l_array| switch (rhs_kind) {
             // Right - array
             .ARRAY => |r_array| {
-                // Check if making constant data mutable
-                if (r_array.const_items and !l_array.const_items) {
-                    return self.reportError(SemanticError.UnsafeCoercion, op, "Cannot downgrade array of constant data");
-                }
                 // If not equal, error
                 if (!l_array.equal(r_array)) {
-                    return self.reportError(SemanticError.TypeMismatch, op, "Arrays must be the same length");
+                    return self.reportError(SemanticError.TypeMismatch, op, "Arrays must have same type and length");
                 }
                 // Return static kind
                 return CoercionResult.init(static_kind, false, false);
@@ -666,12 +662,6 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
                 // Return the ptr
                 return CoercionResult.init(rhs_kind, false, false);
             },
-            // Left bool | Right Array
-            .ARRAY => |array| {
-                // Decay to pointer
-                const new_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
-                return CoercionResult.init(new_ptr, false, false);
-            },
             // All other combinations are illegal
             else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
         },
@@ -708,12 +698,6 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
                 // Return the ptr
                 return CoercionResult.init(rhs_kind, false, false);
             },
-            // Left Uint | Right Array
-            .ARRAY => |array| {
-                // Decay to pointer
-                const new_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
-                return CoercionResult.init(new_ptr, false, false);
-            },
             // All other combinations are illegal
             else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
         },
@@ -741,21 +725,9 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
                 return CoercionResult.init(bigger_kind, false, false);
             },
             // Left Int | Right Float
-            .FLOAT32, .FLOAT64 => {
-                // Return the float
-                return CoercionResult.init(rhs_kind, true, false);
-            },
+            .FLOAT32, .FLOAT64 => return CoercionResult.init(rhs_kind, true, false),
             // Left Int | Right ptr
-            .PTR => {
-                // Return the ptr
-                return CoercionResult.init(rhs_kind, false, false);
-            },
-            // Left Int | Right Array
-            .ARRAY => |array| {
-                // Decay to pointer
-                const new_ptr = KindId.newPtrFromArray(rhs_kind, array.const_items);
-                return CoercionResult.init(new_ptr, false, false);
-            },
+            .PTR => return CoercionResult.init(rhs_kind, false, false),
             // All other combinations are illegal
             else => return self.reportError(SemanticError.TypeMismatch, op, "Invalid type coercion"),
         },
@@ -803,7 +775,7 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
             .BOOL, .UINT, .INT => return CoercionResult.init(rhs_kind, false, false),
             // Right - Ptr
             .PTR => |r_ptr| {
-                if (!l_ptr.equal(r_ptr)) {
+                if (!(r_ptr.child.* == .ARRAY and l_ptr.child.equal(r_ptr.child.ARRAY.child.*)) and !l_ptr.equal(r_ptr)) {
                     return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
                 }
                 // Return a I64
@@ -817,41 +789,7 @@ fn coerceKinds(self: *TypeChecker, op: Token, lhs_kind: KindId, rhs_kind: KindId
             ),
         },
         // Left bool | Right Array
-        .ARRAY => |l_array| switch (rhs_kind) {
-            .BOOL, .UINT, .INT => {
-                // Decay to pointer
-                const new_ptr = KindId.newPtrFromArray(lhs_kind, l_array.const_items);
-                return CoercionResult.init(new_ptr, false, false);
-            },
-            // Right - ptr
-            .PTR => |r_ptr| {
-                const array_ptr = KindId.newPtrFromArray(lhs_kind, l_array.const_items);
-                if (!array_ptr.PTR.equal(r_ptr)) {
-                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
-                }
-                // Return a I64
-                const new_int = KindId.newInt(64);
-                return CoercionResult.init(new_int, false, false);
-            },
-            // Right - array
-            .ARRAY => |r_array| {
-                // Convert to pointers
-                const l_array_ptr = KindId.newPtrFromArray(lhs_kind, l_array.const_items);
-                const r_array_ptr = KindId.newPtrFromArray(rhs_kind, r_array.const_items);
-                // If not equal, error
-                if (!l_array_ptr.PTR.equal(r_array_ptr.PTR)) {
-                    return self.reportError(SemanticError.TypeMismatch, op, "Pointers must be the same kind");
-                }
-                // Return a I64
-                const new_int = KindId.newInt(64);
-                return CoercionResult.init(new_int, false, false);
-            },
-            else => return self.reportError(
-                SemanticError.TypeMismatch,
-                op,
-                "Arrays only support non-floating point numbers",
-            ),
-        },
+        .ARRAY => return self.reportError(SemanticError.TypeMismatch, op, "Arrays only support assignment"),
         // For all other types
         else => {
             // If the equal
@@ -1686,13 +1624,7 @@ fn visitForStmt(self: *TypeChecker, forStmt: *Stmt.ForStmt) SemanticError!void {
     defer self.loop_depth -= 1;
 
     if (forStmt.pointer_expr) |*ptr_expr| {
-        var ptr_expr_kind = try self.analyzeExpr(ptr_expr);
-
-        // Decay any arrays into pointers
-        if (ptr_expr_kind == .ARRAY) {
-            // Downgrade to a ptr
-            ptr_expr_kind = KindId.newPtrFromArray(ptr_expr_kind, ptr_expr_kind.ARRAY.const_items);
-        }
+        const ptr_expr_kind = try self.analyzeExpr(ptr_expr);
 
         if (ptr_expr_kind != .PTR) {
             return self.reportError(SemanticError.TypeMismatch, forStmt.op, "Expected pointer or array at for loop pointer expression");
@@ -2103,7 +2035,8 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
         },
         .STRING => {
             //const strVal = literal_expr.value.as.string;
-            node.result_kind = KindId.newPtr(self.allocator, KindId.newUInt(8), true);
+            const array = KindId.newArr(self.allocator, KindId.newUInt(8), literal_expr.value.as.string.data.len);
+            node.result_kind = KindId.newPtr(self.allocator, array, true);
         },
         .ARRAY => {
             // Get array value
@@ -2112,7 +2045,7 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
             var new_array_kind: KindId = arrVal.kind.*;
             // Loop for each dimension of arrVal
             for (arrVal.dimensions.slice()) |dim| {
-                new_array_kind = KindId.newArr(self.allocator, new_array_kind, dim, true);
+                new_array_kind = KindId.newArr(self.allocator, new_array_kind, dim);
             }
             // Update result kind
             node.result_kind = new_array_kind;
@@ -2265,13 +2198,7 @@ fn visitNativeExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Check types of all variadic arguments
     for (call_args[static_arg_count..call_args.len]) |*call_arg| {
         // Evaluate
-        var arg_kind = try self.analyzeExpr(call_arg);
-
-        // Decay any arrays into pointers
-        if (arg_kind == .ARRAY) {
-            // Downgrade to a ptr
-            arg_kind = KindId.newPtrFromArray(arg_kind, arg_kind.ARRAY.const_items);
-        }
+        const arg_kind = try self.analyzeExpr(call_arg);
 
         // Check if float32 needs to be upgraded to float 64
         if (arg_kind == .FLOAT32) {
@@ -2563,7 +2490,6 @@ fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     if (self.checkBinOpOverload(node, indexExpr.lhs, indexExpr.rhs, indexExpr.op, indexExpr.reversed)) |kind| {
         const mutable = switch (kind) {
             .PTR => |ptr| !ptr.const_child,
-            .ARRAY => |arr| !arr.const_items,
             else => false,
         };
         return IDResult{ .kind = kind, .mutable = mutable, .l_value = false };
@@ -2576,9 +2502,13 @@ fn visitIndexExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
     // Check if lhs is an array and index is inbounds of array
     if (lhs_kind == .ARRAY) {
         dereferenced_kind = lhs_kind.ARRAY.child.*;
-        mutable = !lhs_kind.ARRAY.const_items;
+        mutable = lhs_id_result.mutable;
     } else if (lhs_kind == .PTR) {
-        dereferenced_kind = lhs_kind.PTR.child.*;
+        if (lhs_kind.PTR.child.* == .ARRAY) {
+            dereferenced_kind = lhs_kind.PTR.child.ARRAY.child.*;
+        } else {
+            dereferenced_kind = lhs_kind.PTR.child.*;
+        }
         mutable = !lhs_kind.PTR.const_child;
     } else {
         return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
@@ -2613,7 +2543,11 @@ fn visitIndexExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     if (lhs_kind == .ARRAY) {
         dereferenced_kind = lhs_kind.ARRAY.child.*;
     } else if (lhs_kind == .PTR) {
-        dereferenced_kind = lhs_kind.PTR.child.*;
+        if (lhs_kind.PTR.child.* == .ARRAY) {
+            dereferenced_kind = lhs_kind.PTR.child.ARRAY.child.*;
+        } else {
+            dereferenced_kind = lhs_kind.PTR.child.*;
+        }
     } else {
         return self.reportError(SemanticError.TypeMismatch, indexExpr.op, "Can only index pointers and arrays");
     }
@@ -2944,14 +2878,7 @@ fn visitIfExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     }
 
     // Update return kind
-    if (then_kind == .PTR or then_kind == .ARRAY) {
-        node.result_kind = then_kind;
-    } else if (else_kind == .PTR or else_kind == .ARRAY) {
-        node.result_kind = else_kind;
-    } else {
-        node.result_kind = coerce_result.final_kind;
-    }
-
+    node.result_kind = coerce_result.final_kind;
     return node.result_kind;
 }
 
