@@ -2186,7 +2186,7 @@ fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr, resu
     const source_reg = self.popCPUReg();
 
     switch (result_kind) {
-        .STRUCT, .FUNC, .UNION => self.pushCPUReg(source_reg),
+        .STRUCT, .FUNC, .UNION, .ARRAY => self.pushCPUReg(source_reg),
         .FLOAT32 => {
             const dest_reg = try self.getNextSSEReg();
             try self.print("    movss {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
