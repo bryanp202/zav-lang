@@ -2035,7 +2035,7 @@ fn visitLiteralExpr(self: *TypeChecker, node: *ExprNode) KindId {
         },
         .STRING => {
             //const strVal = literal_expr.value.as.string;
-            const array = KindId.newArr(self.allocator, KindId.newUInt(8), literal_expr.value.as.string.data.len);
+            const array = KindId.newArr(self.allocator, KindId.newUInt(8), literal_expr.value.as.string.len);
             node.result_kind = KindId.newPtr(self.allocator, array, true);
         },
         .ARRAY => {

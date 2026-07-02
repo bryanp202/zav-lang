@@ -1376,6 +1376,7 @@ const IntegerLiteral = extern struct {
 /// String literal storage struct
 const StringLiteral = extern struct {
     data: LiteralSlice(u8),
+    len: usize,
 };
 
 /// Array Literal storage struct
@@ -1456,9 +1457,24 @@ pub const Value = extern struct {
     }
     /// Init a new value as a string
     pub fn newStr(data: []const u8) Value {
+        const len = blk: {
+            var len = data.len;
+            var i: usize = 0;
+            while (i < data.len) : (i += 1) {
+                if (data[i] == '\\') {
+                    len -= 1;
+                    i += 1;
+                }
+            }
+            break :blk len;
+        };
+
         var val = Value{ .kind = ValueKind.STRING, .as = .{ .EMPTY = [_]u64{0} ** 6 } };
         const str_slice = LiteralSlice(u8).init(data);
-        val.as.string.data = str_slice;
+        val.as.string = .{
+            .data = str_slice,
+            .len = len,
+        };
         return val;
     }
     /// Init a new value as an array

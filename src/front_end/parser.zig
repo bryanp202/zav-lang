@@ -1909,6 +1909,7 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             return ExprResult.init(node, 0);
         },
         .STRING => {
+            // https://en.wikipedia.org/wiki/Escape_sequences_in_C
             // Make new constant expression
             const constant_expr = self.allocator.create(Expr.LiteralExpr) catch unreachable;
             // Make a new value without quotes
