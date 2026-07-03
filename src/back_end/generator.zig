@@ -1333,7 +1333,7 @@ fn genIDExpr(self: *Generator, node: ExprNode) GenerationError!void {
     switch (node.expr) {
         .IDENTIFIER => |idExpr| try self.visitIdentifierExprID(idExpr),
         .CONVERSION => |convExpr| try self.visitConvExprWrapped(convExpr, node.result_kind),
-        .INDEX => |indexExpr| try self.visitIndexExprID(indexExpr),
+        .INDEX => |indexExpr| try self.visitIndexExprID(indexExpr, node.result_kind),
         .DEREFERENCE => |derefExpr| try self.visitDereferenceExprID(derefExpr),
         .FIELD => |fieldExpr| try self.visitFieldExprID(fieldExpr),
         .CALL => |callExpr| try self.visitCallExpr(callExpr, node.result_kind),
@@ -2136,7 +2136,7 @@ fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: Kin
 }
 
 /// Generate asm for an indexExpr
-fn visitIndexExprID(self: *Generator, indexExpr: *Expr.IndexExpr) GenerationError!void {
+fn visitIndexExprID(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: KindId) GenerationError!void {
     // Generate lhs
     try self.genExpr(indexExpr.lhs);
     // Generate rhs
@@ -2156,14 +2156,13 @@ fn visitIndexExprID(self: *Generator, indexExpr: *Expr.IndexExpr) GenerationErro
 
     // Get correct size kind for child
     const access_kind = if (indexExpr.reversed) indexExpr.rhs.result_kind else indexExpr.lhs.result_kind;
+    const child_size = result_kind.size();
     // Check if array
     if (access_kind == .ARRAY) {
         // Write array offset * child size
-        const child_size = access_kind.ARRAY.child.size();
         try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         try self.print("    lea {s}, [{s}+{s}] ; Array Index\n", .{ lhs_reg.name, lhs_reg.name, rhs_reg.name });
     } else {
-        const child_size = access_kind.PTR.child.size();
         try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         try self.print("    lea {s}, [{s}+{s}] ; Ptr Index\n", .{ lhs_reg.name, lhs_reg.name, rhs_reg.name });
     }
@@ -2236,10 +2235,9 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
 
     // Get correct size kind for child
     const access_kind = if (indexExpr.reversed) indexExpr.rhs.result_kind else indexExpr.lhs.result_kind;
+    const child_size = result_kind.size();
     // Check if array
     if (access_kind == .ARRAY) {
-        // Write array offset * child size
-        const child_size = access_kind.ARRAY.child.size();
         // Multiply address by child_size
         try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         // Check if float 32
@@ -2289,7 +2287,6 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
             }
         }
     } else {
-        const child_size = access_kind.PTR.child.size();
         // Multiply index by child_size
         try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         // Check if float 32
