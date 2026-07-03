@@ -1630,10 +1630,15 @@ fn visitForStmt(self: *TypeChecker, forStmt: *Stmt.ForStmt) SemanticError!void {
             return self.reportError(SemanticError.TypeMismatch, forStmt.op, "Expected pointer or array at for loop pointer expression");
         }
 
+        // Make it so ptr to arrays act as an iterator on that array
+        if (ptr_expr_kind.PTR.child.* == .ARRAY) {
+            ptr_expr.result_kind.PTR.child = ptr_expr_kind.PTR.child.ARRAY.child;
+        }
+
         const ptr_id = forStmt.pointer_id.?;
         const ptr_offset = self.stm.declareSymbol(
             ptr_id.lexeme,
-            ptr_expr_kind,
+            ptr_expr.result_kind,
             ScopeKind.LOCAL,
             ptr_id.line,
             ptr_id.column,
@@ -2655,9 +2660,7 @@ fn visitUnaryExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
                 return self.reportError(SemanticError.UnsafeCoercion, unaryExpr.op, "Expected an lvalue for reference expression");
             }
 
-            const child_kind = if (id_result.kind == .ARRAY) id_result.kind.ARRAY.child.* else id_result.kind;
-
-            const new_ptr = KindId.newPtr(self.allocator, child_kind, !id_result.mutable);
+            const new_ptr = KindId.newPtr(self.allocator, id_result.kind, !id_result.mutable);
             node.result_kind = new_ptr;
             return node.result_kind;
         },

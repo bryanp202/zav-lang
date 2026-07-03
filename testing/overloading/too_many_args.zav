@@ -1,4 +1,5 @@
 pub fn main(argc: i64, argv: **u8) i64 {
+    @fprintf(3, "wow\n");
     const a = Vec2::new(3, 7);
     const b = Vec2::new(2, 2);
 
