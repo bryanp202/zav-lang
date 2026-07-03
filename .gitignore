@@ -4,3 +4,5 @@ todo.txt
 .zig-cache
 /zig-out/bin
 /tools
+**.exe
+**.pdb
