@@ -2933,7 +2933,10 @@ fn visitGenericExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         return self.reportError(SemanticError.UnresolvableIdentifier, generic_expr.operand, "Generic function blueprint never declared");
     };
 
-    if (generic_symbol.kind != .GENERIC and generic_symbol.kind.GENERIC.body != .FUNCTION) {
+    if (generic_symbol.kind != .GENERIC) {
+        return self.reportError(SemanticError.TypeMismatch, generic_expr.operand, "Expected a generic function blueprint");
+    }
+    if (generic_symbol.kind.GENERIC.body != .FUNCTION) {
         return self.reportError(SemanticError.TypeMismatch, generic_expr.operand, "Expected a generic function blueprint");
     }
     const generic_symbol_kind_extracted = generic_symbol.kind.GENERIC;
