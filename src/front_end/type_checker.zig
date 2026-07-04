@@ -2958,6 +2958,7 @@ fn visitGenericExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     if (generic_version_symbol.kind != .FUNC) {
         return self.reportError(SemanticError.TypeMismatch, generic_expr.operand, "Expected a generic function blueprint");
     }
+    self.stm.importSymbol(generic_version_symbol, generic_name, generic_version_symbol.public) catch {};
 
     const new_node = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
     new_node.* = Expr.IdentifierExpr{
