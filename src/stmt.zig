@@ -56,7 +56,7 @@ pub const StmtNode = union(enum) {
             .FOR => |forStmt| forStmt.copy(allocator),
             .RETURN => |returnStmt| returnStmt.copy(allocator),
             .STRUCT => |structStmt| structStmt.copy(allocator),
-            .GENERIC => unreachable,
+            .GENERIC => |genericStmt| genericStmt.copy(allocator),
         };
     }
 
@@ -464,10 +464,10 @@ pub const StructStmt = struct {
     id: Token,
     field_names: []Token,
     field_kinds: []KindId,
-    methods: []FunctionStmt,
+    methods: []StmtNode,
 
     /// Initialize a structstmt
-    pub fn init(public: bool, id: Token, field_names: []Token, field_kinds: []KindId, methods: []FunctionStmt) StructStmt {
+    pub fn init(public: bool, id: Token, field_names: []Token, field_kinds: []KindId, methods: []StmtNode) StructStmt {
         return StructStmt{
             .public = public,
             .id = id,
@@ -483,9 +483,9 @@ pub const StructStmt = struct {
         for (0..new_field_kinds.len) |i| {
             new_field_kinds[i] = self.field_kinds[i].copy(allocator);
         }
-        const new_methods = allocator.alloc(FunctionStmt, self.methods.len) catch unreachable;
+        const new_methods = allocator.alloc(StmtNode, self.methods.len) catch unreachable;
         for (0..self.methods.len) |i| {
-            new_methods[i] = self.methods[i].copy(allocator).FUNCTION.*;
+            new_methods[i] = self.methods[i].copy(allocator);
         }
         new_stmt.* = StructStmt{
             .public = self.public,
@@ -969,6 +969,8 @@ pub const ForStmt = struct {
 pub const GenericStmt = struct {
     op: Token,
     generic_names: []Token,
+    curried_types_names: ?[]Token = null,
+    curried_types: ?[]KindId = null,
     body: StmtNode,
 
     pub fn init(op: Token, generic_names: []Token, body: StmtNode) GenericStmt {
@@ -977,6 +979,18 @@ pub const GenericStmt = struct {
             .generic_names = generic_names,
             .body = body,
         };
+    }
+
+    pub fn copy(self: GenericStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(GenericStmt) catch unreachable;
+        new_stmt.* = GenericStmt{
+            .op = self.op,
+            .generic_names = self.generic_names,
+            .curried_types_names = self.curried_types_names,
+            .curried_types = self.curried_types,
+            .body = self.body.copy(allocator),
+        };
+        return StmtNode{ .GENERIC = new_stmt };
     }
 
     pub fn display(self: GenericStmt, stm: *Symbol.SymbolTableManager) void {

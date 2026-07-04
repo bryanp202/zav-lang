@@ -272,7 +272,7 @@ pub const SymbolTableManager = struct {
                 .ENUM => |enm| enm.fields.variants.get(name) orelse return ScopeError.UndeclaredSymbol,
                 .STRUCT => |strct| blk: {
                     const struct_symbol = try strct.fields.getField(self, name);
-                    if (struct_symbol.kind != .FUNC) {
+                    if (struct_symbol.kind != .FUNC and struct_symbol.kind != .GENERIC) {
                         return ScopeError.InvalidScope;
                     }
                     break :blk struct_symbol;
@@ -861,8 +861,18 @@ pub const KindId = union(Kinds) {
         };
     }
 
-    pub fn newGeneric(body: Stmt.StmtNode, generic_names: []Token) KindId {
-        const gen = Generic{ .body = body, .generic_names = generic_names };
+    pub fn newGeneric(
+        body: Stmt.StmtNode,
+        generic_names: []Token,
+        curried_type_names: []Token,
+        curried_types: []KindId,
+    ) KindId {
+        const gen = Generic{
+            .body = body,
+            .generic_names = generic_names,
+            .curried_type_names = curried_type_names,
+            .curried_types = curried_types,
+        };
         return KindId{ .GENERIC = gen };
     }
     /// Init a new unsigned integer
@@ -1277,6 +1287,8 @@ pub const Enum = struct {
 pub const Generic = struct {
     generic_names: []Token,
     body: Stmt.StmtNode,
+    curried_type_names: []Token,
+    curried_types: []KindId,
 };
 
 pub const GenericUserKind = struct {

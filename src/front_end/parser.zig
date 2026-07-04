@@ -662,7 +662,7 @@ fn structStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 
     var field_name_list = std.ArrayList(Token).init(self.allocator);
     var field_kind_list = std.ArrayList(KindId).init(self.allocator);
-    var method_list = std.ArrayList(Stmt.FunctionStmt).init(self.allocator);
+    var method_list = std.ArrayList(StmtNode).init(self.allocator);
     // Check for method
     if (self.match(.{ TokenKind.PUB, TokenKind.FN })) {
         try self.struct_method(&method_list);
@@ -724,7 +724,7 @@ fn struct_field(self: *Parser, field_name_list: *std.ArrayList(Token), field_kin
 
 /// Parse a struct method
 /// Method -> function (but it can use "this" and has the "this" parameter added)
-fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) SyntaxError!void {
+fn struct_method(self: *Parser, method_list: *std.ArrayList(StmtNode)) SyntaxError!void {
     const is_public = self.previous.kind == TokenKind.PUB;
 
     if (is_public) {
@@ -732,12 +732,12 @@ fn struct_method(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) 
     }
 
     const new_method = try self.functionStmt(is_public);
-    method_list.append(new_method.FUNCTION.*) catch unreachable;
+    method_list.append(new_method) catch unreachable;
 }
 
 /// Parse a struct operator overload
 /// "overload" [operator]
-fn struct_overload(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)) SyntaxError!void {
+fn struct_overload(self: *Parser, method_list: *std.ArrayList(StmtNode)) SyntaxError!void {
     const op = self.previous;
 
     var op_name = self.advance();
@@ -775,8 +775,11 @@ fn struct_overload(self: *Parser, method_list: *std.ArrayList(Stmt.FunctionStmt)
         return_kind,
         body,
     );
+    const func_node = self.allocator.create(Stmt.FunctionStmt) catch unreachable;
+    func_node.* = new_func;
+    const new_node = StmtNode{ .FUNCTION = func_node };
 
-    method_list.append(new_func) catch unreachable;
+    method_list.append(new_node) catch unreachable;
 }
 
 fn unionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {

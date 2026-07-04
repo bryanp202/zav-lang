@@ -208,7 +208,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
 
         for (module.structSlice()) |strct| {
             const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
-            self.declareStructMethods(strct.STRUCT, symbol) catch {
+            self.declareStructMethods(strct.STRUCT, symbol, null, null) catch {
                 self.panic = false;
                 self.had_error = true;
                 return;
@@ -842,7 +842,12 @@ fn checkUse(self: *TypeChecker, use_stmt: *Stmt.UseStmt) !void {
 
 /// Declare a generic type, checking for duplicates
 fn declareGeneric(self: *TypeChecker, generic_stmt: *Stmt.GenericStmt) SemanticError!void {
-    const generic_kind = KindId.newGeneric(generic_stmt.body, generic_stmt.generic_names);
+    const generic_kind = KindId.newGeneric(
+        generic_stmt.body,
+        generic_stmt.generic_names,
+        self.allocator.alloc(Token, 0) catch unreachable,
+        self.allocator.alloc(KindId, 0) catch unreachable,
+    );
     const generic_id = switch (generic_stmt.body) {
         .FUNCTION => |func| func.name,
         .STRUCT => |strct| strct.id,
@@ -1116,7 +1121,7 @@ fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, 
     }
 }
 
-fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol: *Symbol) SemanticError!void {
+fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol: *Symbol, curry_names: ?[]Token, curry_types: ?[]KindId) SemanticError!void {
     if (symbol.kind.STRUCT.fields.methods_declared) {
         return;
     }
@@ -1128,7 +1133,41 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
     }
 
     // Add each method to the struct, but do not analyze body yet
-    for (structStmt.methods) |*method| {
+    for (structStmt.methods) |item| {
+        if (item == .GENERIC) {
+            const generic = item.GENERIC;
+
+            const curried_names = curry_names orelse self.allocator.alloc(Token, 0) catch unreachable;
+            const curried_types = curry_types orelse self.allocator.alloc(KindId, 0) catch unreachable;
+
+            const generic_kind = KindId.newGeneric(
+                generic.body,
+                generic.generic_names,
+                curried_names,
+                curried_types,
+            );
+            const generic_id = switch (generic.body) {
+                .FUNCTION => |func| func.name,
+                else => unreachable,
+            };
+
+            symbol.kind.STRUCT.fields.addField(
+                structStmt.id.lexeme,
+                self.stm.parent_module,
+                ScopeKind.GENERIC,
+                generic_id.lexeme,
+                generic_id.line,
+                generic_id.column,
+                generic_kind,
+                generic.body.FUNCTION.public,
+            ) catch {
+                const old_field = symbol.kind.STRUCT.fields.getField(self.stm, generic_id.lexeme) catch unreachable;
+                return self.reportDuplicateError(generic_id, old_field.dcl_line, old_field.dcl_column);
+            };
+            continue;
+        }
+        const method = item.FUNCTION;
+
         _ = method.return_kind.update(self.stm, self) catch {
             return self.reportError(SemanticError.UnresolvableIdentifier, method.name, "Could not resolve method return type");
         };
@@ -1246,7 +1285,12 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
     }
 
     symbol.kind.STRUCT.fields.open();
-    for (structStmt.STRUCT.methods) |*method| {
+    for (structStmt.STRUCT.methods) |item| {
+        if (item == .GENERIC) {
+            continue;
+        }
+        const method = item.FUNCTION;
+
         // Get args size
         const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
         // analyze all function bodies, continue if there was an error
@@ -2122,7 +2166,7 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
         .LOCAL => node.*.expr.IDENTIFIER.stack_offset = symbol.mem_loc + 8,
         .GLOBAL, .FUNC, .METHOD => {},
         .STRUCT, .ENUM, .MODULE, .UNION, .KIND, .GENERIC => {
-            return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, or module types");
+            return self.reportError(SemanticError.TypeMismatch, token, "Cannot directly access struct, enum, module, or generic types");
         },
         .ENUM_VARIANT => {
             const new_literal = self.allocator.create(Expr.LiteralExpr) catch unreachable;
@@ -3013,6 +3057,22 @@ fn makeGenericVersion(
 
     self.stm.addScope();
     errdefer self.stm.popScope();
+    // Declared curried generic types (for generic methods in a struct)
+    for (generic_blueprint_extracted.curried_types, generic_blueprint_extracted.curried_type_names) |curried_type, name| {
+        _ = self.stm.declareSymbol(
+            name.lexeme,
+            curried_type,
+            .KIND,
+            name.line,
+            name.column,
+            false,
+            false,
+        ) catch {
+            const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
+            return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
+        };
+    }
+
     for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |kind, generic_name| {
         _ = self.stm.declareSymbol(
             generic_name.lexeme,
@@ -3049,7 +3109,12 @@ fn makeGenericVersion(
     const generic_node_copy = generic_blueprint_extracted.body.copy(self.allocator);
     const gen_symbol = switch (generic_node_copy) {
         .FUNCTION => try self.makeGenericFunctionVersion(generic_node_copy, generic_version_name),
-        .STRUCT => try self.makeGenericStructVersion(generic_node_copy, generic_version_name),
+        .STRUCT => try self.makeGenericStructVersion(
+            generic_node_copy,
+            generic_version_name,
+            generic_blueprint_extracted.generic_names,
+            generic_expr_kinds,
+        ),
         .UNION => try self.makeGenericUnionVersion(generic_node_copy, generic_version_name),
         else => unreachable,
     };
@@ -3068,7 +3133,7 @@ fn makeGenericVersion(
 fn genericVersionName(self: *TypeChecker, base_name: []const u8, generic_kinds: []KindId, op: Token) SemanticError![]const u8 {
     var buf: [2048]u8 = undefined;
 
-    var buf_rem = KindId.print_to_buf(&buf, "{s}@", .{base_name});
+    var buf_rem = KindId.print_to_buf(&buf, "{s}@{d}", .{ base_name, generic_kinds.len });
     for (generic_kinds) |*kind| {
         _ = kind.update(self.stm, self) catch {
             return self.reportError(SemanticError.UnresolvableIdentifier, op, "Unresolvable generic type");
@@ -3097,7 +3162,13 @@ fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, gener
     return func_symbol;
 }
 
-fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_version_name: []const u8) SemanticError!*Symbol {
+fn makeGenericStructVersion(
+    self: *TypeChecker,
+    struct_node: StmtNode,
+    generic_version_name: []const u8,
+    curry_names: []Token,
+    curry_types: []KindId,
+) SemanticError!*Symbol {
     const struct_stmt = struct_node.STRUCT;
     struct_stmt.id.lexeme = generic_version_name;
 
@@ -3111,13 +3182,43 @@ fn makeGenericStructVersion(self: *TypeChecker, struct_node: StmtNode, generic_v
     try self.declareStructFields(symbol.source_module, symbol, struct_stmt, self.stm);
 
     if (self.declare_generic_methods) {
-        try self.declareStructMethods(struct_stmt, symbol);
+        try self.declareStructMethods(struct_stmt, symbol, curry_names, curry_types);
     }
 
     if (self.eval_generic_method_bodies) {
         symbol.kind.STRUCT.fields.method_bodies_eval = true;
         symbol.kind.STRUCT.fields.open();
-        for (struct_stmt.methods) |*method| {
+        for (struct_stmt.methods) |item| {
+            if (item == .GENERIC) {
+                const generic = item.GENERIC;
+
+                const generic_kind = KindId.newGeneric(
+                    generic.body,
+                    generic.generic_names,
+                    curry_names,
+                    curry_types,
+                );
+                const generic_id = switch (generic.body) {
+                    .FUNCTION => |func| func.name,
+                    else => unreachable,
+                };
+
+                symbol.kind.STRUCT.fields.addField(
+                    struct_stmt.id.lexeme,
+                    self.stm.parent_module,
+                    ScopeKind.GENERIC,
+                    generic_id.lexeme,
+                    generic_id.line,
+                    generic_id.column,
+                    generic_kind,
+                    generic.body.FUNCTION.public,
+                ) catch {
+                    const old_field = symbol.kind.STRUCT.fields.getField(self.stm, generic_id.lexeme) catch unreachable;
+                    return self.reportDuplicateError(generic_id, old_field.dcl_line, old_field.dcl_column);
+                };
+                continue;
+            }
+            const method = item.FUNCTION;
             // Get args size
             const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
             // analyze all function bodies, continue if there was an error
