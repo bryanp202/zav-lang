@@ -2213,13 +2213,21 @@ fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr, resu
                 try self.print("    mov {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
             } else {
                 const size_keyword = getSizeKeyword(size);
-                const sign: u8 = if (result_kind == .INT) 's' else 'z';
-                try self.print("    mov{c}x {s}, {s} [{s}] ; Dereference Pointer\n", .{
-                    sign,
-                    dest_reg.name,
-                    size_keyword,
-                    source_reg.name,
-                });
+                if (result_kind != .INT and size == 4) {
+                    const dword_reg = getSizedCPUReg(dest_reg.index, 4);
+                    try self.print(
+                        "    mov {s}, dword [{s}] ; Dereference Pointer\n",
+                        .{ dword_reg, source_reg.name },
+                    );
+                } else {
+                    const sign: u8 = if (result_kind == .INT) 's' else 'z';
+                    try self.print("    mov{c}x {s}, {s} [{s}] ; Dereference Pointer\n", .{
+                        sign,
+                        dest_reg.name,
+                        size_keyword,
+                        source_reg.name,
+                    });
+                }
             }
         },
     }
@@ -2288,13 +2296,22 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
                     .{ result_reg.name, lhs_reg.name, rhs_reg.name },
                 );
             } else {
-                // Get operation kind
-                const op_char: u8 = if (result_kind == .UINT) 'z' else 's';
-                // Write index access
-                try self.print(
-                    "    mov{c}x {s}, {s} [{s}+{s}] ; Array Index\n",
-                    .{ op_char, result_reg.name, size_keyword, lhs_reg.name, rhs_reg.name },
-                );
+                if (result_kind != .INT and size == 4) {
+                    const dword_reg = getSizedCPUReg(result_reg.index, 4);
+                    try self.print(
+                        "    mov {s}, dword [{s}+{s}] ; Array Index\n",
+                        .{ dword_reg, lhs_reg.name, rhs_reg.name },
+                    );
+                } else {
+                    const sign: u8 = if (result_kind == .INT) 's' else 'z';
+                    try self.print("    mov{c}x {s}, {s} [{s}+{s}] ; Array Index\n", .{
+                        sign,
+                        result_reg.name,
+                        size_keyword,
+                        lhs_reg.name,
+                        rhs_reg.name,
+                    });
+                }
             }
         }
     } else {
@@ -2318,7 +2335,7 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
             try self.print("    lea {s}, [{s}+{s}] ; Ptr Index\n", .{ result_reg.name, lhs_reg.name, rhs_reg.name });
         } else {
             // Get the size of the result
-            const size = result_kind.size();
+            const size = result_kind.size_runtime();
             const size_keyword = getSizeKeyword(size);
             // Push lhs_reg back on the stack
             const result_reg = try self.getNextCPUReg();
@@ -2326,15 +2343,27 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
             // If size is 8 normal, else special size keyword
             if (size == 8) {
                 // Write index access
-                try self.print("    mov {s}, [{s}+{s}] ; Ptr Index\n", .{ result_reg.name, lhs_reg.name, rhs_reg.name });
-            } else {
-                // Get operation kind
-                const op_char: u8 = if (result_kind == .UINT) 'z' else 's';
-                // Write index access
                 try self.print(
-                    "    mov{c}x {s}, {s} [{s}+{s}] ; Ptr Index\n",
-                    .{ op_char, result_reg.name, size_keyword, lhs_reg.name, rhs_reg.name },
+                    "    mov {s}, [{s}+{s}] ; Array Index\n",
+                    .{ result_reg.name, lhs_reg.name, rhs_reg.name },
                 );
+            } else {
+                if (result_kind != .INT and size == 4) {
+                    const dword_reg = getSizedCPUReg(result_reg.index, 4);
+                    try self.print(
+                        "    mov {s}, dword [{s}+{s}] ; Array Index\n",
+                        .{ dword_reg, lhs_reg.name, rhs_reg.name },
+                    );
+                } else {
+                    const sign: u8 = if (result_kind == .INT) 's' else 'z';
+                    try self.print("    mov{c}x {s}, {s} [{s}+{s}] ; Array Index\n", .{
+                        sign,
+                        result_reg.name,
+                        size_keyword,
+                        lhs_reg.name,
+                        rhs_reg.name,
+                    });
+                }
             }
         }
     }
