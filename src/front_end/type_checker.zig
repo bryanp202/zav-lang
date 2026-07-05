@@ -392,6 +392,7 @@ fn reportDuplicateError(self: *TypeChecker, duplicate_id: Token, dcl_line: u64, 
         // Update had error and panic mode
         self.had_error = true;
         self.panic = true;
+        self.generic_error = true;
     }
     // Raise error
     return SemanticError.DuplicateDeclaration;
@@ -411,6 +412,7 @@ fn reportDuplicateErrorFrom(self: *TypeChecker, duplicate_id: Token, dcl_line: u
         // Update had error and panic mode
         self.had_error = true;
         self.panic = true;
+        self.generic_error = true;
     }
     // Raise error
     return SemanticError.DuplicateDeclaration;
@@ -981,7 +983,7 @@ fn declareUnion(
             kind.*,
             true,
         ) catch {
-            const old_field = symbol.kind.UNION.fields.getField(stm, name.lexeme) catch unreachable;
+            const old_field = symbol.kind.UNION.fields.getField(name.lexeme) catch unreachable;
             return self.reportDuplicateErrorFrom(name, old_field.dcl_line, old_field.dcl_column, module);
         };
     }
@@ -1161,7 +1163,7 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
                 generic_kind,
                 generic.body.FUNCTION.public,
             ) catch {
-                const old_field = symbol.kind.STRUCT.fields.getField(self.stm, generic_id.lexeme) catch unreachable;
+                const old_field = symbol.kind.STRUCT.fields.peakField(generic_id.lexeme) catch unreachable;
                 return self.reportDuplicateError(generic_id, old_field.dcl_line, old_field.dcl_column);
             };
             continue;
@@ -1266,7 +1268,7 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
             new_func,
             method.public,
         ) catch {
-            const old_field = symbol.kind.STRUCT.fields.getField(self.stm, method.name.lexeme) catch unreachable;
+            const old_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
             return self.reportDuplicateError(method.name, old_field.dcl_line, old_field.dcl_column);
         };
     }
@@ -2431,7 +2433,7 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
             return IDResult{ .kind = field.kind, .mutable = mutable, .l_value = true };
         },
         .UNION => {
-            const field = operand_kind.UNION.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
+            const field = operand_kind.UNION.fields.getField(fieldExpr.field_name.lexeme) catch |err| switch (err) {
                 error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
                 else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
             };
@@ -2473,7 +2475,7 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             return field.kind;
         },
         .UNION => {
-            const field = operand_kind.UNION.fields.getField(self.stm, fieldExpr.field_name.lexeme) catch |err| switch (err) {
+            const field = operand_kind.UNION.fields.getField(fieldExpr.field_name.lexeme) catch |err| switch (err) {
                 error.SymbolNotPublic => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Attempted to externally access non-public struct method"),
                 else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
             };
@@ -3086,24 +3088,6 @@ fn makeGenericVersion(
             const old_id = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
             return self.reportDuplicateError(generic_name, old_id.dcl_line, old_id.dcl_column);
         };
-
-        // const new_symbol = self.stm.getSymbol(generic_name.lexeme) catch unreachable;
-
-        // switch (kind) {
-        //     .STRUCT => |strct| {
-        //         const struct_symbol = old_stm.getSymbol(strct.name) catch unreachable;
-        //         new_symbol.name = struct_symbol.name;
-        //     },
-        //     .ENUM => |enm| {
-        //         const enm_symbol = old_stm.getSymbol(enm.name) catch unreachable;
-        //         new_symbol.name = enm_symbol.name;
-        //     },
-        //     .UNION => |unin| {
-        //         const unin_symbol = old_stm.getSymbol(unin.name) catch unreachable;
-        //         new_symbol.name = unin_symbol.name;
-        //     },
-        //     else => {},
-        // }
     }
 
     const generic_node_copy = generic_blueprint_extracted.body.copy(self.allocator);

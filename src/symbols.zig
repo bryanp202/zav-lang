@@ -543,14 +543,10 @@ pub const UnionScope = struct {
         self.max_size = @max(self.max_size, field_size);
     }
 
-    pub fn getField(self: *UnionScope, stm: *SymbolTableManager, name: []const u8) ScopeError!*Symbol {
+    pub fn getField(self: *UnionScope, name: []const u8) ScopeError!*Symbol {
         const field = self.fields.get(name) orelse {
             return ScopeError.UndeclaredSymbol;
         };
-
-        if (field.source_module != stm.parent_module) {
-            stm.extern_dependencies.put(field.name, {}) catch unreachable;
-        }
 
         field.used = true;
         return field;
