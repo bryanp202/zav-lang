@@ -1301,17 +1301,6 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
             self.had_error = true;
             continue;
         };
-        if (self.generic_error) {
-            const fake_token = Token{
-                .lexeme = symbol.kind.STRUCT.fields.canonical_name.?,
-                .column = method.name.column,
-                .kind = method.name.kind,
-                .line = method.name.line,
-            };
-            self.reportError(SemanticError.TypeMismatch, fake_token, "^^^ Error creating generic version") catch {};
-            self.generic_error = false;
-            self.panic = false;
-        }
         self.stm.active_scope.next_address = 0;
     }
     symbol.kind.STRUCT.fields.close();
