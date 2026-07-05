@@ -208,7 +208,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
 
         for (module.structSlice()) |strct| {
             const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
-            self.declareStructMethods(strct.STRUCT, symbol, null, null) catch {
+            self.declareStructMethods(strct.STRUCT, symbol) catch {
                 self.panic = false;
                 self.had_error = true;
                 return;
@@ -1121,7 +1121,7 @@ fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, 
     }
 }
 
-fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol: *Symbol, curry_names: ?[]Token, curry_types: ?[]KindId) SemanticError!void {
+fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol: *Symbol) SemanticError!void {
     if (symbol.kind.STRUCT.fields.methods_declared) {
         return;
     }
@@ -1137,8 +1137,8 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
         if (item == .GENERIC) {
             const generic = item.GENERIC;
 
-            const curried_names = curry_names orelse self.allocator.alloc(Token, 0) catch unreachable;
-            const curried_types = curry_types orelse self.allocator.alloc(KindId, 0) catch unreachable;
+            const curried_names = structStmt.curry_names orelse self.allocator.alloc(Token, 0) catch unreachable;
+            const curried_types = structStmt.curry_types orelse self.allocator.alloc(KindId, 0) catch unreachable;
 
             const generic_kind = KindId.newGeneric(
                 generic.body,
@@ -3171,6 +3171,8 @@ fn makeGenericStructVersion(
 ) SemanticError!*Symbol {
     const struct_stmt = struct_node.STRUCT;
     struct_stmt.id.lexeme = generic_version_name;
+    struct_stmt.curry_names = curry_names;
+    struct_stmt.curry_types = curry_types;
 
     try self.indexStruct(struct_stmt.id, struct_stmt, struct_stmt.public);
 
@@ -3182,7 +3184,7 @@ fn makeGenericStructVersion(
     try self.declareStructFields(symbol.source_module, symbol, struct_stmt, self.stm);
 
     if (self.declare_generic_methods) {
-        try self.declareStructMethods(struct_stmt, symbol, curry_names, curry_types);
+        try self.declareStructMethods(struct_stmt, symbol);
     }
 
     if (self.eval_generic_method_bodies) {
@@ -3190,34 +3192,9 @@ fn makeGenericStructVersion(
         symbol.kind.STRUCT.fields.open();
         for (struct_stmt.methods) |item| {
             if (item == .GENERIC) {
-                const generic = item.GENERIC;
-
-                const generic_kind = KindId.newGeneric(
-                    generic.body,
-                    generic.generic_names,
-                    curry_names,
-                    curry_types,
-                );
-                const generic_id = switch (generic.body) {
-                    .FUNCTION => |func| func.name,
-                    else => unreachable,
-                };
-
-                symbol.kind.STRUCT.fields.addField(
-                    struct_stmt.id.lexeme,
-                    self.stm.parent_module,
-                    ScopeKind.GENERIC,
-                    generic_id.lexeme,
-                    generic_id.line,
-                    generic_id.column,
-                    generic_kind,
-                    generic.body.FUNCTION.public,
-                ) catch {
-                    const old_field = symbol.kind.STRUCT.fields.getField(self.stm, generic_id.lexeme) catch unreachable;
-                    return self.reportDuplicateError(generic_id, old_field.dcl_line, old_field.dcl_column);
-                };
                 continue;
             }
+
             const method = item.FUNCTION;
             // Get args size
             const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;

@@ -465,6 +465,8 @@ pub const StructStmt = struct {
     field_names: []Token,
     field_kinds: []KindId,
     methods: []StmtNode,
+    curry_names: ?[]Token = null,
+    curry_types: ?[]KindId = null,
 
     /// Initialize a structstmt
     pub fn init(public: bool, id: Token, field_names: []Token, field_kinds: []KindId, methods: []StmtNode) StructStmt {
