@@ -1301,6 +1301,17 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
             self.had_error = true;
             continue;
         };
+        if (self.generic_error) {
+            const fake_token = Token{
+                .lexeme = symbol.kind.STRUCT.fields.canonical_name.?,
+                .column = method.name.column,
+                .kind = method.name.kind,
+                .line = method.name.line,
+            };
+            self.reportError(SemanticError.TypeMismatch, fake_token, "^^^ Error creating generic version") catch {};
+            self.generic_error = false;
+            self.panic = false;
+        }
         self.stm.active_scope.next_address = 0;
     }
     symbol.kind.STRUCT.fields.close();
@@ -3032,13 +3043,15 @@ fn makeGenericVersion(
     self.loop_depth = 0;
     const old_return_kind = self.current_return_kind;
     const old_return_ptr = self.current_function_return_ptr;
+    const old_generic_error = self.generic_error;
+    self.generic_error = false;
     defer {
+        self.generic_error = old_generic_error;
         self.current_return_kind = old_return_kind;
         self.current_function_return_ptr = old_return_ptr;
         self.switch_depth = old_switch_depth;
         self.loop_depth = old_loop_depth;
     }
-    self.generic_error = false;
 
     for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |*kind, generic_name| {
         _ = kind.update(self.stm, self) catch {
@@ -3178,6 +3191,9 @@ fn makeGenericStructVersion(
             if (item == .GENERIC) {
                 continue;
             }
+            const old_generic_error = self.generic_error;
+            defer self.generic_error = old_generic_error;
+            self.generic_error = false;
 
             const method = item.FUNCTION;
             // Get args size
