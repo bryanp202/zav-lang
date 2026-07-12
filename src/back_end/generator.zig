@@ -1807,6 +1807,7 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
 
         // Move onto stack based on size
         switch (arg.result_kind) {
+            .VOID => _ = self.popCPUReg(),
             .BOOL => {
                 // Get kind size
                 const size = 1;
