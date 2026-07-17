@@ -142,8 +142,17 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "sleep", sleep_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "waitOne", wait_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "waitAll", waitAll_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "createCondVar", condVar_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "createMutex", mutex_native(allocator)) catch unreachable;
-    new_table.natives_table.put(allocator, "releaseMutex", releaseMutex_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "mutexAcquireExclusive", mutexAcquireExclusive_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "mutexAcquireShared", mutexAcquireShared_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "mutexReleaseExclusive", mutexReleaseExclusive_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "mutexReleaseShared", mutexReleaseShared_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "mutexTryAcquireExclusive", mutexTryAcquireExclusive_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "mutexTryAcquireShared", mutexTryAcquireShared_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "sleepCondVar", sleepCondVar_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "wakeCondVar", wakeConditionVariable_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "wakeAllCondVar", wakeAllConditionVariable_native(allocator)) catch unreachable;
 
     // I/O
     new_table.natives_table.put(allocator, "input", input_native(allocator)) catch unreachable;
@@ -1664,27 +1673,25 @@ fn waitAll_native(allocator: std.mem.Allocator) Native {
     return native;
 }
 
-/// Create Mutex Native
-fn mutex_native(allocator: std.mem.Allocator) Native {
+/// Create a ConditionalVariable native
+fn condVar_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
-    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
     // Make return kind
-    const ret_kind = KindId.newInt(64);
+    const ret_kind = KindId.VOID;
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = "    extern CreateMutexA";
+    const data = "    extern InitializeConditionVariable";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
         fn gen(generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
-                \\    mov rdx, 0
-                \\    mov r8, 0
                 \\    sub rsp, 32
-                \\    call CreateMutexA
+                \\    call InitializeConditionVariable
                 \\    add rsp, 32
                 \\
             );
@@ -1695,17 +1702,17 @@ fn mutex_native(allocator: std.mem.Allocator) Native {
     return native;
 }
 
-/// Release Mutex Native
-fn releaseMutex_native(allocator: std.mem.Allocator) Native {
+/// Create Mutex Native
+fn mutex_native(allocator: std.mem.Allocator) Native {
     // Make the Arg Kind Ids
     const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
-    arg_kinds[0] = KindId.newInt(64);
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
     // Make return kind
-    const ret_kind = KindId.newInt(64);
+    const ret_kind = KindId.VOID;
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
-    const data = "    extern ReleaseMutex";
+    const data = "    extern InitializeSRWLock";
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
@@ -1713,7 +1720,272 @@ fn releaseMutex_native(allocator: std.mem.Allocator) Native {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
-                \\    call ReleaseMutex
+                \\    call InitializeSRWLock
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Exclusive acquire native rwlock (windows: SRW lock)
+fn mutexAcquireExclusive_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    // Make return kind
+    const ret_kind = KindId.VOID;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern AcquireSRWLockExclusive";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call AcquireSRWLockExclusive
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Exclusive release native rwlock (windows: SRW lock)
+fn mutexReleaseExclusive_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    // Make return kind
+    const ret_kind = KindId.VOID;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern ReleaseSRWLockExclusive";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call ReleaseSRWLockExclusive
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Shared acquire native rwlock (windows: SRW lock)
+fn mutexAcquireShared_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    // Make return kind
+    const ret_kind = KindId.VOID;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern AcquireSRWLockShared";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call AcquireSRWLockShared
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Shared Release native rwlock (windows: SRW lock)
+fn mutexReleaseShared_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    // Make return kind
+    const ret_kind = KindId.VOID;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern ReleaseSRWLockShared";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call ReleaseSRWLockShared
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Try to Exclusive acquire native rwlock (windows: SRW lock)
+fn mutexTryAcquireExclusive_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    // Make return kind
+    const ret_kind = KindId.BOOL;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern TryAcquireSRWLockExclusive";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call TryAcquireSRWLockExclusive
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Try to Shared acquire native rwlock (windows: SRW lock)
+fn mutexTryAcquireShared_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    // Make return kind
+    const ret_kind = KindId.BOOL;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern TryAcquireSRWLockShared";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call TryAcquireSRWLockShared
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Use a acquired mutex and a condvar to check a value.
+/// Returns true if the call succeeds
+fn sleepCondVar_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 3) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    arg_kinds[1] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    arg_kinds[2] = KindId.newUInt(32);
+    // Make return kind
+    const ret_kind = KindId.BOOL;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern SleepConditionVariableSRW";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    xor r9, r9
+                \\    sub rsp, 32
+                \\    call SleepConditionVariableSRW
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Wake a single thread that called @sleepCondVar
+fn wakeConditionVariable_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false);
+    // Make return kind
+    const ret_kind = KindId.VOID;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern WakeConditionVariable";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call WakeConditionVariable
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
+}
+
+/// Wake all threads that called @sleepCondVar
+fn wakeAllConditionVariable_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), true);
+    // Make return kind
+    const ret_kind = KindId.VOID;
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern WakeAllConditionVariable";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call WakeAllConditionVariable
                 \\    add rsp, 32
                 \\
             );
