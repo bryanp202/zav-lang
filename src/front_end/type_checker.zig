@@ -132,13 +132,17 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             };
         }
 
-        for (module.structSlice()) |strct| {
+        var i: u64 = 0;
+        var struct_slice = module.structSlice();
+        while (i < struct_slice.len) : (i += 1) {
+            const strct = struct_slice[i];
             // Add it to symbol table
             self.indexStruct(strct.STRUCT.id, strct.STRUCT, strct.STRUCT.public) catch {
                 self.panic = false;
                 self.had_error = true;
                 continue;
             };
+            struct_slice = module.structSlice();
         }
 
         // If had error in struct names, return
@@ -185,7 +189,10 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             };
         }
 
-        for (module.structSlice()) |strct| {
+        var i: u64 = 0;
+        var struct_slice = module.structSlice();
+        while (i < struct_slice.len) : (i += 1) {
+            const strct = struct_slice[i];
             // Get from stm
             const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
             // Declare the new kind with its fields, checking for circular dependencies
@@ -194,6 +201,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                 self.had_error = true;
                 return;
             };
+            struct_slice = module.structSlice();
         }
     }
 
@@ -206,22 +214,30 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         const module = entry.value_ptr.*;
         self.setModule(module);
 
-        for (module.structSlice()) |strct| {
+        var i: u64 = 0;
+        var struct_slice = module.structSlice();
+        while (i < struct_slice.len) : (i += 1) {
+            const strct = struct_slice[i];
             const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
             self.declareStructMethods(strct.STRUCT, symbol) catch {
                 self.panic = false;
                 self.had_error = true;
                 return;
             };
+            struct_slice = module.structSlice();
         }
 
-        for (module.functionSlice()) |function| {
+        i = 0;
+        var function_slice = module.functionSlice();
+        while (i < function_slice.len) : (i += 1) {
+            const function = function_slice[i];
             // Declare function but do not analyze body
             self.declareFunction(function.FUNCTION) catch {
                 self.panic = false;
                 self.had_error = true;
                 continue;
             };
+            function_slice = module.functionSlice();
         }
         // Visit globals
         for (module.globalSlice()) |*global| {
@@ -276,13 +292,22 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         self.setModule(module);
 
         // Check all method bodies in each struct
-        for (module.structSlice()) |*strct| {
+        var i: u64 = 0;
+        var struct_slice = module.structSlice();
+        while (i < struct_slice.len) : (i += 1) {
+            const strct = &struct_slice[i];
             // Get struct symbol
             const struct_symbol = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
             self.evalStructMethods(strct, struct_symbol);
+            struct_slice = module.structSlice();
         }
+
         // Check all function bodies in the module
-        for (module.functionSlice()) |*function| {
+        i = 0;
+        var function_slice = module.functionSlice();
+        while (i < function_slice.len) : (function_slice = module.functionSlice()) {
+            const function = function_slice[i];
+            i += 1;
             if (function.FUNCTION.ignore) {
                 continue;
             }
