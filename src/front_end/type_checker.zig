@@ -239,15 +239,6 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             };
             function_slice = module.functionSlice();
         }
-        // Visit globals
-        for (module.globalSlice()) |*global| {
-            // Analyze globals
-            self.visitGlobalStmt(global.GLOBAL) catch {
-                self.panic = false;
-                self.had_error = true;
-                continue;
-            };
-        }
 
         for (module.useSlice()) |use| {
             self.checkUse(use.USE) catch |err| switch (err) {
@@ -290,6 +281,16 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
     while (module_iter.next()) |entry| {
         const module = entry.value_ptr.*;
         self.setModule(module);
+
+        // Visit globals
+        for (module.globalSlice()) |*global| {
+            // Analyze globals
+            self.visitGlobalStmt(global.GLOBAL) catch {
+                self.panic = false;
+                self.had_error = true;
+                continue;
+            };
+        }
 
         // Check all method bodies in each struct
         var i: u64 = 0;
