@@ -275,8 +275,6 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         }
     }
 
-    self.eval_generic_method_bodies = true;
-    self.current_scope_kind = ScopeKind.LOCAL;
     module_iter = modules.iterator();
     while (module_iter.next()) |entry| {
         const module = entry.value_ptr.*;
@@ -291,6 +289,19 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                 continue;
             };
         }
+    }
+
+    // If had error in globals return
+    if (self.had_error) {
+        return;
+    }
+
+    self.eval_generic_method_bodies = true;
+    self.current_scope_kind = ScopeKind.LOCAL;
+    module_iter = modules.iterator();
+    while (module_iter.next()) |entry| {
+        const module = entry.value_ptr.*;
+        self.setModule(module);
 
         // Check all method bodies in each struct
         var i: u64 = 0;
