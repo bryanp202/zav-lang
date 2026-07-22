@@ -139,6 +139,7 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     // Threading and processes
     new_table.natives_table.put(allocator, "run", run_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "createThread", thread_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "currentThreadId", currentThreadId_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sleep", sleep_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "waitOne", wait_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "waitAll", waitAll_native(allocator)) catch unreachable;
@@ -1579,6 +1580,33 @@ fn thread_native(allocator: std.mem.Allocator) Native {
     const data = "    extern CreateThread\n";
 
     const native = Native.newNative(kind, source, data, null, 0);
+    return native;
+}
+
+fn currentThreadId_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 0) catch unreachable;
+    // Make return kind
+    const ret_kind = KindId.newUInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = "    extern GetCurrentThreadId";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            try generator.write(
+                \\    sub rsp, 32
+                \\    call GetCurrentThreadId
+                \\    add rsp, 32
+                \\
+            );
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
     return native;
 }
 
