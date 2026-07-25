@@ -2065,7 +2065,7 @@ fn fetch_add_native(allocator: std.mem.Allocator) Native {
     arg_kinds[0] = KindId.newPtr(allocator, KindId.newInt(64), false); // ptr
     arg_kinds[1] = KindId.newInt(64); // number to add
     // Make return kind
-    const ret_kind = KindId.VOID;
+    const ret_kind = KindId.newInt(64);
     // Make the function kindid
     const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
     const source = undefined;
@@ -2077,6 +2077,7 @@ fn fetch_add_native(allocator: std.mem.Allocator) Native {
             _ = args;
             try generator.write(
                 \\    lock xadd [rcx], rdx
+                \\    mov rax, rdx
                 \\
             );
         }
