@@ -2562,7 +2562,7 @@ fn visitCompareExpr(self: *Generator, compareExpr: *Expr.CompareExpr) Generation
             const rhs_size = compareExpr.rhs.result_kind.size_runtime();
             if (rhs_size != 8) {
                 const sized_reg = getSizedCPUReg(rhs_reg.index, rhs_size);
-                if (lhs_size == 4) {
+                if (rhs_size == 4) {
                     try self.print("    mov {s}, {s}\n", .{ sized_reg, sized_reg });
                 } else {
                     try self.print("    movzx {s}, {s}\n", .{ rhs_reg.name, sized_reg });
