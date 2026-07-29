@@ -509,7 +509,6 @@ pub const Scope = struct {
     pub fn deleteSymbol(self: *Scope, name: []const u8) ScopeError!void {
         var curr: ?*Scope = self;
         while (curr) |enclosing| : (curr = enclosing.enclosing) {
-            std.debug.print("{s}\n", .{name});
             if (enclosing.symbols.remove(name)) {
                 return;
             }
