@@ -1364,7 +1364,7 @@ fn genExpr(self: *Generator, node: ExprNode) GenerationError!void {
         .NATIVE => |nativeExpr| try self.visitNativeExpr(nativeExpr, result_kind),
         .CALL => |callExpr| try self.visitCallExpr(callExpr, result_kind),
         .CONVERSION => |convExpr| try self.visitConvExpr(convExpr, result_kind),
-        .FIELD => |fieldExpr| try self.visitFieldExpr(fieldExpr, result_kind),
+        .FIELD => |fieldExpr| try self.visitFieldExpr(fieldExpr),
         .DEREFERENCE => |derefExpr| try self.visitDereferenceExpr(derefExpr),
         .INDEX => |indexExpr| try self.visitIndexExpr(indexExpr, result_kind),
         .UNARY => |unaryExpr| try self.visitUnaryExpr(unaryExpr),
@@ -2075,7 +2075,7 @@ fn visitFieldExprID(self: *Generator, fieldExpr: *Expr.FieldExpr) GenerationErro
 }
 
 /// Generate asm for a FieldExpr
-fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: KindId) GenerationError!void {
+fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr) GenerationError!void {
     // Check if method
     if (fieldExpr.method_name) |name| {
         const dest_reg = try self.getNextCPUReg();
@@ -2093,6 +2093,7 @@ fn visitFieldExpr(self: *Generator, fieldExpr: *Expr.FieldExpr, result_kind: Kin
     const offset = fieldExpr.stack_offset;
 
     // Generate the field offset access
+    const result_kind = fieldExpr.kind.?;
     switch (result_kind) {
         .FLOAT32 => {
             const dest_reg = try self.getNextSSEReg();

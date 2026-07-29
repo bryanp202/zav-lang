@@ -377,6 +377,7 @@ pub const FieldExpr = struct {
     op: Token,
     stack_offset: u64 = undefined,
     method_name: ?[]const u8 = null,
+    kind: ?KindId,
 
     /// Make a new FieldExpr
     pub fn init(operand: ExprNode, field_name: Token, op: Token) FieldExpr {
@@ -384,6 +385,7 @@ pub const FieldExpr = struct {
             .operand = operand,
             .field_name = field_name,
             .op = op,
+            .kind = null,
         };
     }
 
@@ -395,6 +397,7 @@ pub const FieldExpr = struct {
             .op = self.op,
             .stack_offset = self.stack_offset,
             .method_name = self.method_name,
+            .kind = null,
         };
         return ExprUnion{ .FIELD = new_expr };
     }

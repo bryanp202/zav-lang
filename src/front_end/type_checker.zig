@@ -2473,6 +2473,7 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
             };
             // Update offset from base of struct
             fieldExpr.stack_offset = field.mem_loc;
+            node.expr.FIELD.kind = field.kind;
             node.result_kind = field.kind;
             // Check if method
             if (field.scope == .METHOD) {
@@ -2490,6 +2491,7 @@ fn visitFieldExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError!IDRe
                 else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
             };
             fieldExpr.stack_offset = 0;
+            node.expr.FIELD.kind = field.kind;
             node.result_kind = field.kind;
             const mutable = if (operand_result.kind == .PTR) !operand_result.kind.PTR.const_child else operand_result.mutable;
             return IDResult{ .kind = field.kind, .mutable = mutable, .l_value = true };
@@ -2516,6 +2518,7 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             };
             // Update offset from base of struct
             fieldExpr.stack_offset = field.mem_loc;
+            node.expr.FIELD.kind = field.kind;
             node.result_kind = field.kind;
             // Check if method
             if (field.scope == .METHOD) {
@@ -2532,6 +2535,7 @@ fn visitFieldExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
                 else => return self.reportError(SemanticError.UnresolvableIdentifier, fieldExpr.field_name, "Unresolvable field name"),
             };
             fieldExpr.stack_offset = 0;
+            node.expr.FIELD.kind = field.kind;
             node.result_kind = field.kind;
             return field.kind;
         },
