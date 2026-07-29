@@ -36,6 +36,8 @@ switch_depth: u32,
 // Error handling
 had_error: bool,
 panic: bool,
+in_compif_eval: bool,
+had_compif_error: bool,
 generic_error: bool,
 // Current functions return type
 current_return_kind: KindId,
@@ -66,6 +68,8 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .switch_depth = 0,
         .had_error = false,
         .panic = false,
+        .in_compif_eval = false,
+        .had_compif_error = false,
         .generic_error = false,
         .current_return_kind = KindId.VOID,
         .current_module_path = undefined,
@@ -419,7 +423,9 @@ fn reportDuplicateError(self: *TypeChecker, duplicate_id: Token, dcl_line: u64, 
     const stderr = std.io.getStdErr().writer();
 
     // Only display errors when not in panic mode
-    if (!self.panic) {
+    if (self.in_compif_eval) {
+        self.had_compif_error = true;
+    } else if (!self.panic and !self.in_compif_eval) {
         // Display message
         stderr.print(
             "[Module <root{s}>, Line {d}:{d}] at \'{s}\': Identifier already declared on [Line {d}:{d}]\n",
@@ -439,7 +445,9 @@ fn reportDuplicateErrorFrom(self: *TypeChecker, duplicate_id: Token, dcl_line: u
     const stderr = std.io.getStdErr().writer();
 
     // Only display errors when not in panic mode
-    if (!self.panic) {
+    if (self.in_compif_eval) {
+        self.had_compif_error = true;
+    } else if (!self.panic) {
         // Display message
         stderr.print(
             "[Module <root{s}>, Line {d}:{d}] at \'{s}\': Identifier already declared on [Line {d}:{d}]\n",
@@ -461,7 +469,9 @@ fn reportError(self: *TypeChecker, errorType: SemanticError, token: Token, msg: 
     const stderr = std.io.getStdErr().writer();
 
     // Only display errors when not in panic mode
-    if (!self.panic) {
+    if (self.in_compif_eval) {
+        self.had_compif_error = true;
+    } else if (!self.panic) {
         // Display message
         stderr.print(
             "[Module <root{s}>, Line {d}:{d}] at \'{s}\': {s}\n",
@@ -481,7 +491,9 @@ fn reportErrorFrom(self: *TypeChecker, errorType: SemanticError, token: Token, m
     const stderr = std.io.getStdErr().writer();
 
     // Only display errors when not in panic mode
-    if (!self.panic) {
+    if (self.in_compif_eval) {
+        self.had_compif_error = true;
+    } else if (!self.panic) {
         // Display message
         stderr.print(
             "[Module <root{s}>, Line {d}:{d}] at \'{s}\': {s}\n",
@@ -1816,13 +1828,14 @@ fn visitIfStmt(self: *TypeChecker, ifStmt: *Stmt.IfStmt) SemanticError!void {
 /// Analyze the types of a compif stmt
 fn visitCompifStmt(self: *TypeChecker, compifStmt: *Stmt.CompifStmt) SemanticError!void {
     // Suppress errors
-    self.panic = true;
-    var had_error = false;
-    const cond_kind = self.analyzeExpr(&compifStmt.conditional) catch blk: {
-        had_error = true;
-        break :blk KindId.VOID;
-    };
-    self.panic = false;
+    const old_had_compif_error = self.had_compif_error;
+    const old_in_compif_eval = self.in_compif_eval;
+    self.had_compif_error = false;
+    self.in_compif_eval = true;
+    const cond_kind = self.analyzeExpr(&compifStmt.conditional) catch KindId.VOID;
+    const had_error = self.had_compif_error;
+    self.in_compif_eval = old_in_compif_eval;
+    self.had_compif_error = old_had_compif_error;
 
     if (!had_error and (compifStmt.match_type == null or (cond_kind.equal(compifStmt.match_type.?) == compifStmt.is_equal))) {
         compifStmt.skip_then_branch_compile = false;
@@ -2852,7 +2865,7 @@ fn visitCompareExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     // Rename form to be shorter
     const kind = coerce_result.final_kind;
     // Check if legal type for comparison
-    if (kind != .INT and kind != .UINT and kind != .FLOAT32 and kind != .FLOAT64 and kind != .PTR and kind != .ENUM) {
+    if (kind != .BOOL and kind != .INT and kind != .UINT and kind != .FLOAT32 and kind != .FLOAT64 and kind != .PTR and kind != .ENUM) {
         return self.reportError(SemanticError.TypeMismatch, op, "Cannot compare non-number values");
     }
 
@@ -3175,6 +3188,12 @@ fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, gener
 
     function_node.FUNCTION.name.lexeme = generic_version_name;
     try self.declareFunction(function_node.FUNCTION);
+    defer {
+        if (self.had_compif_error) {
+            const sym = self.stm.getSymbolGlobal(generic_version_name) catch unreachable;
+            sym.used = false;
+        }
+    }
     const func_symbol = self.stm.getSymbolGlobal(function_node.FUNCTION.name.lexeme) catch unreachable;
     try self.visitFunctionStmt(function_node.FUNCTION, func_symbol.kind, false);
     if (self.generic_error) {
