@@ -499,7 +499,7 @@ fn useStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
             // Make fake target scope for global
             const global_token = Token{ .column = token.column, .lexeme = "", .kind = .IDENTIFIER, .line = token.line };
             const global_id_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-            global_id_expr.* = Expr.IdentifierExpr{ .id = global_token, .lexical_scope = undefined };
+            global_id_expr.* = Expr.IdentifierExpr{ .id = global_token, .lexical_scope = undefined, .kind = null };
             const global_scope = ExprNode.init(.{ .IDENTIFIER = global_id_expr });
 
             break :get_scope try self.scopeExpr(global_scope, token);
@@ -1897,7 +1897,7 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             // Make fake target scope for global
             const global_token = Token{ .column = token.column, .lexeme = "", .kind = .IDENTIFIER, .line = token.line };
             const global_id_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-            global_id_expr.* = Expr.IdentifierExpr{ .id = global_token, .lexical_scope = undefined };
+            global_id_expr.* = Expr.IdentifierExpr{ .id = global_token, .lexical_scope = undefined, .kind = null };
             const global_scope = ExprNode.init(.{ .IDENTIFIER = global_id_expr });
 
             return self.scopeExpr(global_scope, token);
@@ -1939,7 +1939,7 @@ fn idExpr(self: *Parser, id_token: Token) SyntaxError!ExprResult {
         break :blk ExprNode.init(ExprUnion{ .GENERIC = new_gen_expr });
     } else blk: {
         const identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-        identifier_expr.* = .{ .id = id_token, .lexical_scope = undefined };
+        identifier_expr.* = .{ .id = id_token, .lexical_scope = undefined, .kind = null };
         break :blk ExprNode.init(ExprUnion{ .IDENTIFIER = identifier_expr });
     };
 

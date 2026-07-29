@@ -228,6 +228,7 @@ pub const IdentifierExpr = struct {
     scope_kind: Symbol.ScopeKind = undefined,
     stack_offset: u64 = undefined,
     lexical_scope: []const u8,
+    kind: ?KindId,
 
     pub fn copy(self: IdentifierExpr, allocator: std.mem.Allocator) ExprUnion {
         const new_expr = allocator.create(IdentifierExpr) catch unreachable;

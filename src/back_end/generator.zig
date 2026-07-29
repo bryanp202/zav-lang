@@ -1359,7 +1359,7 @@ fn genExpr(self: *Generator, node: ExprNode) GenerationError!void {
     // Determine the type of expr and analysis it
     switch (node.expr) {
         .SCOPE => unreachable,
-        .IDENTIFIER => |idExpr| try self.visitIdentifierExpr(idExpr, result_kind),
+        .IDENTIFIER => |idExpr| try self.visitIdentifierExpr(idExpr),
         .LITERAL => |litExpr| try self.visitLiteralExpr(litExpr),
         .NATIVE => |nativeExpr| try self.visitNativeExpr(nativeExpr, result_kind),
         .CALL => |callExpr| try self.visitCallExpr(callExpr, result_kind),
@@ -1399,8 +1399,9 @@ fn visitIdentifierExprID(self: *Generator, idExpr: *Expr.IdentifierExpr) Generat
 }
 
 /// Generate asm for an IDExpr
-fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr, result_kind: KindId) GenerationError!void {
+fn visitIdentifierExpr(self: *Generator, idExpr: *Expr.IdentifierExpr) GenerationError!void {
     // Get size of kind
+    const result_kind = idExpr.kind.?;
     const kind_size = result_kind.size_runtime();
     // Get keyword based on size
     const size_keyword = getSizeKeyword(kind_size);

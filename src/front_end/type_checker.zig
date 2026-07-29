@@ -2005,7 +2005,7 @@ fn checkUnaryOpOverload(self: *TypeChecker, node: *ExprNode, lhs: ExprNode, op: 
             .line = undefined,
         };
         const id_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-        id_expr.* = Expr.IdentifierExpr{ .id = id_token, .lexical_scope = undefined };
+        id_expr.* = Expr.IdentifierExpr{ .id = id_token, .lexical_scope = undefined, .kind = null };
         const id_expr_node = ExprNode.init(Expr.ExprUnion{ .IDENTIFIER = id_expr });
 
         const args = self.allocator.alloc(ExprNode, 1) catch unreachable;
@@ -2044,7 +2044,7 @@ fn checkBinOpOverload(self: *TypeChecker, node: *ExprNode, first_node: ExprNode,
             .line = undefined,
         };
         const id_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-        id_expr.* = Expr.IdentifierExpr{ .id = id_token, .lexical_scope = undefined };
+        id_expr.* = Expr.IdentifierExpr{ .id = id_token, .lexical_scope = undefined, .kind = null };
         const id_expr_node = ExprNode.init(Expr.ExprUnion{ .IDENTIFIER = id_expr });
 
         const args = self.allocator.alloc(ExprNode, 2) catch unreachable;
@@ -2189,6 +2189,7 @@ fn visitIdentifierExprWrapped(self: *TypeChecker, node: *ExprNode) SemanticError
     const id_result = IDResult{ .kind = symbol.kind, .mutable = symbol.is_mutable, .l_value = true };
     // Return id result and update final
     node.result_kind = symbol.kind;
+    node.expr.IDENTIFIER.kind = symbol.kind;
     return id_result;
 }
 
@@ -2231,6 +2232,7 @@ fn visitIdentifierExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId
 
     // Return its stored kind and update final
     node.result_kind = symbol.kind;
+    node.expr.IDENTIFIER.kind = symbol.kind;
     return node.result_kind;
 }
 
@@ -2989,13 +2991,20 @@ fn visitLambdaExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
     const asm_name = std.fmt.allocPrint(self.allocator, "__{s}", .{name}) catch unreachable;
 
-    const new_identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
-    new_identifier_expr.* = Expr.IdentifierExpr{ .id = id, .scope_kind = .FUNC, .lexical_scope = asm_name };
-    node.* = ExprNode.init(.{ .IDENTIFIER = new_identifier_expr });
-    node.result_kind = KindId.newFunc(self.allocator, lambdaExpr.arg_kinds, false, lambdaExpr.ret_kind);
-    _ = node.result_kind.update(self.stm, self) catch {
+    var lambdaKind = KindId.newFunc(self.allocator, lambdaExpr.arg_kinds, false, lambdaExpr.ret_kind);
+    _ = lambdaKind.update(self.stm, self) catch {
         return self.reportError(SemanticError.UnresolvableIdentifier, id, "Could not resolve arg or return type in lambda function");
     };
+
+    const new_identifier_expr = self.allocator.create(Expr.IdentifierExpr) catch unreachable;
+    new_identifier_expr.* = Expr.IdentifierExpr{
+        .id = id,
+        .scope_kind = .FUNC,
+        .lexical_scope = asm_name,
+        .kind = lambdaKind,
+    };
+    node.* = ExprNode.init(.{ .IDENTIFIER = new_identifier_expr });
+    node.result_kind = lambdaKind;
 
     // Adds new sudo function statement to the queue of lambdas, evaluated after all normal methods and functions
     const functionStmt = self.allocator.create(Stmt.FunctionStmt) catch unreachable;
@@ -3061,6 +3070,7 @@ fn visitGenericExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         .id = generic_symbol_kind_extracted.body.FUNCTION.name,
         .lexical_scope = generic_version_symbol.name,
         .scope_kind = ScopeKind.FUNC,
+        .kind = generic_version_symbol.kind,
     };
     new_node.id.lexeme = generic_name;
     node.*.expr = Expr.ExprUnion{ .IDENTIFIER = new_node };
