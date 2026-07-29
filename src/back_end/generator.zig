@@ -1365,7 +1365,7 @@ fn genExpr(self: *Generator, node: ExprNode) GenerationError!void {
         .CALL => |callExpr| try self.visitCallExpr(callExpr, result_kind),
         .CONVERSION => |convExpr| try self.visitConvExpr(convExpr, result_kind),
         .FIELD => |fieldExpr| try self.visitFieldExpr(fieldExpr, result_kind),
-        .DEREFERENCE => |derefExpr| try self.visitDereferenceExpr(derefExpr, result_kind),
+        .DEREFERENCE => |derefExpr| try self.visitDereferenceExpr(derefExpr),
         .INDEX => |indexExpr| try self.visitIndexExpr(indexExpr, result_kind),
         .UNARY => |unaryExpr| try self.visitUnaryExpr(unaryExpr),
         .ARITH => |arithExpr| try self.visitArithExpr(arithExpr),
@@ -2190,13 +2190,14 @@ fn visitDereferenceExprID(self: *Generator, derefExpr: *Expr.DereferenceExpr) Ge
 }
 
 /// Generate asm for a dereference expr
-fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr, result_kind: KindId) GenerationError!void {
+fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr) GenerationError!void {
     // Generate the operand
     try self.genExpr(derefExpr.operand);
+    const deref_kind = derefExpr.operand.result_kind.PTR.child.*;
     // Dereference the pointer
     const source_reg = self.popCPUReg();
 
-    switch (result_kind) {
+    switch (deref_kind) {
         .STRUCT, .FUNC, .UNION, .ARRAY => self.pushCPUReg(source_reg),
         .FLOAT32 => {
             const dest_reg = try self.getNextSSEReg();
@@ -2209,19 +2210,19 @@ fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr, resu
         else => {
             const dest_reg = try self.getNextCPUReg();
 
-            const size = result_kind.size_runtime();
+            const size = deref_kind.size_runtime();
             if (size == 8) {
                 try self.print("    mov {s}, [{s}] ; Dereference Pointer\n", .{ dest_reg.name, source_reg.name });
             } else {
                 const size_keyword = getSizeKeyword(size);
-                if (result_kind != .INT and size == 4) {
+                if (deref_kind != .INT and size == 4) {
                     const dword_reg = getSizedCPUReg(dest_reg.index, 4);
                     try self.print(
                         "    mov {s}, dword [{s}] ; Dereference Pointer\n",
                         .{ dword_reg, source_reg.name },
                     );
                 } else {
-                    const sign: u8 = if (result_kind == .INT) 's' else 'z';
+                    const sign: u8 = if (deref_kind == .INT) 's' else 'z';
                     try self.print("    mov{c}x {s}, {s} [{s}] ; Dereference Pointer\n", .{
                         sign,
                         dest_reg.name,
