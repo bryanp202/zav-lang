@@ -198,31 +198,16 @@ fn parsePtrKind(self: *Parser) SyntaxError!KindId {
 fn parseFuncKind(self: *Parser) SyntaxError!KindId {
     try self.consume(TokenKind.LEFT_PAREN, "Expected '(' after \"fn\" in function type definition");
 
-    // Make call args list
     var arg_list = std.ArrayList(KindId).init(self.allocator);
-    // Check if next token is ')'
-    if (!self.match(.{TokenKind.RIGHT_PAREN})) {
-        // Parse first arg
-        const first_arg_kind = try self.parseKind();
-        // Add to list
-        arg_list.append(first_arg_kind) catch unreachable;
-
-        // Until ')' or end of file
-        while (!self.match(.{TokenKind.RIGHT_PAREN}) or self.isAtEnd()) {
-            // Consume ','
-            try self.consume(TokenKind.COMMA, "Expected ',' after function type definition argument");
-            // Parse first arg
-            const arg_kind = try self.parseKind();
-            // Add to list
-            arg_list.append(arg_kind) catch unreachable;
-        }
-
-        // Check if at end
-        if (self.isAtEnd()) {
-            return self.errorAt("Unclosed function type definition argument list");
+    while (!self.check(TokenKind.RIGHT_PAREN) or self.isAtEnd()) {
+        const arg = try self.parseKind();
+        arg_list.append(arg) catch unreachable;
+        if (!self.match(.{TokenKind.COMMA})) {
+            break;
         }
     }
-    // Parse return kind
+    try self.consume(TokenKind.RIGHT_PAREN, "Unclosed fn type parameter list");
+
     const return_kind = try self.parseKind();
     // Make new func kindid
     const new_func = KindId.newFunc(self.allocator, arg_list.items, false, return_kind);
@@ -338,7 +323,16 @@ fn globalSynchronize(self: *Parser) void {
 
     // Advance until end of file or potential start of new statement
     while (self.current.kind != TokenKind.EOF) {
-        if (self.matchNoAdvance(.{ TokenKind.CONST, TokenKind.VAR, TokenKind.FN })) return;
+        if (self.matchNoAdvance(.{
+            TokenKind.PUB,
+            TokenKind.UNION,
+            TokenKind.STRUCT,
+            TokenKind.CONST,
+            TokenKind.VAR,
+            TokenKind.FN,
+            TokenKind.USE,
+            TokenKind.MOD,
+        })) return;
         _ = self.advance();
     }
 }
@@ -364,6 +358,8 @@ fn synchronize(self: *Parser) void {
             TokenKind.CONTINUE,
             TokenKind.BREAK,
             TokenKind.RETURN,
+            TokenKind.PUB,
+            TokenKind.USE,
         })) return;
         // Advance
         _ = self.advance();
@@ -435,12 +431,17 @@ fn parse_generic_data(self: *Parser) SyntaxError!GenericData {
     const op = self.previous;
     var generic_names = std.ArrayList(Token).init(self.allocator);
 
-    try self.consume(TokenKind.IDENTIFIER, "Expected generic type identifier for generic blueprint or generic invocation");
-    generic_names.append(self.previous) catch unreachable;
-    while (!self.match(.{TokenKind.RIGHT_SQUARE}) and !self.isAtEnd()) {
-        try self.consume(TokenKind.COMMA, "Expected ',' after generic type");
-        try self.consume(TokenKind.IDENTIFIER, "Expected generic type identifier for generic blueprint or generic invocation");
+    while (!self.check(TokenKind.RIGHT_SQUARE) or self.isAtEnd()) {
+        try self.consume(TokenKind.IDENTIFIER, "Expected generic type identifier");
         generic_names.append(self.previous) catch unreachable;
+        if (!self.match(.{TokenKind.COMMA})) {
+            break;
+        }
+    }
+    try self.consume(TokenKind.RIGHT_SQUARE, "Unclosed generic blueprint definition");
+
+    if (generic_names.items.len == 0) {
+        return self.errorAt("Expected at least one generic type");
     }
 
     return GenericData{ .op = op, .names = generic_names.items };
@@ -457,12 +458,17 @@ fn parse_generic_kinds(self: *Parser) SyntaxError!GenericKinds {
     const op = self.previous;
     var generic_names = std.ArrayList(KindId).init(self.allocator);
 
-    const first_kind = try self.parseKind();
-    generic_names.append(first_kind) catch unreachable;
-    while (!self.match(.{TokenKind.RIGHT_SQUARE}) and !self.isAtEnd()) {
-        try self.consume(TokenKind.COMMA, "Expected ',' after generic type");
+    while (!self.check(TokenKind.RIGHT_SQUARE) or self.isAtEnd()) {
         const kind = try self.parseKind();
         generic_names.append(kind) catch unreachable;
+        if (!self.match(.{TokenKind.COMMA})) {
+            break;
+        }
+    }
+    try self.consume(TokenKind.RIGHT_SQUARE, "Unclosed generic blueprint invocation");
+
+    if (generic_names.items.len == 0) {
+        return self.errorAt("Expected at least one generic type");
     }
 
     return GenericKinds{ .op = op, .names = generic_names.items };
@@ -614,38 +620,20 @@ fn parseArgList(self: *Parser, closing_token_kind: TokenKind) SyntaxError!ArgLis
     var arg_name_list = std.ArrayList(Token).init(self.allocator);
     var arg_kind_list = std.ArrayList(KindId).init(self.allocator);
 
-    // Check if any args
-    if (!self.match(.{closing_token_kind})) {
-        // Do first arg
-        // Get name
-        try self.consume(TokenKind.IDENTIFIER, "Expected argument identifier");
-        const first_arg_name = self.previous;
-        // Consume ':'
-        try self.consume(TokenKind.COLON, "Expected ':' after argument identifier");
-        // Get type
-        const first_arg_kind = try self.parseKind();
-        // Add to arg_list
-        arg_name_list.append(first_arg_name) catch unreachable;
-        arg_kind_list.append(first_arg_kind) catch unreachable;
+    while (!self.check(closing_token_kind) or self.isAtEnd()) {
+        try self.consume(TokenKind.IDENTIFIER, "Expected parameter definition");
+        arg_name_list.append(self.previous) catch unreachable;
 
-        // Do sequential args
-        while (!self.match(.{closing_token_kind}) and !self.isAtEnd()) {
-            // Consume ','
-            try self.consume(TokenKind.COMMA, "Expected ',' after argument");
+        try self.consume(TokenKind.COLON, "Expected ':' after parameter name");
 
-            // Get name
-            try self.consume(TokenKind.IDENTIFIER, "Expected argument identifier");
-            const arg_name = self.previous;
-            // Consume ':'
-            try self.consume(TokenKind.COLON, "Expected ':' after argument identifier");
-            // Get type
-            const arg_kind = try self.parseKind();
+        const kind = try self.parseKind();
+        arg_kind_list.append(kind) catch unreachable;
 
-            // Add to arg_list
-            arg_name_list.append(arg_name) catch unreachable;
-            arg_kind_list.append(arg_kind) catch unreachable;
+        if (!self.match(.{TokenKind.COMMA})) {
+            break;
         }
     }
+    try self.consume(closing_token_kind, "Unclosed parameter list");
 
     return ArgList{ .arg_names = arg_name_list.items, .arg_kinds = arg_kind_list.items };
 }
@@ -821,20 +809,14 @@ fn enumStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 
     var variant_names_list = std.ArrayList(Token).init(self.allocator);
 
-    try self.consume(TokenKind.IDENTIFIER, "Expected at least one enum variant");
-    variant_names_list.append(self.previous) catch unreachable;
-
-    // Do the rest if there are any
-    while (!self.match(.{TokenKind.RIGHT_BRACE}) and !self.isAtEnd()) {
-        try self.consume(TokenKind.COMMA, "Expected comma between variants");
-
-        try self.consume(TokenKind.IDENTIFIER, "Expected enum variant");
+    while (!self.check(TokenKind.RIGHT_BRACE) or self.isAtEnd()) {
+        try self.consume(TokenKind.IDENTIFIER, "Expected parameter definition");
         variant_names_list.append(self.previous) catch unreachable;
+        if (!self.match(.{TokenKind.COMMA})) {
+            break;
+        }
     }
-    // Check if previous was brace
-    if (self.previous.kind != .RIGHT_BRACE) {
-        return self.errorAt("Expected '}' after struct field list");
-    }
+    try self.consume(TokenKind.RIGHT_BRACE, "Unclosed enum declaration");
 
     // Create new stmt
     const new_stmt = self.allocator.create(Stmt.EnumStmt) catch unreachable;
@@ -1717,38 +1699,20 @@ fn address(self: *Parser, expr: ExprNode, operator: Token) SyntaxError!ExprNode 
 /// Parse a user function call expression
 /// call -> identifier '(' expression (',' expression)* ')'
 fn call(self: *Parser, expr: ExprNode, operator: Token, precedence: *isize) SyntaxError!ExprNode {
-    // Make call args list
     var arg_list = std.ArrayList(ExprNode).init(self.allocator);
 
-    // Check if next token is ')'
-    if (!self.match(.{TokenKind.RIGHT_PAREN})) {
-        // Parse first arg
-        const first_arg_result = try self.expression();
-        const first_arg = first_arg_result.expr;
-        // Add to list
-        arg_list.append(first_arg) catch unreachable;
-
-        // Until ')' or end of file
-        while (!self.match(.{TokenKind.RIGHT_PAREN}) or self.isAtEnd()) {
-            // Consume ','
-            try self.consume(TokenKind.COMMA, "Expected ',' after function call argument");
-            // Parse first arg
-            const arg_result = try self.expression();
-            const arg = arg_result.expr;
-            // Add to list
-            arg_list.append(arg) catch unreachable;
-        }
-
-        // Check if at end
-        if (self.isAtEnd()) {
-            return self.errorAt("Unclosed function call argument list");
+    while (!self.check(TokenKind.RIGHT_PAREN) or self.isAtEnd()) {
+        const arg_result = try self.expression();
+        const arg = arg_result.expr;
+        arg_list.append(arg) catch unreachable;
+        if (!self.match(.{TokenKind.COMMA})) {
+            break;
         }
     }
-    // Set precedence to -1
+    try self.consume(TokenKind.RIGHT_PAREN, "Unclosed native call argument list");
+
     precedence.* = -1;
-    // Make new expression
     const new_expr = self.allocator.create(Expr.CallExpr) catch unreachable;
-    // Make new call expression
     new_expr.* = Expr.CallExpr.init(expr, operator, arg_list.items);
     const node = ExprNode.init(ExprUnion{ .CALL = new_expr });
     return node;
@@ -1939,25 +1903,19 @@ fn literal(self: *Parser) SyntaxError!ExprResult {
             return self.scopeExpr(global_scope, token);
         },
         .NATIVE => {
-            // Consume the '('
             try self.consume(TokenKind.LEFT_PAREN, "Expected '(' after native function");
-            // Create arg list
             var arg_list = std.ArrayList(ExprNode).init(self.allocator);
 
-            // Check if next if next is ')'
-            if (!self.check(TokenKind.RIGHT_PAREN)) {
-                const first_arg = try self.expression();
-                arg_list.append(first_arg.expr) catch unreachable;
-                // Parse until no more commas
-                while (self.match(.{TokenKind.COMMA})) {
-                    const next_arg = try self.expression();
-                    arg_list.append(next_arg.expr) catch unreachable;
+            while (!self.check(TokenKind.RIGHT_PAREN) or self.isAtEnd()) {
+                const arg_result = try self.expression();
+                const arg = arg_result.expr;
+                arg_list.append(arg) catch unreachable;
+                if (!self.match(.{TokenKind.COMMA})) {
+                    break;
                 }
             }
-            // Consume ')'
-            try self.consume(TokenKind.RIGHT_PAREN, "Expected ')' after arg list");
+            try self.consume(TokenKind.RIGHT_PAREN, "Unclosed native call argument list");
 
-            // Make new nativeExpr
             const native_expr = self.allocator.create(Expr.NativeExpr) catch unreachable;
             native_expr.name = token;
             // "borrow" arg_list's items
