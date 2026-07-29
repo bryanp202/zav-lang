@@ -1366,7 +1366,7 @@ fn genExpr(self: *Generator, node: ExprNode) GenerationError!void {
         .CONVERSION => |convExpr| try self.visitConvExpr(convExpr, result_kind),
         .FIELD => |fieldExpr| try self.visitFieldExpr(fieldExpr),
         .DEREFERENCE => |derefExpr| try self.visitDereferenceExpr(derefExpr),
-        .INDEX => |indexExpr| try self.visitIndexExpr(indexExpr, result_kind),
+        .INDEX => |indexExpr| try self.visitIndexExpr(indexExpr),
         .UNARY => |unaryExpr| try self.visitUnaryExpr(unaryExpr),
         .ARITH => |arithExpr| try self.visitArithExpr(arithExpr),
         .COMPARE => |compareExpr| try self.visitCompareExpr(compareExpr),
@@ -2238,7 +2238,7 @@ fn visitDereferenceExpr(self: *Generator, derefExpr: *Expr.DereferenceExpr) Gene
 }
 
 /// Generate asm for an indexExpr
-fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: KindId) GenerationError!void {
+fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr) GenerationError!void {
     // Generate lhs
     try self.genExpr(indexExpr.lhs);
     // Generate rhs
@@ -2258,9 +2258,10 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
 
     // Get correct size kind for child
     const access_kind = if (indexExpr.reversed) indexExpr.rhs.result_kind else indexExpr.lhs.result_kind;
-    const child_size = result_kind.size();
     // Check if array
     if (access_kind == .ARRAY) {
+        const result_kind = access_kind.ARRAY.child.*;
+        const child_size = result_kind.size();
         // Multiply address by child_size
         try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         // Check if float 32
@@ -2319,6 +2320,8 @@ fn visitIndexExpr(self: *Generator, indexExpr: *Expr.IndexExpr, result_kind: Kin
             }
         }
     } else {
+        const result_kind = access_kind.PTR.child.*;
+        const child_size = result_kind.size();
         // Multiply index by child_size
         try self.print("    imul {s}, {d}\n", .{ rhs_reg.name, child_size });
         // Check if float 32
