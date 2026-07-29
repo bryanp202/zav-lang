@@ -301,6 +301,10 @@ pub const SymbolTableManager = struct {
         return self.scopes.items[0].getSymbol(name);
     }
 
+    pub fn deleteGlobalSymbol(self: SymbolTableManager, name: []const u8) !void {
+        try self.scopes.items[0].deleteSymbol(name);
+    }
+
     /// Peak if a symbol is in the table, but do not mark as used
     pub fn peakSymbol(self: *SymbolTableManager, name: []const u8) !*Symbol {
         return self.active_scope.peakSymbol(name);
@@ -497,6 +501,17 @@ pub const Scope = struct {
             if (maybeSymbol) |sym| {
                 // Return the symbol
                 return sym;
+            }
+        }
+        return ScopeError.UndeclaredSymbol;
+    }
+
+    pub fn deleteSymbol(self: *Scope, name: []const u8) ScopeError!void {
+        var curr: ?*Scope = self;
+        while (curr) |enclosing| : (curr = enclosing.enclosing) {
+            std.debug.print("{s}\n", .{name});
+            if (enclosing.symbols.remove(name)) {
+                return;
             }
         }
         return ScopeError.UndeclaredSymbol;

@@ -3190,8 +3190,7 @@ fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, gener
     try self.declareFunction(function_node.FUNCTION);
     defer {
         if (self.had_compif_error) {
-            const sym = self.stm.getSymbolGlobal(generic_version_name) catch unreachable;
-            sym.used = false;
+            self.stm.deleteGlobalSymbol(generic_version_name) catch unreachable;
         }
     }
     const func_symbol = self.stm.getSymbolGlobal(function_node.FUNCTION.name.lexeme) catch unreachable;

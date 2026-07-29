@@ -398,7 +398,7 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
 
     // Generate all functions in the module
     for (module.functionSlice()) |function| {
-        const function_sym = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
+        const function_sym = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch continue;
         try self.visitFunctionStmt(function.FUNCTION.*, function_sym.kind.FUNC.args_size, function_sym.used, function_sym.name);
     }
 }
