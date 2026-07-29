@@ -2989,7 +2989,11 @@ fn visitLambdaExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     const name = std.fmt.allocPrint(self.allocator, "@anon{d}", .{self.lambda_functions.items.len}) catch unreachable;
     const id = Token{ .lexeme = name, .kind = .IDENTIFIER, .line = lambdaExpr.op.line, .column = lambdaExpr.op.column };
 
-    const asm_name = std.fmt.allocPrint(self.allocator, "__{s}", .{name}) catch unreachable;
+    const asm_name = std.fmt.allocPrint(
+        self.allocator,
+        "{s}__{s}",
+        .{ self.current_module_path, name },
+    ) catch unreachable;
 
     var lambdaKind = KindId.newFunc(self.allocator, lambdaExpr.arg_kinds, false, lambdaExpr.ret_kind);
     _ = lambdaKind.update(self.stm, self) catch {
