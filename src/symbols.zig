@@ -204,6 +204,32 @@ pub const SymbolTableManager = struct {
         return mem_loc;
     }
 
+    /// Add a new alias for another symbol, reserving no stack space
+    pub fn declareAlias(
+        self: *SymbolTableManager,
+        name: []const u8,
+        kind: KindId,
+        dcl_line: u64,
+        dcl_column: u64,
+        is_mutable: bool,
+        mem_loc: u64,
+    ) !void {
+        // Calculate the size of the kind
+        const size = kind.size();
+        const module = self.parent_module;
+
+        try self.active_scope.declareAlias(
+            module,
+            name,
+            kind,
+            dcl_line,
+            dcl_column,
+            is_mutable,
+            size,
+            mem_loc,
+        );
+    }
+
     pub fn importSymbol(self: *SymbolTableManager, symbol: *Symbol, as_name: []const u8, public: bool) ScopeError!void {
         try self.active_scope.importSymbol(symbol, as_name, self.parent_module, public);
         self.extern_dependencies.put(symbol.name, {}) catch unreachable;
@@ -472,6 +498,44 @@ pub const Scope = struct {
         return mem_loc;
     }
 
+    pub fn declareAlias(
+        self: *Scope,
+        module: *Module,
+        name: []const u8,
+        kind: KindId,
+        dcl_line: u64,
+        dcl_column: u64,
+        is_mutable: bool,
+        size: u64,
+        mem_loc: u64,
+    ) !void {
+        if (!std.mem.eql(u8, name, "_")) {
+            // Check if in table
+            const getOrPut = self.symbols.getOrPut(name) catch unreachable;
+            // Check if it is already in table
+            if (getOrPut.found_existing) {
+                // Throw error
+                return ScopeError.DuplicateDeclaration;
+            }
+
+            // Add symbol to the table
+            const new_symbol = self.symbols.allocator.create(Symbol) catch unreachable;
+            new_symbol.* = Symbol.init(
+                module,
+                name,
+                kind,
+                ScopeKind.LOCAL,
+                dcl_line,
+                dcl_column,
+                is_mutable,
+                false,
+                mem_loc,
+                size,
+            );
+            getOrPut.value_ptr.* = new_symbol;
+        }
+    }
+
     /// Try to get a symbol based off of a name
     /// Mark as used
     pub fn getSymbol(self: *Scope, name: []const u8) ScopeError!*Symbol {
@@ -582,6 +646,7 @@ pub const StructScope = struct {
     method_bodies_eval: bool = false,
     generics_scope: ?*Scope = null,
     public: bool,
+    field_count: usize = 0,
 
     /// Make a new struct scope, used to store the names, relative location, and types of a struct's fields
     pub fn init(allocator: std.mem.Allocator, public: bool) StructScope {
@@ -631,6 +696,7 @@ pub const StructScope = struct {
             self.next_address += kind_size;
             const field = Symbol.init(module, name, kind, scope, dcl_line, dcl_column, true, is_public, mem_loc, kind_size);
             getOrPut.value_ptr.*.* = field;
+            self.field_count += 1;
         } else {
             const field = Symbol.initAsField(module, struct_name, name, kind, scope, dcl_line, dcl_column, true, is_public, undefined, undefined);
             getOrPut.value_ptr.*.* = field;

@@ -832,19 +832,22 @@ fn enumStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 /// Declaration -> DeclareStmt | statement
 fn declaration(self: *Parser) SyntaxError!StmtNode {
     if (self.match(.{ TokenKind.CONST, TokenKind.VAR })) { // DeclareStmt
-        return self.declareStmt();
-    } else if (self.match(.{TokenKind.DEFER})) {
-        return self.deferStmt();
-    } else { // Stmt fall through
-        return self.statement();
+        const mutable = self.previous.kind == TokenKind.VAR;
+        if (self.match(.{TokenKind.LEFT_BRACE})) {
+            return self.destructStmt(mutable);
+        }
+        return self.declareStmt(mutable);
     }
+    if (self.match(.{TokenKind.DEFER})) {
+        return self.deferStmt();
+    }
+    // Stmt fall through
+    return self.statement();
 }
 
 /// Parse a declareStmt
 /// DeclareStmt -> ("const"|"var") identifier (":" type)? "=" expression ";"
-fn declareStmt(self: *Parser) SyntaxError!StmtNode {
-    // Get mutability of this declaration
-    const mutable = (self.previous.kind == .VAR);
+fn declareStmt(self: *Parser, mutable: bool) SyntaxError!StmtNode {
     // Consume identifier
     try self.consume(TokenKind.IDENTIFIER, "Expected identifier name after declare statement");
     const id = self.previous;
@@ -874,6 +877,56 @@ fn declareStmt(self: *Parser) SyntaxError!StmtNode {
     const new_stmt = self.allocator.create(Stmt.DeclareStmt) catch unreachable;
     new_stmt.* = Stmt.DeclareStmt.init(mutable, id, kind, op, assign_expr);
     return StmtNode{ .DECLARE = new_stmt };
+}
+
+/// DestructStmt -> ("const"|"var") "{"" (field_name (":" rename)? ,)+ ".."? "}" "=" expression ";"
+fn destructStmt(self: *Parser, mutable: bool) SyntaxError!StmtNode {
+    var idsList = std.ArrayList(Stmt.DestructStmt.Id).init(self.allocator);
+
+    var ignore_rem = false;
+    while (!self.check(TokenKind.RIGHT_BRACE) or self.isAtEnd()) {
+        if (self.match(.{TokenKind.DOT_DOT})) {
+            ignore_rem = true;
+            break;
+        }
+        try self.consume(TokenKind.IDENTIFIER, "Expected field name");
+        const field_name = self.previous;
+        const rename: ?Token = blk: {
+            if (self.match(.{TokenKind.COLON})) {
+                try self.consume(TokenKind.IDENTIFIER, "Expected field rename");
+                break :blk self.previous;
+            } else {
+                break :blk null;
+            }
+        };
+        idsList.append(.{ .name = field_name, .rename = rename }) catch unreachable;
+        if (!self.match(.{TokenKind.COMMA})) {
+            break;
+        }
+    }
+    try self.consume(TokenKind.RIGHT_BRACE, "Unclosed destructure capture list");
+
+    // Check if type declaration was included
+    var kind: ?KindId = null;
+    if (self.match(.{TokenKind.COLON})) {
+        kind = try self.parseKind();
+    }
+
+    try self.consume(TokenKind.EQUAL, "Expected '=' after identifier in declaration");
+    const op = self.previous;
+    const expr = try self.expression();
+    try self.consume(TokenKind.SEMICOLON, "Expected ';' after declaration statement");
+
+    const new_stmt = self.allocator.create(Stmt.DestructStmt) catch unreachable;
+    new_stmt.* = Stmt.DestructStmt.init(
+        mutable,
+        ignore_rem,
+        idsList.items,
+        kind,
+        op,
+        expr.expr,
+    );
+    return StmtNode{ .DESTRUCT = new_stmt };
 }
 
 /// DeferStmt -> defer statement
@@ -1709,7 +1762,7 @@ fn call(self: *Parser, expr: ExprNode, operator: Token, precedence: *isize) Synt
             break;
         }
     }
-    try self.consume(TokenKind.RIGHT_PAREN, "Unclosed native call argument list");
+    try self.consume(TokenKind.RIGHT_PAREN, "Unclosed call argument list");
 
     precedence.* = -1;
     const new_expr = self.allocator.create(Expr.CallExpr) catch unreachable;

@@ -549,6 +549,7 @@ fn genStmt(self: *Generator, stmt: StmtNode) GenerationError!void {
     switch (stmt) {
         .EXPRESSION => |exprStmt| try self.visitExprStmt(exprStmt.*),
         .DECLARE => |declareStmt| try self.visitDeclareStmt(declareStmt.*),
+        .DESTRUCT => |destructStmt| try self.visitDestructStmt(destructStmt.*),
         .DEFER => |deferStmt| try self.visitDeferStmt(deferStmt.*),
         .MUTATE => |mutStmt| try self.visitMutateStmt(mutStmt.*),
         .WHILE => |whileStmt| try self.visitWhileStmt(whileStmt.*),
@@ -716,6 +717,20 @@ fn visitDeclareStmt(self: *Generator, declareStmt: Stmt.DeclareStmt) GenerationE
             },
         }
     }
+}
+
+fn visitDestructStmt(self: *Generator, destructStmt: Stmt.DestructStmt) GenerationError!void {
+    const offset = destructStmt.stack_offset - self.current_func_args_size;
+    const declare_reg = try self.getNextCPUReg();
+    try self.print("    lea {s}, [rbp+{d}] ; DestructStmt\n", .{ declare_reg.name, offset });
+
+    // Generate expression
+    try self.genExpr(destructStmt.expr);
+
+    const expr_reg = self.popCPUReg();
+    const struct_size = destructStmt.expr.result_kind.size();
+    const id_reg = self.popCPUReg();
+    try self.copy_struct(id_reg, expr_reg, struct_size, 0);
 }
 
 fn visitDeferStmt(self: *Generator, deferStmt: Stmt.DeferStmt) GenerationError!void {

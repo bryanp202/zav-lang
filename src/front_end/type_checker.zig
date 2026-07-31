@@ -1547,6 +1547,7 @@ fn checkLambdas(self: *TypeChecker, module: *Module) void {
 fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
     return switch (stmt.*) {
         .DECLARE => |declareStmt| self.visitDeclareStmt(declareStmt),
+        .DESTRUCT => |destructStmt| self.visitDestructStmt(destructStmt),
         .DEFER => |deferStmt| self.visitDeferStmt(deferStmt),
         .EXPRESSION => |exprStmt| self.visitExprStmt(exprStmt),
         .MUTATE => |mutStmt| self.visitMutateStmt(mutStmt),
@@ -1621,6 +1622,106 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
 
     // Update stack offset
     declareExpr.stack_offset = stack_offset + 8;
+}
+
+fn visitDestructStmt(self: *TypeChecker, destructStmt: *Stmt.DestructStmt) SemanticError!void {
+    self.call_chain = true;
+    self.call_chain_max_size = 0;
+
+    const expr_kind = try self.analyzeExpr(&destructStmt.expr);
+    // Extract declaration kind
+    const maybe_declared_kind = destructStmt.kind;
+
+    // Check if declared with a kind
+    if (maybe_declared_kind != null) {
+        _ = destructStmt.kind.?.update(self.stm, self) catch {
+            return self.reportError(SemanticError.UnresolvableIdentifier, destructStmt.op, "Could not resolve type in declaration type");
+        };
+        const coerce_result = try self.staticCoerceKinds(destructStmt.op, destructStmt.kind.?, expr_kind);
+        if (coerce_result.upgraded_rhs) {
+            insertConvExpr(
+                self.allocator,
+                &destructStmt.expr,
+                coerce_result.final_kind,
+            );
+        }
+        destructStmt.kind = coerce_result.final_kind;
+    } else {
+        // Update kind to expr result kind
+        destructStmt.kind = expr_kind;
+    }
+
+    if (destructStmt.kind.? != .STRUCT) {
+        return self.reportError(SemanticError.TypeMismatch, destructStmt.op, "Expected a struct type for destructuring");
+    }
+
+    // Reserve space
+    const stack_offset = self.stm.declareSymbolWithSize(
+        "_",
+        destructStmt.kind.?,
+        ScopeKind.LOCAL,
+        0,
+        0,
+        destructStmt.mutable,
+        false,
+        self.call_chain_max_size,
+    ) catch unreachable;
+    // Update stack offset
+    destructStmt.stack_offset = stack_offset + 8;
+
+    const destructKind = destructStmt.kind.?.STRUCT;
+
+    // Check for duplicates
+    for (destructStmt.ids[1..], 1..) |id, i| {
+        for (destructStmt.ids[0..i]) |other_id| {
+            if (std.mem.eql(u8, id.name.lexeme, other_id.name.lexeme)) {
+                return self.reportDuplicateError(
+                    id.name,
+                    other_id.name.line,
+                    other_id.name.column,
+                );
+            }
+        }
+    }
+
+    for (destructStmt.ids) |id| {
+        const field = destructKind.fields.getField(self.stm, id.name.lexeme) catch {
+            return self.reportError(
+                SemanticError.UnresolvableIdentifier,
+                id.name,
+                "Unresolvable field name",
+            );
+        };
+
+        if (field.scope != .LOCAL) {
+            return self.reportError(
+                SemanticError.TypeMismatch,
+                id.name,
+                "Invalid capture field",
+            );
+        }
+
+        const name = if (id.rename) |rename| rename else id.name;
+        _ = self.stm.declareAlias(
+            name.lexeme,
+            field.kind,
+            name.line,
+            name.column,
+            destructStmt.mutable,
+            stack_offset + field.mem_loc,
+        ) catch {
+            const old_id = self.stm.getSymbol(name.lexeme) catch unreachable;
+            return self.reportDuplicateError(name, old_id.dcl_line, old_id.dcl_column);
+        };
+    }
+
+    const field_count = destructKind.fields.field_count;
+    if (!destructStmt.ignore_rem and field_count > destructStmt.ids.len) {
+        return self.reportError(SemanticError.TypeMismatch, destructStmt.op, "Too few field captures");
+    }
+    if (destructStmt.ignore_rem and field_count == destructStmt.ids.len) {
+        return self.reportError(SemanticError.TypeMismatch, destructStmt.op, "Unnecessary '..'");
+    }
 }
 
 /// DeferStmt -> defer statement

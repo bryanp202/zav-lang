@@ -16,6 +16,7 @@ pub const StmtNode = union(enum) {
     GLOBAL: *GlobalStmt,
     MUTATE: *MutStmt,
     DECLARE: *DeclareStmt,
+    DESTRUCT: *DestructStmt,
     EXPRESSION: *ExprStmt,
     WHILE: *WhileStmt,
     BLOCK: *BlockStmt,
@@ -41,6 +42,7 @@ pub const StmtNode = union(enum) {
             .GLOBAL => |globalStmt| globalStmt.copy(allocator),
             .MUTATE => |mutStmt| mutStmt.copy(allocator),
             .DECLARE => |declStmt| declStmt.copy(allocator),
+            .DESTRUCT => |destructStmt| destructStmt.copy(allocator),
             .EXPRESSION => |exprStmt| exprStmt.copy(allocator),
             .WHILE => |whileStmt| whileStmt.copy(allocator),
             .BLOCK => |blockStmt| blockStmt.copy(allocator),
@@ -128,6 +130,7 @@ pub const StmtNode = union(enum) {
                 }
                 std.debug.print(";\n", .{});
             },
+            .DESTRUCT => |destructStmt| destructStmt.display(stm),
             .EXPRESSION => |exprStmt| {
                 exprStmt.expr.display(stm);
                 std.debug.print(";\n", .{});
@@ -581,6 +584,77 @@ pub const DeclareStmt = struct {
             .stack_offset = self.stack_offset,
         };
         return StmtNode{ .DECLARE = new_stmt };
+    }
+};
+
+/// DestructStmt -> ("const"|"var") "{"" (field_name (":" rename)? ,)+ ".."? "}" "=" expression ";"
+pub const DestructStmt = struct {
+    pub const Id = struct {
+        name: Token,
+        rename: ?Token,
+    };
+
+    mutable: bool,
+    ignore_rem: bool,
+    ids: []Id,
+    kind: ?KindId,
+    op: Token,
+    expr: ExprNode,
+    stack_offset: u64,
+
+    pub fn init(mutable: bool, ignore_rem: bool, ids: []Id, kind: ?KindId, op: Token, expr: ExprNode) DestructStmt {
+        return DestructStmt{
+            .mutable = mutable,
+            .ignore_rem = ignore_rem,
+            .ids = ids,
+            .kind = kind,
+            .op = op,
+            .expr = expr,
+            .stack_offset = undefined,
+        };
+    }
+
+    pub fn display(self: DestructStmt, stm: *Symbol.SymbolTableManager) void {
+        if (self.mutable) {
+            std.debug.print("var {{", .{});
+        } else {
+            std.debug.print("const {{", .{});
+        }
+        for (self.ids) |id| {
+            std.debug.print(" {s}", .{id.name.lexeme});
+            if (id.rename) |rename| {
+                std.debug.print(": {s}", .{rename.lexeme});
+            }
+            std.debug.print(",", .{});
+        }
+        if (self.ignore_rem) {
+            std.debug.print("..", .{});
+        }
+        std.debug.print("}}", .{});
+
+        // Check if type is given
+        var buf: [512]u8 = undefined;
+        if (self.kind) |kind| {
+            std.debug.print(": {s}", .{kind.to_str(&buf, stm)});
+        }
+        std.debug.print(" = ", .{});
+        self.expr.display(stm);
+        std.debug.print(";\n", .{});
+    }
+
+    pub fn copy(self: DestructStmt, allocator: std.mem.Allocator) StmtNode {
+        const new_stmt = allocator.create(DestructStmt) catch unreachable;
+        const new_kind = if (self.kind) |kind| kind.copy(allocator) else null;
+        new_stmt.* = DestructStmt{
+            .mutable = self.mutable,
+            .ignore_rem = self.ignore_rem,
+            .ids = self.ids,
+            .kind = new_kind,
+            .op = self.op,
+            .expr = self.expr.copy(allocator),
+            .stack_offset = self.stack_offset,
+        };
+        return StmtNode{ .DESTRUCT = new_stmt };
     }
 };
 
