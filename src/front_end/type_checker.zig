@@ -53,6 +53,7 @@ current_scope_kind: ScopeKind,
 /// True if a call expr should be marked as a chain
 call_chain: bool,
 call_chain_max_size: usize,
+call_chain_max_allowed_size: usize,
 mutate_parent_kind: ?KindId,
 
 /// Only evaluate generic method bodies after everything has been declared
@@ -78,6 +79,7 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .current_scope_kind = ScopeKind.GLOBAL,
         .call_chain = false,
         .call_chain_max_size = 0,
+        .call_chain_max_allowed_size = 0,
         .mutate_parent_kind = null,
         .eval_generic_method_bodies = false,
         .declare_generic_methods = false,
@@ -1463,6 +1465,7 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: Ki
 fn visitGlobalStmt(self: *TypeChecker, globalStmt: *Stmt.GlobalStmt) SemanticError!void {
     self.call_chain = true;
     self.call_chain_max_size = 0;
+    self.call_chain_max_allowed_size = std.math.maxInt(usize);
 
     // Get the type of expression
     const maybe_expr_kind: ?KindId = if (globalStmt.expr != null) try self.analyzeExpr(&globalStmt.expr.?) else null;
@@ -1568,6 +1571,7 @@ fn analyzeStmt(self: *TypeChecker, stmt: *StmtNode) SemanticError!void {
 fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) SemanticError!void {
     self.call_chain = true;
     self.call_chain_max_size = 0;
+    self.call_chain_max_allowed_size = std.math.maxInt(usize);
 
     // Get the type of expression
     const maybe_expr_kind: ?KindId = if (declareExpr.expr != null) try self.analyzeExpr(&declareExpr.expr.?) else null;
@@ -1627,6 +1631,7 @@ fn visitDeclareStmt(self: *TypeChecker, declareExpr: *Stmt.DeclareStmt) Semantic
 fn visitDestructStmt(self: *TypeChecker, destructStmt: *Stmt.DestructStmt) SemanticError!void {
     self.call_chain = true;
     self.call_chain_max_size = 0;
+    self.call_chain_max_allowed_size = std.math.maxInt(usize);
 
     const expr_kind = try self.analyzeExpr(&destructStmt.expr);
     // Extract declaration kind
@@ -1743,6 +1748,8 @@ fn visitMutateStmt(self: *TypeChecker, mutStmt: *Stmt.MutStmt) SemanticError!voi
     defer {
         self.mutate_parent_kind = null;
     }
+    self.call_chain_max_size = 0;
+    self.call_chain_max_allowed_size = id_kind.size();
 
     // Make sure it is mutable
     if (!is_mutable) {
@@ -2515,7 +2522,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
             self.call_chain = callee.ret_kind.equal(mut_parent_kind);
             self.mutate_parent_kind = null;
         }
-        if (self.call_chain) {
+        if (self.call_chain and callee.ret_kind.size() <= self.call_chain_max_allowed_size) {
             callExpr.chain = true;
             self.call_chain_max_size = @max(self.call_chain_max_size, callee.ret_kind.size());
         } else {
@@ -3202,6 +3209,9 @@ fn makeGenericVersion(
     const old_return_kind = self.current_return_kind;
     const old_return_ptr = self.current_function_return_ptr;
     const old_generic_error = self.generic_error;
+    const old_call_chain = self.call_chain;
+    const old_call_chain_max_allowed_size = self.call_chain_max_allowed_size;
+    const old_call_chain_max_size = self.call_chain_max_size;
     self.generic_error = false;
     defer {
         self.generic_error = old_generic_error;
@@ -3209,6 +3219,9 @@ fn makeGenericVersion(
         self.current_function_return_ptr = old_return_ptr;
         self.switch_depth = old_switch_depth;
         self.loop_depth = old_loop_depth;
+        self.call_chain = old_call_chain;
+        self.call_chain_max_allowed_size = old_call_chain_max_allowed_size;
+        self.call_chain_max_size = old_call_chain_max_size;
     }
 
     for (generic_expr_kinds, generic_blueprint_extracted.generic_names) |*kind, generic_name| {
