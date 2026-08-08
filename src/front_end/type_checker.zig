@@ -3091,7 +3091,11 @@ fn visitIfExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     }
 
     // Update return kind
-    node.result_kind = coerce_result.final_kind;
+    if (then_kind == .PTR and else_kind == .PTR and then_kind.equal(else_kind)) {
+        node.result_kind = then_kind;
+    } else {
+        node.result_kind = coerce_result.final_kind;
+    }
     return node.result_kind;
 }
 
