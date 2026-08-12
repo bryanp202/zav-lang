@@ -61,7 +61,7 @@
 		"user-function": {
 			"patterns": [{
 				"name": "entity.name.function.zav",
-				"match": "\\b([a-z_][a-zA-Z0-9_]*\\()"
+				"match": "\\b([a-zA-Z0-9_]+\\()"
 			}]
 		},
 		"user-constant": {
