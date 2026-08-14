@@ -1350,6 +1350,9 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
             continue;
         }
         const method = item.FUNCTION;
+        if (method.skip) {
+            continue;
+        }
 
         // Get args size
         const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
