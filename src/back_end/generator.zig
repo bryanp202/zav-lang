@@ -382,6 +382,9 @@ pub fn genModule(self: *Generator, module: Module) GenerationError!void {
         for (strct.STRUCT.methods) |item| {
             switch (item) {
                 .FUNCTION => |method| {
+                    if (method.skip) {
+                        continue;
+                    }
                     const method_field = struct_sym.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
                     try self.visitFunctionStmt(
                         method.*,

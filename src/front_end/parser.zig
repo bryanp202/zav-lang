@@ -582,8 +582,21 @@ fn functionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
 
     // Parse return kind
     const return_kind = try self.parseKind();
+
+    var where_cond_list = std.ArrayList(ExprNode).init(self.allocator);
+    if (self.match(.{TokenKind.WHERE})) {
+        while (!self.check(TokenKind.LEFT_BRACE) or self.isAtEnd()) {
+            const expr_result = try self.expression();
+            where_cond_list.append(expr_result.expr) catch unreachable;
+
+            if (!self.match(.{TokenKind.COMMA})) {
+                break;
+            }
+        }
+    }
+
     // Consume '{'
-    try self.consume(TokenKind.LEFT_BRACE, "Expected '{' after function return type");
+    try self.consume(TokenKind.LEFT_BRACE, "Expected '{' after function return type or where clause");
     // Parse body
     const body = try self.blockStmt();
 
@@ -596,6 +609,7 @@ fn functionStmt(self: *Parser, is_public: bool) SyntaxError!StmtNode {
         arg_list_result.arg_names,
         arg_list_result.arg_kinds,
         return_kind,
+        where_cond_list.items,
         body,
     );
     const function_node = StmtNode{ .FUNCTION = new_stmt };
@@ -761,6 +775,7 @@ fn struct_overload(self: *Parser, method_list: *std.ArrayList(StmtNode)) SyntaxE
         arg_list_result.arg_names,
         arg_list_result.arg_kinds,
         return_kind,
+        &.{},
         body,
     );
     const func_node = self.allocator.create(Stmt.FunctionStmt) catch unreachable;

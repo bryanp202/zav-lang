@@ -326,7 +326,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         while (i < function_slice.len) : (function_slice = module.functionSlice()) {
             const function = function_slice[i];
             i += 1;
-            if (function.FUNCTION.ignore) {
+            if (function.FUNCTION.ignore or function.FUNCTION.skip) {
                 continue;
             }
 
@@ -1186,7 +1186,7 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
     }
 
     // Add each method to the struct, but do not analyze body yet
-    for (structStmt.methods) |item| {
+    method_eval: for (structStmt.methods) |item| {
         if (item == .GENERIC) {
             const generic = item.GENERIC;
 
@@ -1220,6 +1220,13 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
             continue;
         }
         const method = item.FUNCTION;
+        for (method.where_cond) |*cond| {
+            const cond_kind = self.checkConditionalCompile(cond);
+            if (cond_kind == null) {
+                method.skip = true;
+                continue :method_eval;
+            }
+        }
 
         _ = method.return_kind.update(self.stm, self) catch {
             return self.reportError(SemanticError.UnresolvableIdentifier, method.name, "Could not resolve method return type");
@@ -1358,8 +1365,17 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
     self.stm.active_scope = old_scope;
 }
 
-/// Declare a function, but do not check its body
+/// Declare a function, but do not check its body.
+/// Returns true if the function was not skipped due to where clause
 fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!void {
+    for (func.where_cond) |*cond| {
+        const cond_kind = self.checkConditionalCompile(cond);
+        if (cond_kind == null) {
+            func.skip = true;
+            return;
+        }
+    }
+
     _ = func.return_kind.update(self.stm, self) catch {
         return self.reportError(
             SemanticError.UnresolvableIdentifier,
@@ -1935,17 +1951,9 @@ fn visitIfStmt(self: *TypeChecker, ifStmt: *Stmt.IfStmt) SemanticError!void {
 
 /// Analyze the types of a compif stmt
 fn visitCompifStmt(self: *TypeChecker, compifStmt: *Stmt.CompifStmt) SemanticError!void {
-    // Suppress errors
-    const old_had_compif_error = self.had_compif_error;
-    const old_in_compif_eval = self.in_compif_eval;
-    self.had_compif_error = false;
-    self.in_compif_eval = true;
-    const cond_kind = self.analyzeExpr(&compifStmt.conditional) catch KindId.VOID;
-    const had_error = self.had_compif_error;
-    self.in_compif_eval = old_in_compif_eval;
-    self.had_compif_error = old_had_compif_error;
+    const cond_kind = self.checkConditionalCompile(&compifStmt.conditional);
 
-    if (had_error) {
+    if (cond_kind == null) {
         compifStmt.skip_then_branch_compile = true;
         if (compifStmt.else_branch != null) {
             try self.analyzeStmt(&compifStmt.else_branch.?);
@@ -1962,7 +1970,7 @@ fn visitCompifStmt(self: *TypeChecker, compifStmt: *Stmt.CompifStmt) SemanticErr
             return;
         };
 
-        if (match_type.equal(cond_kind) != compifStmt.is_equal) {
+        if (match_type.equal(cond_kind.?) != compifStmt.is_equal) {
             compifStmt.skip_then_branch_compile = true;
             if (compifStmt.else_branch != null) {
                 try self.analyzeStmt(&compifStmt.else_branch.?);
@@ -1973,6 +1981,22 @@ fn visitCompifStmt(self: *TypeChecker, compifStmt: *Stmt.CompifStmt) SemanticErr
 
     compifStmt.skip_then_branch_compile = false;
     try self.analyzeStmt(&compifStmt.then_branch);
+}
+
+fn checkConditionalCompile(self: *TypeChecker, conditional: *ExprNode) ?KindId {
+    const old_had_compif_error = self.had_compif_error;
+    const old_in_compif_eval = self.in_compif_eval;
+    self.had_compif_error = false;
+    self.in_compif_eval = true;
+    const cond_kind = self.analyzeExpr(conditional) catch KindId.VOID;
+    const had_error = self.had_compif_error;
+    self.had_compif_error = old_had_compif_error;
+    self.in_compif_eval = old_in_compif_eval;
+
+    if (had_error) {
+        return null;
+    }
+    return cond_kind;
 }
 
 /// Analyze the types of a blockStmt
@@ -3154,6 +3178,7 @@ fn visitLambdaExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
         lambdaExpr.arg_names,
         lambdaExpr.arg_kinds,
         lambdaExpr.ret_kind,
+        &.{},
         lambdaExpr.body,
     );
 
@@ -3345,10 +3370,12 @@ fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, gener
     try self.declareFunction(function_node.FUNCTION);
     defer {
         if (self.had_compif_error) {
-            self.stm.deleteGlobalSymbol(generic_version_name) catch unreachable;
+            self.stm.deleteGlobalSymbol(generic_version_name) catch {};
         }
     }
-    const func_symbol = self.stm.getSymbolGlobal(function_node.FUNCTION.name.lexeme) catch unreachable;
+    const func_symbol = self.stm.getSymbolGlobal(function_node.FUNCTION.name.lexeme) catch {
+        return self.reportError(SemanticError.TypeMismatch, function_node.FUNCTION.name, "Failed generic function where clause");
+    };
     try self.visitFunctionStmt(function_node.FUNCTION, func_symbol.kind, false);
     if (self.generic_error) {
         self.reportError(SemanticError.TypeMismatch, function_node.FUNCTION.name, "^^^ Error creating generic version") catch {};
@@ -3387,7 +3414,7 @@ fn makeGenericStructVersion(
         symbol.kind.STRUCT.fields.method_bodies_eval = true;
         symbol.kind.STRUCT.fields.open();
         for (struct_stmt.methods) |item| {
-            if (item == .GENERIC) {
+            if (item == .GENERIC or item.FUNCTION.skip) {
                 continue;
             }
             const old_generic_error = self.generic_error;

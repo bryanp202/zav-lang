@@ -409,11 +409,22 @@ pub const FunctionStmt = struct {
     arg_kinds: []KindId,
     locals_size: u64,
     return_kind: KindId,
+    where_cond: []ExprNode,
     body: StmtNode,
     ignore: bool = false,
+    skip: bool = false,
 
     /// Iniitalize a Function Statement
-    pub fn init(public: bool, op: Token, name: Token, arg_names: []Token, arg_kinds: []KindId, return_kind: KindId, body: StmtNode) FunctionStmt {
+    pub fn init(
+        public: bool,
+        op: Token,
+        name: Token,
+        arg_names: []Token,
+        arg_kinds: []KindId,
+        return_kind: KindId,
+        where_cond: []ExprNode,
+        body: StmtNode,
+    ) FunctionStmt {
         return FunctionStmt{
             .public = public,
             .op = op,
@@ -422,6 +433,7 @@ pub const FunctionStmt = struct {
             .arg_kinds = arg_kinds,
             .locals_size = undefined,
             .return_kind = return_kind,
+            .where_cond = where_cond,
             .body = body,
         };
     }
@@ -432,6 +444,10 @@ pub const FunctionStmt = struct {
         for (0..new_arg_kinds.len) |i| {
             new_arg_kinds[i] = self.arg_kinds[i].copy(allocator);
         }
+        const new_where_cond = allocator.alloc(ExprNode, self.where_cond.len) catch unreachable;
+        for (0..new_where_cond.len) |i| {
+            new_where_cond[i] = self.where_cond[i].copy(allocator);
+        }
         new_stmt.* = FunctionStmt{
             .public = self.public,
             .op = self.op,
@@ -440,6 +456,7 @@ pub const FunctionStmt = struct {
             .arg_kinds = new_arg_kinds,
             .locals_size = self.locals_size,
             .return_kind = self.return_kind.copy(allocator),
+            .where_cond = new_where_cond,
             .body = self.body.copy(allocator),
         };
         return StmtNode{ .FUNCTION = new_stmt };

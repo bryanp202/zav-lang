@@ -673,7 +673,23 @@ pub const Scanner = struct {
                 },
                 'w' => {
                     _ = self.advance();
-                    return self.checkKeyword("hile", TokenKind.WHILE);
+                    switch (self.peek()) {
+                        'h' => {
+                            _ = self.advance();
+                            switch (self.peek()) {
+                                'e' => {
+                                    _ = self.advance();
+                                    return self.checkKeyword("re", TokenKind.WHERE);
+                                },
+                                'i' => {
+                                    _ = self.advance();
+                                    return self.checkKeyword("le", TokenKind.WHILE);
+                                },
+                                else => break :identifier_loop,
+                            }
+                        },
+                        else => break :identifier_loop,
+                    }
                 },
                 else => break :identifier_loop,
             }
@@ -797,6 +813,7 @@ pub const TokenKind = enum {
     SHIFT_RIGHT,
     SHIFT_LEFT_EQUAL,
     SHIFT_RIGHT_EQUAL,
+    WHERE,
 
     //// Parser Tokens ////
     ERROR,
