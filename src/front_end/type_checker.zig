@@ -1945,15 +1945,34 @@ fn visitCompifStmt(self: *TypeChecker, compifStmt: *Stmt.CompifStmt) SemanticErr
     self.in_compif_eval = old_in_compif_eval;
     self.had_compif_error = old_had_compif_error;
 
-    if (!had_error and (compifStmt.match_type == null or (cond_kind.equal(compifStmt.match_type.?) == compifStmt.is_equal))) {
-        compifStmt.skip_then_branch_compile = false;
-        try self.analyzeStmt(&compifStmt.then_branch);
-    } else {
+    if (had_error) {
         compifStmt.skip_then_branch_compile = true;
         if (compifStmt.else_branch != null) {
             try self.analyzeStmt(&compifStmt.else_branch.?);
         }
+        return;
     }
+
+    if (compifStmt.match_type) |*match_type| {
+        _ = match_type.update(self.stm, self) catch {
+            compifStmt.skip_then_branch_compile = true;
+            if (compifStmt.else_branch != null) {
+                try self.analyzeStmt(&compifStmt.else_branch.?);
+            }
+            return;
+        };
+
+        if (match_type.equal(cond_kind) != compifStmt.is_equal) {
+            compifStmt.skip_then_branch_compile = true;
+            if (compifStmt.else_branch != null) {
+                try self.analyzeStmt(&compifStmt.else_branch.?);
+            }
+            return;
+        }
+    }
+
+    compifStmt.skip_then_branch_compile = false;
+    try self.analyzeStmt(&compifStmt.then_branch);
 }
 
 /// Analyze the types of a blockStmt
