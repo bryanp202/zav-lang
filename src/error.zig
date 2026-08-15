@@ -24,6 +24,7 @@ pub const SemanticError = error{
     InvalidMainFunction,
     InvalidOverload,
     InvalidIdExpr,
+    CompifFail,
 };
 
 /// Asm Generation Errors

@@ -36,7 +36,7 @@ switch_depth: u32,
 // Error handling
 had_error: bool,
 panic: bool,
-in_compif_eval: bool,
+in_compif_eval: usize,
 had_compif_error: bool,
 generic_error: bool,
 // Current functions return type
@@ -59,6 +59,12 @@ mutate_parent_kind: ?KindId,
 /// Only evaluate generic method bodies after everything has been declared
 eval_generic_method_bodies: bool,
 declare_generic_methods: bool,
+generated_generic_versions: std.ArrayList(CachedGeneric),
+
+const CachedGeneric = struct {
+    module: *Module,
+    generic: StmtNode,
+};
 
 /// Initialize a new TypeChecker
 pub fn init(allocator: std.mem.Allocator) TypeChecker {
@@ -69,7 +75,7 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .switch_depth = 0,
         .had_error = false,
         .panic = false,
-        .in_compif_eval = false,
+        .in_compif_eval = 0,
         .had_compif_error = false,
         .generic_error = false,
         .current_return_kind = KindId.VOID,
@@ -83,6 +89,7 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .mutate_parent_kind = null,
         .eval_generic_method_bodies = false,
         .declare_generic_methods = false,
+        .generated_generic_versions = std.ArrayList(CachedGeneric).init(allocator),
     };
 }
 
@@ -211,8 +218,6 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         }
     }
 
-    self.declare_generic_methods = true;
-
     // Check all global statements and functions first
     // Declare all functions
     module_iter = modules.iterator();
@@ -222,7 +227,8 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
 
         var i: u64 = 0;
         var struct_slice = module.structSlice();
-        while (i < struct_slice.len) : (i += 1) {
+        const initial_struct_len = module.initial_struct_len;
+        while (i < initial_struct_len) : (i += 1) {
             const strct = struct_slice[i];
             const symbol = self.stm.getSymbol(strct.STRUCT.id.lexeme) catch unreachable;
             self.declareStructMethods(strct.STRUCT, symbol) catch {
@@ -235,7 +241,8 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
 
         i = 0;
         var function_slice = module.functionSlice();
-        while (i < function_slice.len) : (i += 1) {
+        const initial_function_len = module.initial_function_len;
+        while (i < initial_function_len) : (i += 1) {
             const function = function_slice[i];
             // Declare function but do not analyze body
             self.declareFunction(function.FUNCTION) catch {
@@ -280,6 +287,23 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             return;
         }
     }
+
+    {
+        var i: u64 = 0;
+        while (i < self.generated_generic_versions.items.len) : (i += 1) {
+            const module = self.generated_generic_versions.items[i].module;
+            const generic = self.generated_generic_versions.items[i].generic;
+
+            self.setModule(module);
+            const symbol = self.stm.peakSymbol(generic.STRUCT.id.lexeme) catch unreachable;
+            self.declareStructMethods(generic.STRUCT, symbol) catch {
+                self.panic = false;
+                self.had_error = true;
+                return;
+            };
+        }
+    }
+    self.declare_generic_methods = true;
 
     module_iter = modules.iterator();
     while (module_iter.next()) |entry| {
@@ -425,9 +449,9 @@ fn reportDuplicateError(self: *TypeChecker, duplicate_id: Token, dcl_line: u64, 
     const stderr = std.io.getStdErr().writer();
 
     // Only display errors when not in panic mode
-    if (self.in_compif_eval) {
+    if (self.in_compif_eval > 0) {
         self.had_compif_error = true;
-    } else if (!self.panic and !self.in_compif_eval) {
+    } else if (!self.panic) {
         // Display message
         stderr.print(
             "[Module <root{s}>, Line {d}:{d}] at \'{s}\': Identifier already declared on [Line {d}:{d}]\n",
@@ -447,7 +471,7 @@ fn reportDuplicateErrorFrom(self: *TypeChecker, duplicate_id: Token, dcl_line: u
     const stderr = std.io.getStdErr().writer();
 
     // Only display errors when not in panic mode
-    if (self.in_compif_eval) {
+    if (self.in_compif_eval > 0) {
         self.had_compif_error = true;
     } else if (!self.panic) {
         // Display message
@@ -471,7 +495,7 @@ fn reportError(self: *TypeChecker, errorType: SemanticError, token: Token, msg: 
     const stderr = std.io.getStdErr().writer();
 
     // Only display errors when not in panic mode
-    if (self.in_compif_eval) {
+    if (self.in_compif_eval > 0) {
         self.had_compif_error = true;
     } else if (!self.panic) {
         // Display message
@@ -493,7 +517,7 @@ fn reportErrorFrom(self: *TypeChecker, errorType: SemanticError, token: Token, m
     const stderr = std.io.getStdErr().writer();
 
     // Only display errors when not in panic mode
-    if (self.in_compif_eval) {
+    if (self.in_compif_eval > 0) {
         self.had_compif_error = true;
     } else if (!self.panic) {
         // Display message
@@ -1224,6 +1248,7 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
             const cond_kind = self.checkConditionalCompile(cond);
             if (cond_kind == null) {
                 method.skip = true;
+                // std.debug.print("Skipping method {s}::{s} because {}\n\n", .{ structStmt.id.lexeme, method.name.lexeme, cond.* });
                 continue :method_eval;
             }
         }
@@ -1314,6 +1339,7 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
             const overload_name = KindId.overload_to_str(&buf, method.name.lexeme, arg_kinds, self.stm);
             method.name.lexeme = std.fmt.allocPrint(self.allocator, "{s}", .{overload_name}) catch unreachable;
         }
+        // std.debug.print("Added method {s}::{s}\n", .{ structStmt.id.lexeme, method.name.lexeme });
 
         // Add field to struct
         symbol.kind.STRUCT.fields.addField(
@@ -1958,8 +1984,8 @@ fn visitCompifStmt(self: *TypeChecker, compifStmt: *Stmt.CompifStmt) SemanticErr
 
     if (cond_kind == null) {
         compifStmt.skip_then_branch_compile = true;
-        if (compifStmt.else_branch != null) {
-            try self.analyzeStmt(&compifStmt.else_branch.?);
+        if (compifStmt.else_branch) |*else_branch| {
+            try self.analyzeStmt(else_branch);
         }
         return;
     }
@@ -1967,16 +1993,16 @@ fn visitCompifStmt(self: *TypeChecker, compifStmt: *Stmt.CompifStmt) SemanticErr
     if (compifStmt.match_type) |*match_type| {
         _ = match_type.update(self.stm, self) catch {
             compifStmt.skip_then_branch_compile = true;
-            if (compifStmt.else_branch != null) {
-                try self.analyzeStmt(&compifStmt.else_branch.?);
+            if (compifStmt.else_branch) |*else_branch| {
+                try self.analyzeStmt(else_branch);
             }
             return;
         };
 
         if (match_type.equal(cond_kind.?) != compifStmt.is_equal) {
             compifStmt.skip_then_branch_compile = true;
-            if (compifStmt.else_branch != null) {
-                try self.analyzeStmt(&compifStmt.else_branch.?);
+            if (compifStmt.else_branch) |*else_branch| {
+                try self.analyzeStmt(else_branch);
             }
             return;
         }
@@ -1988,13 +2014,12 @@ fn visitCompifStmt(self: *TypeChecker, compifStmt: *Stmt.CompifStmt) SemanticErr
 
 fn checkConditionalCompile(self: *TypeChecker, conditional: *ExprNode) ?KindId {
     const old_had_compif_error = self.had_compif_error;
-    const old_in_compif_eval = self.in_compif_eval;
     self.had_compif_error = false;
-    self.in_compif_eval = true;
+    self.in_compif_eval += 1;
     const cond_kind = self.analyzeExpr(conditional) catch KindId.VOID;
     const had_error = self.had_compif_error;
     self.had_compif_error = old_had_compif_error;
-    self.in_compif_eval = old_in_compif_eval;
+    self.in_compif_eval -= 1;
 
     if (had_error) {
         return null;
@@ -3345,6 +3370,9 @@ fn makeGenericVersion(
     }
 
     source_module.addStmt(generic_node_copy) catch unreachable;
+    if (generic_node_copy == .STRUCT) {
+        self.generated_generic_versions.append(.{ .generic = generic_node_copy, .module = self.stm.parent_module }) catch unreachable;
+    }
 
     return gen_symbol;
 }
@@ -3371,7 +3399,7 @@ fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, gener
 
     function_node.FUNCTION.name.lexeme = generic_version_name;
     try self.declareFunction(function_node.FUNCTION);
-    defer {
+    errdefer {
         if (self.had_compif_error) {
             self.stm.deleteGlobalSymbol(generic_version_name) catch {};
         }
@@ -3385,6 +3413,10 @@ fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, gener
         self.panic = false;
     }
 
+    if (self.had_compif_error) {
+        self.stm.deleteGlobalSymbol(generic_version_name) catch {};
+        return SemanticError.CompifFail;
+    }
     return func_symbol;
 }
 

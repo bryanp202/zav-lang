@@ -23,6 +23,8 @@ generics: std.ArrayList(StmtNode),
 /// Scope handlers
 stm: STM,
 super_module: ?*Module,
+initial_struct_len: usize = 0,
+initial_function_len: usize = 0,
 
 pub const ModuleKind = enum {
     ROOT,
@@ -121,4 +123,9 @@ pub fn addStmt(self: *Module, stmt_node: StmtNode) !void {
         .GENERIC => try self.generics.append(stmt_node),
         else => unreachable,
     }
+}
+
+pub fn finish_parse(self: *Module) void {
+    self.initial_function_len = self.functionSlice().len;
+    self.initial_struct_len = self.structSlice().len;
 }

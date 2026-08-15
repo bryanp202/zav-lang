@@ -80,6 +80,7 @@ pub fn parse(self: *Parser, module: *Module) []Stmt.ModStmt {
         module.addStmt(stmt_node) catch unreachable;
     }
 
+    module.finish_parse();
     const dependencies = self.allocator.alloc(Stmt.ModStmt, self.dependencies.items.len) catch unreachable;
     std.mem.copyForwards(Stmt.ModStmt, dependencies, self.dependencies.items);
     return dependencies;
