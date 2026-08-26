@@ -1792,7 +1792,13 @@ fn visitCallExpr(self: *Generator, callExpr: *Expr.CallExpr, result_kind: KindId
     // Generate the operand
     try self.genExpr(callExpr.caller_expr);
     // Get arguments size
-    const args_size = callExpr.caller_expr.result_kind.FUNC.args_size;
+    var args_size: usize = 0;
+    for (callExpr.caller_expr.result_kind.FUNC.arg_kinds) |*kind| {
+        const child_size = kind.size();
+        const alignment: u64 = if (child_size > 4) 8 else if (child_size > 2) 4 else if (child_size > 1) 2 else 1;
+        args_size = (args_size + alignment - 1) & ~(alignment - 1);
+        args_size += child_size;
+    }
     // Align it
     const args_size_aligned = args_size;
 

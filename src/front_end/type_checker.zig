@@ -57,11 +57,11 @@ call_chain_max_allowed_size: usize,
 mutate_parent_kind: ?KindId,
 
 /// Only evaluate generic method bodies after everything has been declared
-eval_generic_method_bodies: bool,
 declare_generic_methods: bool,
 generated_generic_versions: std.ArrayList(CachedGeneric),
 
 const CachedGeneric = struct {
+    name: []const u8,
     module: *Module,
     generic: StmtNode,
 };
@@ -87,7 +87,6 @@ pub fn init(allocator: std.mem.Allocator) TypeChecker {
         .call_chain_max_size = 0,
         .call_chain_max_allowed_size = 0,
         .mutate_parent_kind = null,
-        .eval_generic_method_bodies = false,
         .declare_generic_methods = false,
         .generated_generic_versions = std.ArrayList(CachedGeneric).init(allocator),
     };
@@ -290,6 +289,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
 
     {
         var i: u64 = 0;
+        self.generic_error = false;
         while (i < self.generated_generic_versions.items.len) : (i += 1) {
             const module = self.generated_generic_versions.items[i].module;
             const generic = self.generated_generic_versions.items[i].generic;
@@ -301,6 +301,17 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
                 self.had_error = true;
                 return;
             };
+            if (self.generic_error) {
+                const fake_token = Token{
+                    .lexeme = self.generated_generic_versions.items[i].name,
+                    .column = generic.STRUCT.id.column,
+                    .kind = generic.STRUCT.id.kind,
+                    .line = generic.STRUCT.id.line,
+                };
+                self.reportError(SemanticError.TypeMismatch, fake_token, "^^^ Errors creating generic version") catch {};
+                self.generic_error = false;
+                self.panic = false;
+            }
         }
     }
     self.declare_generic_methods = true;
@@ -326,7 +337,6 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         return;
     }
 
-    self.eval_generic_method_bodies = true;
     self.current_scope_kind = ScopeKind.LOCAL;
     module_iter = modules.iterator();
     while (module_iter.next()) |entry| {
@@ -336,7 +346,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
         // Check all method bodies in each struct
         var i: u64 = 0;
         var struct_slice = module.structSlice();
-        while (i < struct_slice.len) : (i += 1) {
+        while (i < module.initial_struct_len) : (i += 1) {
             const strct = &struct_slice[i];
             // Get struct symbol
             const struct_symbol = self.stm.peakSymbol(strct.STRUCT.id.lexeme) catch unreachable;
@@ -357,7 +367,7 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
             // Get arg_size
             const func_symbol = self.stm.peakSymbol(function.FUNCTION.name.lexeme) catch unreachable;
             // analyze all function bodies, continue if there was an error
-            self.visitFunctionStmt(function.FUNCTION, func_symbol.kind, false) catch {
+            self.visitFunctionStmt(function.FUNCTION, &func_symbol.kind, false) catch {
                 self.panic = false;
                 self.had_error = true;
                 continue;
@@ -369,6 +379,30 @@ pub fn check(self: *TypeChecker, modules: *std.StringHashMap(*Module)) void {
 
         // Check for unmutated var in global scope
         self.checkVarInScope();
+    }
+
+    {
+        var i: u64 = 0;
+        self.generic_error = false;
+        while (i < self.generated_generic_versions.items.len) : (i += 1) {
+            const module = self.generated_generic_versions.items[i].module;
+            var generic = self.generated_generic_versions.items[i].generic;
+
+            self.setModule(module);
+            const symbol = self.stm.peakSymbol(generic.STRUCT.id.lexeme) catch unreachable;
+            self.evalStructMethods(&generic, symbol);
+            if (self.generic_error) {
+                const fake_token = Token{
+                    .lexeme = self.generated_generic_versions.items[i].name,
+                    .column = generic.STRUCT.id.column,
+                    .kind = generic.STRUCT.id.kind,
+                    .line = generic.STRUCT.id.line,
+                };
+                self.reportError(SemanticError.TypeMismatch, fake_token, "^^^ Errors creating generic version") catch {};
+                self.generic_error = false;
+                self.panic = false;
+            }
+        }
     }
 }
 
@@ -1248,7 +1282,6 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
             const cond_kind = self.checkConditionalCompile(cond);
             if (cond_kind == null) {
                 method.skip = true;
-                // std.debug.print("Skipping method {s}::{s} because {}\n\n", .{ structStmt.id.lexeme, method.name.lexeme, cond.* });
                 continue :method_eval;
             }
         }
@@ -1339,7 +1372,6 @@ fn declareStructMethods(self: *TypeChecker, structStmt: *Stmt.StructStmt, symbol
             const overload_name = KindId.overload_to_str(&buf, method.name.lexeme, arg_kinds, self.stm);
             method.name.lexeme = std.fmt.allocPrint(self.allocator, "{s}", .{overload_name}) catch unreachable;
         }
-        // std.debug.print("Added method {s}::{s}\n", .{ structStmt.id.lexeme, method.name.lexeme });
 
         // Add field to struct
         symbol.kind.STRUCT.fields.addField(
@@ -1383,7 +1415,7 @@ fn evalStructMethods(self: *TypeChecker, structStmt: *StmtNode, symbol: *Symbol)
         // Get args size
         const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
         // analyze all function bodies, continue if there was an error
-        self.visitFunctionStmt(method, method_field.kind, true) catch {
+        self.visitFunctionStmt(method, &method_field.kind, true) catch {
             self.panic = false;
             self.had_error = true;
             continue;
@@ -1443,7 +1475,7 @@ fn declareFunction(self: *TypeChecker, func: *Stmt.FunctionStmt) SemanticError!v
 }
 
 /// Analyze a function body
-fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: KindId, method: bool) SemanticError!void {
+fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: *KindId, method: bool) SemanticError!void {
     if (func.public and !method) {
         const public_matching = switch (func.return_kind) {
             .STRUCT => |strct| strct.fields.public,
@@ -1494,7 +1526,6 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: Ki
     }
 
     // Update current return kind
-    const func_kind_extracted = func_kind.FUNC;
     self.current_return_kind = func.return_kind;
     self.current_function_return_ptr = if (self.stm.getSymbol("return") catch null) |struct_ptr| struct_ptr.mem_loc + 16 else null;
 
@@ -1503,7 +1534,8 @@ fn visitFunctionStmt(self: *TypeChecker, func: *Stmt.FunctionStmt, func_kind: Ki
 
     // Get scope size
     const stack_size = self.stm.active_scope.next_address;
-    func.locals_size = stack_size - func_kind_extracted.args_size;
+    _ = func_kind.FUNC.updateArgSize(self.stm, self) catch unreachable;
+    func.locals_size = stack_size - func_kind.FUNC.args_size;
 }
 
 /// Analze the types of an GlobalStmt
@@ -1577,7 +1609,7 @@ fn checkLambdas(self: *TypeChecker, module: *Module) void {
         // Get arg_size
         const func_symbol = self.stm.getSymbol(lambda.FUNCTION.name.lexeme) catch unreachable;
         // analyze all function bodies, continue if there was an error
-        self.visitFunctionStmt(lambda.FUNCTION, func_symbol.kind, false) catch {
+        self.visitFunctionStmt(lambda.FUNCTION, &func_symbol.kind, false) catch {
             self.panic = false;
             self.had_error = true;
             continue;
@@ -2508,6 +2540,7 @@ fn visitCallExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
     if (callee_kind != .FUNC) {
         return self.reportError(SemanticError.TypeMismatch, callExpr.op, "Expected a function type");
     }
+
     // Extract function
     const callee = callee_kind.FUNC;
     var callee_args = callee.arg_kinds;
@@ -3371,7 +3404,7 @@ fn makeGenericVersion(
 
     source_module.addStmt(generic_node_copy) catch unreachable;
     if (generic_node_copy == .STRUCT) {
-        self.generated_generic_versions.append(.{ .generic = generic_node_copy, .module = self.stm.parent_module }) catch unreachable;
+        self.generated_generic_versions.append(.{ .name = generic_version_name, .generic = generic_node_copy, .module = self.stm.parent_module }) catch unreachable;
     }
 
     return gen_symbol;
@@ -3407,7 +3440,7 @@ fn makeGenericFunctionVersion(self: *TypeChecker, function_node: StmtNode, gener
     const func_symbol = self.stm.getSymbolGlobal(function_node.FUNCTION.name.lexeme) catch {
         return self.reportError(SemanticError.TypeMismatch, function_node.FUNCTION.name, "Failed generic function where clause");
     };
-    try self.visitFunctionStmt(function_node.FUNCTION, func_symbol.kind, false);
+    try self.visitFunctionStmt(function_node.FUNCTION, &func_symbol.kind, false);
     if (self.generic_error) {
         self.reportError(SemanticError.TypeMismatch, function_node.FUNCTION.name, "^^^ Error creating generic version") catch {};
         self.panic = false;
@@ -3443,41 +3476,6 @@ fn makeGenericStructVersion(
 
     if (self.declare_generic_methods) {
         try self.declareStructMethods(struct_stmt, symbol);
-    }
-
-    if (self.eval_generic_method_bodies) {
-        symbol.kind.STRUCT.fields.method_bodies_eval = true;
-        symbol.kind.STRUCT.fields.open();
-        for (struct_stmt.methods) |item| {
-            if (item == .GENERIC or item.FUNCTION.skip) {
-                continue;
-            }
-            const old_generic_error = self.generic_error;
-            defer self.generic_error = old_generic_error;
-            self.generic_error = false;
-
-            const method = item.FUNCTION;
-            // Get args size
-            const method_field = symbol.kind.STRUCT.fields.peakField(method.name.lexeme) catch unreachable;
-            // analyze all function bodies, continue if there was an error
-            self.visitFunctionStmt(method, method_field.kind, true) catch {
-                self.panic = false;
-                continue;
-            };
-            if (self.generic_error) {
-                const fake_token = Token{
-                    .lexeme = generic_version_name,
-                    .column = method.name.column,
-                    .kind = method.name.kind,
-                    .line = method.name.line,
-                };
-                self.reportError(SemanticError.TypeMismatch, fake_token, "^^^ Error creating generic version") catch {};
-                self.generic_error = false;
-                self.panic = false;
-            }
-            self.stm.active_scope.next_address = 0;
-        }
-        symbol.kind.STRUCT.fields.close();
     }
 
     return symbol;

@@ -1288,9 +1288,9 @@ const Function = struct {
         var size: usize = 0;
         for (self.arg_kinds) |*kind| {
             const child_size = try kind.update(stm, checker);
-            size += child_size;
             const alignment: u64 = if (child_size > 4) 8 else if (child_size > 2) 4 else if (child_size > 1) 2 else 1;
             size = (size + alignment - 1) & ~(alignment - 1);
+            size += child_size;
         }
         self.args_size = size;
 
