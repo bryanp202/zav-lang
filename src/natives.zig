@@ -86,6 +86,7 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     new_table.natives_table.put(allocator, "printf", printf_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sprintf", sprintf_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sizeof", sizeof_native(allocator)) catch unreachable;
+    new_table.natives_table.put(allocator, "alignof", alignof_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "len", len_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "nanoTimestamp", nanoTimestamp_native(allocator)) catch unreachable;
 
@@ -294,6 +295,32 @@ fn sizeof_native(allocator: std.mem.Allocator) Native {
             const size = args[0].size();
             // Extract first args size
             try generator.print("    mov rax, {d}\n", .{size});
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 1);
+    return native;
+}
+
+fn alignof_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.ANY;
+    // Make return kind
+    const ret_kind = KindId.newUInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, false, ret_kind);
+    const source = undefined;
+    const data = null;
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+            // Get size
+            const size = args[0].size();
+            const alignment: u64 = if (size > 4) 8 else if (size > 2) 4 else if (size > 1) 2 else 1;
+            // Extract first args size
+            try generator.print("    mov rax, {d}\n", .{alignment});
         }
     }.gen;
 
