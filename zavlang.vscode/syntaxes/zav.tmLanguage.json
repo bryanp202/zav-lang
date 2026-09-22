@@ -97,7 +97,7 @@
 		"control-keywords": {
 			"patterns": [{
 				"name": "keyword.control.zav",
-				"match": "\\b(compif|if|else|while|loop|return|break|continue|switch|then|defer|for)\\b"
+				"match": "\\b(compif|if|else|while|loop|return|ereturn|break|continue|switch|then|defer|edefer|for)\\b"
 			}]
 		},
 		"operator-keywords": {

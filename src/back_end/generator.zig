@@ -69,12 +69,17 @@ current_func_args_size: usize,
 // Current stack alignment for current function
 func_stack_alignment: usize,
 /// Used to store all currently defered statements for a block
-defered_statements: std.ArrayList(Stmt.StmtNode),
+defered_statements: std.ArrayList(DeferedStmt),
 current_block_defered_count: usize,
 
 // Register count
 cpu_reg_stack: RegisterStack(cpu_reg_names),
 sse_reg_stack: RegisterStack(sse_reg_names),
+
+const DeferedStmt = struct {
+    stmt: Stmt.StmtNode,
+    is_error: bool,
+};
 
 pub fn open(
     allocator: std.mem.Allocator,
@@ -232,7 +237,7 @@ pub fn open(
         .current_func_locals_size = undefined,
         .current_func_args_size = undefined,
         .func_stack_alignment = 0,
-        .defered_statements = std.ArrayList(StmtNode).init(allocator),
+        .defered_statements = std.ArrayList(DeferedStmt).init(allocator),
         .current_block_defered_count = 0,
         .cpu_reg_stack = RegisterStack(cpu_reg_names).init(),
         .sse_reg_stack = RegisterStack(sse_reg_names).init(),
@@ -737,7 +742,7 @@ fn visitDestructStmt(self: *Generator, destructStmt: Stmt.DestructStmt) Generati
 }
 
 fn visitDeferStmt(self: *Generator, deferStmt: Stmt.DeferStmt) GenerationError!void {
-    self.defered_statements.append(deferStmt.stmt) catch unreachable;
+    self.defered_statements.append(DeferedStmt{ .stmt = deferStmt.stmt, .is_error = deferStmt.is_error }) catch unreachable;
     self.current_block_defered_count += 1;
 }
 
@@ -753,8 +758,10 @@ fn visitBlockStmt(self: *Generator, blockStmt: Stmt.BlockStmt) GenerationError!v
     }
 
     for (0..self.current_block_defered_count) |_| {
-        const stmt = self.defered_statements.pop().?;
-        try self.genStmt(stmt);
+        const defered_stmt = self.defered_statements.pop().?;
+        if (!defered_stmt.is_error) {
+            try self.genStmt(defered_stmt.stmt);
+        }
     }
 
     self.current_block_defered_count = old_defer_count;
@@ -1309,8 +1316,10 @@ fn visitReturnStmt(self: *Generator, returnStmt: Stmt.ReturnStmt) GenerationErro
 
     var i = self.defered_statements.items.len;
     while (i > 0) : (i -= 1) {
-        const stmt = self.defered_statements.items[i - 1];
-        try self.genStmt(stmt);
+        const defered_stmt = self.defered_statements.items[i - 1];
+        if (@intFromBool(defered_stmt.is_error) <= @intFromBool(returnStmt.is_error)) {
+            try self.genStmt(defered_stmt.stmt);
+        }
     }
 
     if (returnStmt.expr != null and self.defered_statements.items.len > 0) {
@@ -1329,8 +1338,10 @@ fn visitBreakStmt(self: *Generator, breakStmt: Stmt.BreakStmt) GenerationError!v
     var i = self.defered_statements.items.len;
     const last = i - self.current_block_defered_count;
     while (i > last) : (i -= 1) {
-        const stmt = self.defered_statements.items[i - 1];
-        try self.genStmt(stmt);
+        const defered_stmt = self.defered_statements.items[i - 1];
+        if (!defered_stmt.is_error) {
+            try self.genStmt(defered_stmt.stmt);
+        }
     }
 
     // Write jump
@@ -1344,8 +1355,10 @@ fn visitContinueStmt(self: *Generator, continueStmt: Stmt.ContinueStmt) Generati
     var i = self.defered_statements.items.len;
     const last = i - self.current_block_defered_count;
     while (i > last) : (i -= 1) {
-        const stmt = self.defered_statements.items[i - 1];
-        try self.genStmt(stmt);
+        const defered_stmt = self.defered_statements.items[i - 1];
+        if (!defered_stmt.is_error) {
+            try self.genStmt(defered_stmt.stmt);
+        }
     }
 
     // Write jump

@@ -867,7 +867,7 @@ fn declaration(self: *Parser) SyntaxError!StmtNode {
         }
         return self.declareStmt(mutable);
     }
-    if (self.match(.{TokenKind.DEFER})) {
+    if (self.match(.{ TokenKind.DEFER, TokenKind.EDEFER })) {
         return self.deferStmt();
     }
     // Stmt fall through
@@ -961,11 +961,12 @@ fn destructStmt(self: *Parser, mutable: bool) SyntaxError!StmtNode {
 /// DeferStmt -> defer statement
 fn deferStmt(self: *Parser) SyntaxError!StmtNode {
     const op = self.previous;
+    const is_error = op.kind == TokenKind.EDEFER;
 
     const stmt = try self.statement();
 
     const new_stmt = self.allocator.create(Stmt.DeferStmt) catch unreachable;
-    new_stmt.* = Stmt.DeferStmt.init(op, stmt);
+    new_stmt.* = Stmt.DeferStmt.init(op, is_error, stmt);
     return StmtNode{ .DEFER = new_stmt };
 }
 
@@ -982,7 +983,7 @@ fn statement(self: *Parser) SyntaxError!StmtNode {
         return self.ifStmt();
     } else if (self.match(.{TokenKind.COMPIF})) {
         return self.compifStmt();
-    } else if (self.match(.{TokenKind.RETURN})) {
+    } else if (self.match(.{ TokenKind.RETURN, TokenKind.ERETURN })) {
         return self.returnStmt();
     } else if (self.match(.{TokenKind.BREAK})) {
         return self.breakStmt();
@@ -1300,6 +1301,7 @@ fn exprStmt(self: *Parser, expr_result: ExprResult) SyntaxError!StmtNode {
 fn returnStmt(self: *Parser) SyntaxError!StmtNode {
     // Get keyword
     const op = self.previous;
+    const is_error = op.kind == TokenKind.ERETURN;
     // Check if ';'
     var expr: ?ExprNode = null;
     if (!self.check(TokenKind.SEMICOLON)) {
@@ -1311,7 +1313,7 @@ fn returnStmt(self: *Parser) SyntaxError!StmtNode {
     try self.consume(TokenKind.SEMICOLON, "Expected ';' after return statement");
     // Allocate memory for new statement
     const new_stmt = self.allocator.create(Stmt.ReturnStmt) catch unreachable;
-    new_stmt.* = Stmt.ReturnStmt.init(op, expr);
+    new_stmt.* = Stmt.ReturnStmt.init(op, is_error, expr);
     // Return new node
     return StmtNode{ .RETURN = new_stmt };
 }
@@ -2068,7 +2070,7 @@ fn lambdaExpr(self: *Parser) SyntaxError!ExprResult {
         const expr = expr_result.expr;
 
         const new_return_stmt = self.allocator.create(Stmt.ReturnStmt) catch unreachable;
-        new_return_stmt.* = Stmt.ReturnStmt.init(op, expr);
+        new_return_stmt.* = Stmt.ReturnStmt.init(op, false, expr);
         break :blk StmtNode{ .RETURN = new_return_stmt };
     } else try self.blockStmt();
 

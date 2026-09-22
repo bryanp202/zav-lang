@@ -852,13 +852,15 @@ pub const BreakStmt = struct {
 /// returnStmt -> "return" expression? ';'
 pub const ReturnStmt = struct {
     op: Token,
+    is_error: bool,
     expr: ?ExprNode,
     struct_ptr: ?usize = null,
 
     /// Initialize a ReturnStmt
-    pub fn init(op: Token, expr: ?ExprNode) ReturnStmt {
+    pub fn init(op: Token, is_error: bool, expr: ?ExprNode) ReturnStmt {
         return ReturnStmt{
             .op = op,
+            .is_error = is_error,
             .expr = expr,
         };
     }
@@ -868,6 +870,7 @@ pub const ReturnStmt = struct {
         const new_expr = if (self.expr) |return_expr| return_expr.copy(allocator) else null;
         new_stmt.* = ReturnStmt{
             .op = self.op,
+            .is_error = self.is_error,
             .expr = new_expr,
             .struct_ptr = self.struct_ptr,
         };
@@ -960,11 +963,13 @@ pub const SwitchStmt = struct {
 /// deferStmt -> defer statement
 pub const DeferStmt = struct {
     op: Token,
+    is_error: bool,
     stmt: StmtNode,
 
-    pub fn init(op: Token, stmt: StmtNode) DeferStmt {
+    pub fn init(op: Token, is_error: bool, stmt: StmtNode) DeferStmt {
         return DeferStmt{
             .op = op,
+            .is_error = is_error,
             .stmt = stmt,
         };
     }
@@ -973,6 +978,7 @@ pub const DeferStmt = struct {
         const new_stmt = allocator.create(DeferStmt) catch unreachable;
         new_stmt.* = DeferStmt{
             .op = self.op,
+            .is_error = self.is_error,
             .stmt = self.stmt.copy(allocator),
         };
         return StmtNode{ .DEFER = new_stmt };
