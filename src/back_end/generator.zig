@@ -1759,7 +1759,7 @@ fn visitNativeExpr(self: *Generator, nativeExpr: *Expr.NativeExpr, result_kind: 
     // Attempt to write inline
     const wrote_inline = try self.stm.natives_table.writeNativeInline(
         self,
-        native_name,
+        nativeExpr.name,
         nativeExpr.arg_kinds,
     );
 

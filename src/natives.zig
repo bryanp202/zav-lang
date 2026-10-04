@@ -5,6 +5,7 @@ const std = @import("std");
 const Symbols = @import("symbols.zig");
 const Value = Symbols.Value;
 const KindId = Symbols.KindId;
+const Token = @import("./front_end/scanner.zig").Token;
 // Import Generator
 const Generator = @import("back_end/generator.zig");
 // Import Errors
@@ -15,7 +16,7 @@ const GenerationError = Error.GenerationError;
 pub const NativesTable = @This();
 
 // Used for inline generation
-const InlineGenType = fn (writer: *Generator, args: []KindId) GenerationError!void;
+const InlineGenType = fn (name: Token, writer: *Generator, args: []KindId) GenerationError!void;
 
 /// Used to store the source code of a native function and its kindid
 const Native = struct {
@@ -83,6 +84,7 @@ pub fn init(allocator: std.mem.Allocator) NativesTable {
     };
 
     // Add all natives to the table
+    new_table.natives_table.put(allocator, "abort", abort_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "printf", printf_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sprintf", sprintf_native(allocator)) catch unreachable;
     new_table.natives_table.put(allocator, "sizeof", sizeof_native(allocator)) catch unreachable;
@@ -201,17 +203,70 @@ pub fn getComptimeArgCount(self: *NativesTable, name: []const u8) usize {
 }
 
 /// Return a native function's source if it is inline
-pub fn writeNativeInline(self: *NativesTable, generator: *Generator, name: []const u8, args: []KindId) GenerationError!bool {
-    const maybe_native = self.natives_table.get(name);
+pub fn writeNativeInline(self: *NativesTable, generator: *Generator, name: Token, args: []KindId) GenerationError!bool {
+    const maybe_native = self.natives_table.get(name.lexeme[1..]);
     // If it exists mark it as used
     if (maybe_native) |native| {
         // Check if inline
         if (native.inline_gen) |gen| {
-            try gen(generator, args);
+            try gen(name, generator, args);
             return true;
         }
     }
     return false;
+}
+
+/// Wrapper for aborting with an error message and source code location.
+/// Ex => @abort("Hello: %d\n", 100);
+fn abort_native(allocator: std.mem.Allocator) Native {
+    // Make the Arg Kind Ids
+    const arg_kinds = allocator.alloc(KindId, 1) catch unreachable;
+    arg_kinds[0] = KindId.newPtr(allocator, KindId.newUInt(8), true);
+    // Make return kind
+    const ret_kind = KindId.newUInt(64);
+    // Make the function kindid
+    const kind = KindId.newFunc(allocator, arg_kinds, true, ret_kind);
+    const source = undefined;
+    const data = "    extern printf\n    extern ExitProcess";
+
+    // Define static inline generator
+    const inline_gen: InlineGenType = struct {
+        fn gen(src_token: Token, generator: *Generator, args: []KindId) GenerationError!void {
+            _ = args;
+            const abort_message_data = Value.newStr("\\e[1m\\e[31m[FATAL] aborting at root%s:%d:%d:\\e[0m\\n");
+            generator.stm.addConstant(abort_message_data);
+            const abort_message_id = generator.stm.getConstantId(abort_message_data);
+
+            const module_path_data = Value.newStr(generator.module_path);
+            generator.stm.addConstant(module_path_data);
+            const module_path_id = generator.stm.getConstantId(module_path_data);
+            try generator.print(
+                \\    push rcx
+                \\    push rdx
+                \\    push r8
+                \\    push r9
+                \\    lea rcx, [{s}]
+                \\    lea rdx, [{s}]
+                \\    mov r8, {d}
+                \\    mov r9, {d}
+                \\    sub rsp, 32
+                \\    call printf
+                \\    add rsp, 32
+                \\    pop r9
+                \\    pop r8
+                \\    pop rdx
+                \\    pop rcx
+                \\    sub rsp, 32
+                \\    call printf
+                \\    mov rax, 42
+                \\    call ExitProcess
+                \\
+            , .{ abort_message_id, module_path_id, src_token.line, src_token.column });
+        }
+    }.gen;
+
+    const native = Native.newNative(kind, source, data, &inline_gen, 0);
+    return native;
 }
 
 /// Wrapper for stdlib printf
@@ -229,7 +284,7 @@ fn printf_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -260,7 +315,7 @@ fn sprintf_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -290,7 +345,7 @@ fn sizeof_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             // Get size
             const size = args[0].size();
             // Extract first args size
@@ -315,7 +370,7 @@ fn alignof_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             // Get size
             const size = args[0].size();
             const alignment: u64 = if (size > 4) 8 else if (size > 2) 4 else if (size > 1) 2 else 1;
@@ -343,7 +398,7 @@ fn len_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             // Get length if array
             const len = if (args[0] == .ARRAY) args[0].ARRAY.length else 0;
             // Extract first args length
@@ -404,7 +459,7 @@ fn cvt2pointer_native(allocator: std.mem.Allocator, convert_kind: KindId) Native
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write("    mov rax, rcx\n");
         }
@@ -429,7 +484,7 @@ fn cvt2Nonfloating_native(allocator: std.mem.Allocator, convert_kind: KindId) Na
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             // Determine source kind
             const arg = args[0];
             switch (arg) {
@@ -467,7 +522,7 @@ fn cvt2f32_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             // Determine source kind
             const arg = args[0];
             switch (arg) {
@@ -506,7 +561,7 @@ fn cvt2f64_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             // Determine source kind
             const arg = args[0];
             switch (arg) {
@@ -545,7 +600,7 @@ fn cvt2bool_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
 
             // Test and see if not zero
@@ -571,7 +626,7 @@ fn pow_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -604,7 +659,7 @@ fn fmod_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -637,7 +692,7 @@ fn sqrtf32_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -667,7 +722,7 @@ fn sqrtf64_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -696,7 +751,7 @@ fn floor_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -727,7 +782,7 @@ fn ceil_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -758,7 +813,7 @@ fn sin_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -789,7 +844,7 @@ fn asin_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -820,7 +875,7 @@ fn cos_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -851,7 +906,7 @@ fn acos_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -882,7 +937,7 @@ fn tan_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -913,7 +968,7 @@ fn atan_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -945,7 +1000,7 @@ fn atan2_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -977,7 +1032,7 @@ fn exp_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -1008,7 +1063,7 @@ fn ln_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -1039,7 +1094,7 @@ fn log_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -1070,7 +1125,7 @@ fn log2_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             // Test and see if not zero
             try generator.write(
@@ -1102,7 +1157,7 @@ fn malloc_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1132,7 +1187,7 @@ fn calloc_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1162,7 +1217,7 @@ fn realloc_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1191,7 +1246,7 @@ fn free_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1221,7 +1276,7 @@ fn input_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    mov r8, rdx
@@ -1253,7 +1308,7 @@ fn open_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    mov rdx, 0xC0000000
@@ -1289,7 +1344,7 @@ fn create_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    mov rdx, 0xC0000000
@@ -1325,7 +1380,7 @@ fn delete_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1355,7 +1410,7 @@ fn getFileSize_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1387,7 +1442,7 @@ fn read_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    push 0
@@ -1421,7 +1476,7 @@ fn write_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    push 0
@@ -1452,7 +1507,7 @@ fn close_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1622,7 +1677,7 @@ fn currentThreadId_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1651,7 +1706,7 @@ fn sleep_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1680,7 +1735,7 @@ fn wait_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    mov rdx, 0xFFFFFFFF
@@ -1711,7 +1766,7 @@ fn waitAll_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    mov r8, 1
@@ -1742,7 +1797,7 @@ fn condVar_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1771,7 +1826,7 @@ fn mutex_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1800,7 +1855,7 @@ fn mutexAcquireExclusive_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1829,7 +1884,7 @@ fn mutexReleaseExclusive_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1858,7 +1913,7 @@ fn mutexAcquireShared_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1887,7 +1942,7 @@ fn mutexReleaseShared_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1916,7 +1971,7 @@ fn mutexTryAcquireExclusive_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1945,7 +2000,7 @@ fn mutexTryAcquireShared_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -1977,7 +2032,7 @@ fn sleepCondVar_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    xor r9, r9
@@ -2007,7 +2062,7 @@ fn wakeConditionVariable_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -2036,7 +2091,7 @@ fn wakeAllConditionVariable_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    sub rsp, 32
@@ -2070,7 +2125,7 @@ fn cmpxchg_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    mov rax, rdx
@@ -2100,7 +2155,7 @@ fn fetch_add_native(allocator: std.mem.Allocator) Native {
 
     // Define static inline generator
     const inline_gen: InlineGenType = struct {
-        fn gen(generator: *Generator, args: []KindId) GenerationError!void {
+        fn gen(_: Token, generator: *Generator, args: []KindId) GenerationError!void {
             _ = args;
             try generator.write(
                 \\    lock xadd [rcx], rdx
