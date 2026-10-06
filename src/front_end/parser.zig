@@ -241,6 +241,11 @@ fn parseUserKind(self: *Parser) SyntaxError!KindId {
     if (self.match(.{TokenKind.LEFT_SQUARE})) {
         const generic_data = try self.parse_generic_kinds();
         return KindId{ .GENERIC_USER_KIND = .{ .id = id, .generic_kinds = generic_data.names } };
+    } else if (self.match(.{TokenKind.SCOPE})) {
+        const child = self.allocator.create(KindId) catch unreachable;
+        try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scoped type");
+        child.* = try self.parseUserKind();
+        return KindId{ .SCOPE = .{ .child = child, .name = id.lexeme } };
     } else {
         return KindId{ .USER_KIND = id.lexeme };
     }
@@ -265,6 +270,12 @@ fn parseKind(self: *Parser) SyntaxError!KindId {
         .F64_TYPE => KindId.FLOAT64,
         .LEFT_SQUARE => try self.parseArrayKind(),
         .STAR => try self.parsePtrKind(),
+        .SCOPE => {
+            const child = self.allocator.create(KindId) catch unreachable;
+            try self.consume(TokenKind.IDENTIFIER, "Expected identifier after scoped type");
+            child.* = try self.parseUserKind();
+            return KindId{ .SCOPE = .{ .child = child, .name = "" } };
+        },
         .IDENTIFIER => try self.parseUserKind(),
         .FN => try self.parseFuncKind(),
         else => self.errorAt("Expected type"),

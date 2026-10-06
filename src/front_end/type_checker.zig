@@ -1149,6 +1149,14 @@ fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, 
                 return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, "Circular dependency detected", module);
             }
         },
+        .SCOPE => |scope| {
+            std.debug.print("field scope name: {s}\n", .{scope.name});
+            stm.changeTargetScope(scope.name) catch {
+                return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, "invalid type scope target", module);
+            };
+            try self.updateField(module, name, scope.child, visited, stm);
+            kind.* = scope.child.*;
+        },
         .USER_KIND => |unknown_name| {
             // Get from stm
             const field_symbol = stm.getSymbol(unknown_name) catch {

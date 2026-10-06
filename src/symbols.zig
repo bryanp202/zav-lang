@@ -806,7 +806,7 @@ pub const Symbol = struct {
 // *********************** //
 
 // Enum for the types available in Zav
-pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT, UNION, ENUM, USER_KIND, MODULE, GENERIC, GENERIC_USER_KIND };
+pub const Kinds = enum { ANY, VOID, BOOL, UINT, INT, FLOAT32, FLOAT64, PTR, ARRAY, FUNC, STRUCT, UNION, ENUM, USER_KIND, MODULE, GENERIC, GENERIC_USER_KIND, SCOPE };
 
 /// Used to mark what type a variable is
 pub const KindId = union(Kinds) {
@@ -827,6 +827,7 @@ pub const KindId = union(Kinds) {
     MODULE: *Module,
     GENERIC: Generic,
     GENERIC_USER_KIND: GenericUserKind,
+    SCOPE: ScopeUserKind,
 
     pub fn copy(self: KindId, allocator: std.mem.Allocator) KindId {
         switch (self) {
@@ -861,6 +862,12 @@ pub const KindId = union(Kinds) {
                 }
                 const new_gen = GenericUserKind{ .generic_kinds = new_gen_kinds, .id = gen_user_kind.id };
                 return KindId{ .GENERIC_USER_KIND = new_gen };
+            },
+            .SCOPE => |scope| {
+                const new_child = allocator.create(KindId) catch unreachable;
+                new_child.* = scope.child.copy(allocator);
+                const new_scope = ScopeUserKind{ .name = scope.name, .child = new_child };
+                return KindId{ .SCOPE = new_scope };
             },
             else => return self,
         }
@@ -934,6 +941,7 @@ pub const KindId = union(Kinds) {
             .ANY => print_to_buf(buf, "#ANY#", .{}),
             .MODULE => print_to_buf(buf, "#MODULE#", .{}),
             .USER_KIND => |user_kind| print_to_buf(buf, "{s}", .{user_kind}),
+            .SCOPE => |scope| scope.display(buf, stm),
         };
     }
 
@@ -1068,7 +1076,7 @@ pub const KindId = union(Kinds) {
             .STRUCT => |srct| return other == .STRUCT and srct.equal(other.STRUCT),
             .UNION => |unon| return other == .UNION and unon.equal(other.UNION),
             .ENUM => |enm| return other == .ENUM and enm.equal(other.ENUM),
-            .USER_KIND, .MODULE, .GENERIC, .GENERIC_USER_KIND => unreachable,
+            .USER_KIND, .MODULE, .GENERIC, .GENERIC_USER_KIND, .SCOPE => unreachable,
         };
     }
 
@@ -1085,7 +1093,7 @@ pub const KindId = union(Kinds) {
             .STRUCT => |stct| stct.fields.size(),
             .UNION => |unon| unon.fields.size(),
             .ENUM => |enm| enm.fields.size(),
-            .USER_KIND, .GENERIC_USER_KIND => unreachable,
+            .USER_KIND, .GENERIC_USER_KIND, .SCOPE => unreachable,
         };
     }
 
@@ -1099,7 +1107,7 @@ pub const KindId = union(Kinds) {
             .FLOAT32 => 4,
             .ANY, .FLOAT64, .PTR, .ARRAY, .FUNC, .STRUCT, .UNION => 8,
             .ENUM => |enm| enm.fields.size(),
-            .USER_KIND, .MODULE, .GENERIC, .GENERIC_USER_KIND => unreachable,
+            .USER_KIND, .MODULE, .GENERIC, .GENERIC_USER_KIND, .SCOPE => unreachable,
         };
     }
 
@@ -1118,8 +1126,14 @@ pub const KindId = union(Kinds) {
             .UNION => |*unon| unon.updateFields(),
             .STRUCT => |*strct| strct.updateFields(),
             .ENUM => |*enm| enm.updateVariants(),
+            .SCOPE => |*scope| {
+                try stm.changeTargetScope(scope.name);
+                const child_size = scope.child.update(stm, checker);
+                self.* = scope.child.*;
+                return child_size;
+            },
             .USER_KIND => |name| {
-                const symbol = try stm.peakSymbol(name);
+                const symbol = try stm.getSymbol(name);
 
                 switch (symbol.kind) {
                     .STRUCT => {
@@ -1379,6 +1393,18 @@ pub const GenericUserKind = struct {
             so_far.ptr = buf.ptr;
             so_far.len = buf.len - buf_rem.len;
         }
+
+        return buf_rem;
+    }
+};
+
+pub const ScopeUserKind = struct {
+    name: []const u8,
+    child: *KindId,
+
+    pub fn display(self: ScopeUserKind, buf: []u8, stm: *SymbolTableManager) []u8 {
+        var buf_rem = KindId.print_to_buf(buf, "{s}@", .{self.name});
+        buf_rem = self.child._to_str(buf_rem, stm);
 
         return buf_rem;
     }
