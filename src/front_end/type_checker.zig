@@ -1150,7 +1150,6 @@ fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, 
             }
         },
         .SCOPE => |scope| {
-            std.debug.print("field scope name: {s}\n", .{scope.name});
             stm.changeTargetScope(scope.name) catch {
                 return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, "invalid type scope target", module);
             };
