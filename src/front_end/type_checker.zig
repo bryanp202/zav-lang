@@ -1174,6 +1174,7 @@ fn updateField(self: *TypeChecker, module: *Module, name: Token, kind: *KindId, 
                     const field_stm = field_symbol.kind.STRUCT.stm;
                     self.declareStructFields(field_stm.parent_module, field_symbol, field_structStmt, field_stm) catch {
                         self.panic = false;
+                        std.debug.print("stm {s}\n", .{field_stm.parent_module.path});
                         return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, name, " |", module);
                     };
 
@@ -3284,7 +3285,7 @@ fn visitGenericExpr(self: *TypeChecker, node: *ExprNode) SemanticError!KindId {
 
     const parent_module = generic_symbol.source_module;
     const parent_stm = &parent_module.stm;
-    const generic_name = try self.genericVersionName(generic_symbol.name, generic_expr.kinds, generic_expr.op);
+    const generic_name = try self.genericVersionName(self.stm, generic_symbol.name, generic_expr.kinds, generic_expr.op);
     const generic_version_symbol = parent_stm.getSymbolGlobal(generic_name) catch try self.makeGenericVersion(
         generic_expr.kinds,
         generic_symbol_kind_extracted,
@@ -3417,13 +3418,13 @@ fn makeGenericVersion(
     return gen_symbol;
 }
 
-fn genericVersionName(self: *TypeChecker, base_name: []const u8, generic_kinds: []KindId, op: Token) SemanticError![]const u8 {
+fn genericVersionName(self: *TypeChecker, stm: *STM, base_name: []const u8, generic_kinds: []KindId, op: Token) SemanticError![]const u8 {
     var buf: [2048]u8 = undefined;
 
     var buf_rem = KindId.print_to_buf(&buf, "{s}@{d}", .{ base_name, generic_kinds.len });
     for (generic_kinds) |*kind| {
-        _ = kind.update(self.stm, self) catch {
-            return self.reportError(SemanticError.UnresolvableIdentifier, op, "Unresolvable generic type");
+        _ = kind.update(stm, self) catch {
+            return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, op, "Unresolvable generic type", stm.parent_module);
         };
         buf_rem = kind._to_str(buf_rem, self.stm);
     }
@@ -3502,22 +3503,23 @@ fn makeGenericUnionVersion(self: *TypeChecker, union_node: StmtNode, generic_ver
     return symbol;
 }
 
-pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) SemanticError!usize {
+pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId, stm: *STM) SemanticError!usize {
     const generic_user_kind = generic_kind.GENERIC_USER_KIND;
-    const generic_symbol = self.stm.getSymbol(generic_user_kind.id.lexeme) catch {
-        return self.reportError(SemanticError.UnresolvableIdentifier, generic_user_kind.id, "Generic function blueprint never declared");
+    const generic_symbol = stm.getSymbol(generic_user_kind.id.lexeme) catch {
+        return self.reportErrorFrom(SemanticError.UnresolvableIdentifier, generic_user_kind.id, "Generic function blueprint never declared", stm.parent_module);
     };
     if (generic_symbol.kind != .GENERIC) {
-        return self.reportError(SemanticError.TypeMismatch, generic_user_kind.id, "Expected generic function blueprint");
+        return self.reportErrorFrom(SemanticError.TypeMismatch, generic_user_kind.id, "Expected generic function blueprint", stm.parent_module);
     }
     const generic_symbol_extracted_kind = generic_symbol.kind.GENERIC;
     const parent_module = generic_symbol.source_module;
     const parent_stm = &parent_module.stm;
     if (generic_symbol_extracted_kind.generic_names.len != generic_user_kind.generic_kinds.len) {
-        return self.reportError(SemanticError.TypeMismatch, generic_user_kind.id, "Inconsistant number of generic types");
+        return self.reportErrorFrom(SemanticError.TypeMismatch, generic_user_kind.id, "Inconsistant number of generic types", stm.parent_module);
     }
 
     const generic_name = try self.genericVersionName(
+        stm,
         generic_user_kind.id.lexeme,
         generic_user_kind.generic_kinds,
         generic_user_kind.id,
@@ -3530,7 +3532,7 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
         parent_module,
     );
     const generic_symbol_kind_extracted = generic_version_symbol.kind;
-    self.stm.importSymbol(generic_version_symbol, generic_name, generic_version_symbol.public) catch {};
+    stm.importSymbol(generic_version_symbol, generic_name, generic_version_symbol.public) catch {};
 
     generic_kind.* = generic_symbol_kind_extracted;
 
@@ -3539,10 +3541,10 @@ pub fn check_generic_user_kind(self: *TypeChecker, generic_kind: *KindId) Semant
 
 fn scope_generic_user_kind(self: *TypeChecker, generic_expr: *Expr.GenericExpr, generic_id: Token) SemanticError![]const u8 {
     const generic_symbol = self.stm.getSymbol(generic_id.lexeme) catch {
-        return self.reportError(SemanticError.UnresolvableIdentifier, generic_id, "Generic function blueprint never declared");
+        return self.reportError(SemanticError.UnresolvableIdentifier, generic_id, "Generic blueprint never declared");
     };
     if (generic_symbol.kind != .GENERIC) {
-        return self.reportError(SemanticError.TypeMismatch, generic_id, "Expected generic function blueprint");
+        return self.reportError(SemanticError.TypeMismatch, generic_id, "Expected generic blueprint");
     }
     if (generic_symbol.kind.GENERIC.generic_names.len != generic_expr.kinds.len) {
         return self.reportError(SemanticError.TypeMismatch, generic_expr.op, "Inconsistant number of generic types");
@@ -3553,6 +3555,7 @@ fn scope_generic_user_kind(self: *TypeChecker, generic_expr: *Expr.GenericExpr, 
     const parent_stm = &parent_module.stm;
 
     const generic_name = try self.genericVersionName(
+        self.stm,
         generic_id.lexeme,
         generic_expr.kinds,
         generic_id,
